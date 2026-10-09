@@ -1,7 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { connection } from "next/server";
-import { and, asc, count, desc, eq, ilike, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, schema as s, TIME_ZONE } from "@/db";
 import { requireUser, type SessionUser } from "./auth";
@@ -113,6 +113,7 @@ export async function getTodaysTasks(userId: string): Promise<Task[]> {
     title: r.title,
     detail: r.detail,
     minutes: r.plannedMinutes,
+    actualMinutes: r.actualMinutes,
     time: zurichTime.format(r.scheduledAt),
     done: r.completedAt !== null,
   }));
@@ -164,6 +165,72 @@ export async function listPlans(): Promise<Plan[]> {
 }
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+export type CustomPlan = {
+  id: string;
+  title: string;
+  createdAt: string;
+  totalSessions: number;
+  doneSessions: number;
+  subjects: string[];
+  firstDate: string | null;
+  lastDate: string | null;
+};
+
+export async function getUserCustomPlans(userId: string): Promise<CustomPlan[]> {
+  const plans = await db
+    .select({ id: s.userPlans.id, title: s.userPlans.title, createdAt: s.userPlans.createdAt })
+    .from(s.userPlans)
+    .where(eq(s.userPlans.userId, userId))
+    .orderBy(desc(s.userPlans.createdAt));
+
+  if (plans.length === 0) return [];
+
+  const planIds = plans.map((p) => p.id);
+
+  const stats = await db
+    .select({
+      userPlanId: s.sessions.userPlanId,
+      total: sql<number>`count(*)::int`,
+      done: sql<number>`count(${s.sessions.completedAt})::int`,
+      subjects: sql<string[]>`array_agg(distinct ${s.sessions.subject})`,
+      firstDate: sql<string | null>`min(${s.sessions.scheduledAt})::text`,
+      lastDate: sql<string | null>`max(${s.sessions.scheduledAt})::text`,
+    })
+    .from(s.sessions)
+    .where(and(inArray(s.sessions.userPlanId, planIds), ne(s.sessions.type, "exam")))
+    .groupBy(s.sessions.userPlanId);
+
+  const statsByPlanId = new Map(stats.map((r) => [r.userPlanId, r]));
+
+  return plans.map((p) => {
+    const st = statsByPlanId.get(p.id);
+    return {
+      id: p.id,
+      title: p.title,
+      createdAt: p.createdAt.toISOString(),
+      totalSessions: st?.total ?? 0,
+      doneSessions: st?.done ?? 0,
+      subjects: st?.subjects ?? [],
+      firstDate: st?.firstDate ?? null,
+      lastDate: st?.lastDate ?? null,
+    };
+  });
+}
+
+export type PlanEnrollment = { planId: string; currentWeek: number; active: boolean };
+
+export async function getUserEnrollments(userId: string): Promise<PlanEnrollment[]> {
+  const rows = await db
+    .select({
+      planId: s.enrollments.planId,
+      week: sql<number>`(floor((${today} - ${s.enrollments.startedOn}) / 7) + 1)::int`,
+      active: s.enrollments.active,
+    })
+    .from(s.enrollments)
+    .where(eq(s.enrollments.userId, userId));
+  return rows.map((r) => ({ planId: r.planId, currentWeek: Math.max(1, r.week), active: r.active }));
+}
 
 export async function getActivePlan(userId: string): Promise<ActivePlan | null> {
   const [enrollment] = await db
@@ -348,7 +415,7 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
   const mine = eq(s.sessions.userId, userId);
   const done = and(mine, isNotNull(s.sessions.completedAt));
 
-  const [[friends], [totals], [kudos], week, subjects, badges, streak, exams] =
+  const [[friends], [totals], [kudos], week, subjects, badges, streak, exams, plannedSubjects] =
     await Promise.all([
       db
         .select({ n: count() })
@@ -383,7 +450,7 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
         .where(done)
         .groupBy(s.sessions.subject)
         .orderBy(desc(sql`2`))
-        .limit(4),
+        .limit(6),
       db
         .select({
           emoji: s.badges.emoji,
@@ -411,12 +478,20 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
           ),
         )
         .orderBy(asc(s.sessions.scheduledAt)),
+      // Distinct subject names from any planned (not yet completed) sessions —
+      // ensures subjects appear in the profile as soon as a plan is created.
+      db
+        .selectDistinct({ name: s.sessions.subject })
+        .from(s.sessions)
+        .where(and(mine, isNull(s.sessions.completedAt))),
     ]);
 
   const hours = (minutes: number) => Math.round((minutes / 60) * 4) / 4;
   const subjectSummaries = new Map<string, Profile["subjects"][number]>();
+
+  // Subjects with completed study hours (sorted by hours desc already)
   for (const subject of subjects) {
-    const name = displaySubjectName(subject.name);
+    const { name } = subject;
     const existing = subjectSummaries.get(name);
     subjectSummaries.set(name, {
       name,
@@ -424,13 +499,19 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
       examHoursRemaining: null,
     });
   }
+
+  // Subjects from planned sessions — appear with 0 hours until the first
+  // session is completed, so new custom plans show up immediately.
+  for (const { name } of plannedSubjects) {
+    if (!subjectSummaries.has(name)) {
+      subjectSummaries.set(name, { name, hours: 0, examHoursRemaining: null });
+    }
+  }
+
+  // Attach exam countdowns (from "exam"-type sessions in the future)
   for (const exam of exams) {
-    const name = displaySubjectName(exam.name);
-    const subject = subjectSummaries.get(name) ?? {
-      name,
-      hours: 0,
-      examHoursRemaining: null,
-    };
+    const { name } = exam;
+    const subject = subjectSummaries.get(name) ?? { name, hours: 0, examHoursRemaining: null };
     subject.examHoursRemaining ??= exam.hoursRemaining;
     subjectSummaries.set(name, subject);
   }

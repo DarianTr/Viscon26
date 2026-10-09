@@ -90,6 +90,18 @@ export const friendships = pgTable(
 
 export type PlanPhase = { name: string; weeks: number };
 
+/** A custom study plan created by the user via the plan wizard. */
+export const userPlans = pgTable(
+  "user_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId)],
+);
+
 export const plans = pgTable("plans", {
   /** Readable plan slug. */
   id: text("id").primaryKey(),
@@ -126,6 +138,7 @@ export const sessions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     planId: text("plan_id").references(() => plans.id, { onDelete: "set null" }),
+    userPlanId: uuid("user_plan_id").references(() => userPlans.id, { onDelete: "set null" }),
     type: sessionType("type").notNull(),
     blocksStudy: boolean("blocks_study").notNull().default(false),
     calendarOrder: integer("calendar_order"),
@@ -150,6 +163,7 @@ export const sessions = pgTable(
   (t) => [
     index().on(t.userId, t.scheduledAt),
     index().on(t.completedAt),
+    index().on(t.userPlanId),
   ],
 );
 

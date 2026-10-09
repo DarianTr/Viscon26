@@ -112,7 +112,7 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
       <div className="grid grid-cols-3 gap-3">
         <Total label="Hours" value={profile.totals.hours} />
         <Total label="Sessions" value={profile.totals.sessions} />
-        <Total label="Kudos" value={profile.totals.kudos.toLocaleString("en-US")} />
+        <Total label="Braincells" value={profile.totals.kudos.toLocaleString("en-US")} />
       </div>
 
       <SectionTitle>Exam countdowns</SectionTitle>
@@ -142,7 +142,7 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
       <SectionTitle>Subjects</SectionTitle>
       <Card className="flex flex-col gap-4">
         {profile.subjects.length === 0 && (
-          <p className="text-sm text-muted">Finish a session to see your subjects here.</p>
+          <p className="text-sm text-muted">Create a study plan or finish a session to see your subjects here.</p>
         )}
         {profile.subjects.map((s) => (
           <div key={s.name}>

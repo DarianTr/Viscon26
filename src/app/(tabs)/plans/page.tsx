@@ -2,16 +2,19 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { CheckIcon, PlusIcon } from "@/components/icons";
 import { Card, PageHeader, SectionTitle } from "@/components/ui/primitives";
-import { getActivePlan, getCurrentUser, listPlans } from "@/lib/queries";
-import { sessionTypes, subjectColor } from "@/lib/session-types";
+import { getActivePlan, getCurrentUser, getUserCustomPlans } from "@/lib/queries";
+import { sessionTypes } from "@/lib/session-types";
 import type { ActivePlan } from "@/lib/types";
+import type { CustomPlan } from "@/lib/queries";
 
 export const metadata: Metadata = { title: "Plans" };
 
 export default async function PlansPage() {
   const user = await getCurrentUser();
-  const [activePlan, plans] = await Promise.all([getActivePlan(user.id), listPlans()]);
-  const others = plans.filter((p) => p.id !== activePlan?.plan.id);
+  const [activePlan, customPlans] = await Promise.all([
+    getActivePlan(user.id),
+    getUserCustomPlans(user.id),
+  ]);
 
   return (
     <>
@@ -29,59 +32,67 @@ export default async function PlansPage() {
         }
       />
 
-      {activePlan ? (
-        <ActivePlanOverview activePlan={activePlan} />
-      ) : (
-        <Card className="py-10 text-center text-sm text-muted">
-          You&apos;re not following a plan yet — pick one below.
-        </Card>
-      )}
+      {activePlan && <ActivePlanOverview activePlan={activePlan} />}
 
-      <SectionTitle>Session types</SectionTitle>
-      <div className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 sm:mx-0 sm:grid sm:grid-cols-2 sm:px-0">
-        {Object.entries(sessionTypes).map(([key, t]) => (
-          <Card key={key} className="w-60 shrink-0 snap-start p-4 sm:w-auto">
-            <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${t.soft}`}>{t.label}</span>
-            <p className="mt-2 text-sm text-muted">{t.blurb}</p>
-          </Card>
-        ))}
+      <SectionTitle>My plans</SectionTitle>
+      {customPlans.length === 0 ? (
+        <Card className="py-10 text-center text-sm text-muted">
+          No plans yet — create one with the Custom button above.
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {customPlans.map((plan) => (
+            <CustomPlanCard key={plan.id} plan={plan} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function CustomPlanCard({ plan }: { plan: CustomPlan }) {
+  const progress = plan.totalSessions > 0 ? plan.doneSessions / plan.totalSessions : 0;
+  const progressPct = Math.round(progress * 100);
+
+  const fmt = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+  return (
+    <Card className="p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold">{plan.title}</p>
+          {plan.subjects.length > 0 && (
+            <p className="mt-0.5 text-xs text-muted">{plan.subjects.join(" · ")}</p>
+          )}
+        </div>
+        <span className="shrink-0 text-xs font-semibold tabular-nums text-muted">
+          {progressPct}%
+        </span>
       </div>
 
-      <SectionTitle>Find a plan</SectionTitle>
-      <ul className="grid gap-3 sm:grid-cols-2">
-        {others.map((p) => (
-          <li key={p.id}>
-            <Card className="h-full overflow-hidden p-0">
-              <div className={`h-20 bg-gradient-to-br ${p.gradient} p-4`}>
-                <span className="rounded-full bg-black/20 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
-                  {p.level}
-                </span>
-              </div>
-              <div className="p-4">
-                <p className={`text-xs font-medium ${subjectColor(p.subject).text}`}>{p.subject}</p>
-                <h3 className="mt-0.5 font-semibold">{p.title}</h3>
-                <p className="mt-1 text-sm text-muted">{p.goal}</p>
-                <div className="mt-3 flex items-center justify-between text-xs text-muted">
-                  <span>
-                    {p.weeks} weeks · {p.hoursPerWeek} h/week
-                  </span>
-                  <span>
-                    {p.enrolled.toLocaleString("en-US")} {p.enrolled === 1 ? "student" : "students"}
-                  </span>
-                </div>
-              </div>
-            </Card>
-          </li>
-        ))}
-      </ul>
-    </>
+      {plan.totalSessions > 0 && (
+        <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
+          <div
+            className="h-full rounded-full bg-foreground transition-all"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
+        <span>{plan.doneSessions} / {plan.totalSessions} sessions done</span>
+        {plan.firstDate && plan.lastDate && (
+          <span>{fmt(plan.firstDate)} → {fmt(plan.lastDate)}</span>
+        )}
+      </div>
+    </Card>
   );
 }
 
 function ActivePlanOverview({ activePlan }: { activePlan: ActivePlan }) {
   const { plan } = activePlan;
 
-  // Work out which phase the current week falls into.
   const phases = plan.phases.map((phase, i) => {
     const start = plan.phases.slice(0, i).reduce((sum, p) => sum + p.weeks, 0);
     const week = activePlan.currentWeek;
