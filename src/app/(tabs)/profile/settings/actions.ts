@@ -87,7 +87,7 @@ export async function deleteAccount(_prev: SettingsState, form: FormData): Promi
   }
 
   await deleteSession();
-  // Cascades to sessions, kudos, follows, enrollments, …
+  // Cascades to sessions, kudos, friendships, enrollments, …
   await db.delete(s.users).where(eq(s.users.id, user.id));
   redirect("/signup");
 }

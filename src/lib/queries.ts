@@ -2,7 +2,6 @@ import "server-only";
 import { cache } from "react";
 import { connection } from "next/server";
 import { and, asc, count, desc, eq, ilike, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 import { db, schema as s, TIME_ZONE } from "@/db";
 import { requireUser, type SessionUser } from "./auth";
 import { initials } from "./session-types";
@@ -11,6 +10,7 @@ import type {
   Activity,
   CalendarEvent,
   Comment,
+  FriendStatus,
   LeaderboardEntry,
   Plan,
   Person,
@@ -33,6 +33,32 @@ const today = sql`(now() at time zone ${tz})::date`;
 const weekStart = sql`(date_trunc('week', now() at time zone ${tz}) at time zone ${tz})`;
 
 const studyTypes: SessionType[] = ["deep", "intervals", "tempo", "recovery"];
+
+const f = s.friendships;
+
+/** Subquery: ids of the user's friends (accepted requests, either direction). */
+function friendIds(userId: string) {
+  return sql`(select case when ${f.requesterId} = ${userId} then ${f.addresseeId} else ${f.requesterId} end
+    from ${f} where ${f.acceptedAt} is not null and ${userId} in (${f.requesterId}, ${f.addresseeId}))`;
+}
+
+/** Where `otherId` stands with `userId`: friends, a pending request either way, or nothing. */
+function friendStatus(userId: string, otherId: unknown) {
+  return sql<FriendStatus>`coalesce((
+    select case when ${f.acceptedAt} is not null then 'friends'
+      when ${f.requesterId} = ${userId} then 'sent' else 'received' end
+    from ${f}
+    where (${f.requesterId} = ${userId} and ${f.addresseeId} = ${otherId})
+      or (${f.requesterId} = ${otherId} and ${f.addresseeId} = ${userId})
+  ), 'none')`;
+}
+
+export async function getFriendStatus(userId: string, otherId: string): Promise<FriendStatus> {
+  const [{ status }] = await db.execute<{ status: FriendStatus }>(
+    sql`select ${friendStatus(userId, otherId)} as status`,
+  );
+  return status;
+}
 
 function displaySubjectName(name: string) {
   if (name === "Physics") return "EProg";
@@ -206,18 +232,13 @@ function timeAgo(date: Date) {
 }
 
 /**
- * Completed, shared sessions by the user and everyone they follow. With
- * `mineOnly`, just the user's own — private ones included, for their profile.
+ * Completed, shared sessions by the user and their friends. With `mineOnly`,
+ * just the user's own — private ones included.
  */
 export async function getFeed(
   userId: string,
   { limit = 20, mineOnly = false }: { limit?: number; mineOnly?: boolean } = {},
 ): Promise<Activity[]> {
-  const following = db
-    .select({ id: s.follows.followeeId })
-    .from(s.follows)
-    .where(eq(s.follows.followerId, userId));
-
   const rows = await db
     .select({
       session: s.sessions,
@@ -235,7 +256,7 @@ export async function getFeed(
           ? eq(s.sessions.userId, userId)
           : and(
               eq(s.sessions.shared, true),
-              or(eq(s.sessions.userId, userId), inArray(s.sessions.userId, following)),
+              or(eq(s.sessions.userId, userId), sql`${s.sessions.userId} in ${friendIds(userId)}`),
             ),
       ),
     )
@@ -262,13 +283,8 @@ export async function getFeed(
   }));
 }
 
-/** Study hours this week for the user and everyone they follow. */
+/** Study hours this week for the user and their friends. */
 export async function getLeaderboard(userId: string): Promise<LeaderboardEntry[]> {
-  const following = db
-    .select({ id: s.follows.followeeId })
-    .from(s.follows)
-    .where(eq(s.follows.followerId, userId));
-
   const rows = await db
     .select({
       id: s.users.id,
@@ -281,7 +297,7 @@ export async function getLeaderboard(userId: string): Promise<LeaderboardEntry[]
       s.sessions,
       and(eq(s.sessions.userId, s.users.id), sql`${s.sessions.completedAt} >= ${weekStart}`),
     )
-    .where(or(eq(s.users.id, userId), inArray(s.users.id, following)))
+    .where(or(eq(s.users.id, userId), sql`${s.users.id} in ${friendIds(userId)}`))
     .groupBy(s.users.id)
     .orderBy(desc(sql`4`));
 
@@ -299,22 +315,13 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
   const userId = user.id;
   const mine = eq(s.sessions.userId, userId);
   const done = and(mine, isNotNull(s.sessions.completedAt));
-  const outgoingFollows = alias(s.follows, "outgoing_follows");
-  const incomingFollows = alias(s.follows, "incoming_follows");
 
   const [[friends], [totals], [kudos], week, subjects, badges, streak, exams] =
     await Promise.all([
       db
         .select({ n: count() })
-        .from(outgoingFollows)
-        .innerJoin(
-          incomingFollows,
-          and(
-            eq(outgoingFollows.followeeId, incomingFollows.followerId),
-            eq(outgoingFollows.followerId, incomingFollows.followeeId),
-          ),
-        )
-        .where(eq(outgoingFollows.followerId, userId)),
+        .from(f)
+        .where(and(isNotNull(f.acceptedAt), or(eq(f.requesterId, userId), eq(f.addresseeId, userId)))),
       db
         .select({
           minutes: sql<number>`coalesce(sum(${s.sessions.actualMinutes}), 0)::int`,
@@ -415,12 +422,13 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
 
 /**
  * Friend search: other users whose name or handle matches `q`. Without a
- * query, the people the user already follows.
+ * query, everyone the user is connected to — incoming requests, friends, and
+ * requests they've sent, in that order.
  */
-export async function searchPeople(userId: string, q?: string, limit = 20): Promise<Person[]> {
-  const following = sql<boolean>`exists (select 1 from ${s.follows} where ${s.follows.followerId} = ${userId} and ${s.follows.followeeId} = ${s.users.id})`;
-  const followsYou = sql<boolean>`exists (select 1 from ${s.follows} where ${s.follows.followerId} = ${s.users.id} and ${s.follows.followeeId} = ${userId})`;
+export async function searchPeople(userId: string, q?: string, limit = q ? 20 : 200): Promise<Person[]> {
+  const status = friendStatus(userId, s.users.id);
   const pattern = q && `%${q.replace(/[%_\\]/g, "\\$&")}%`;
+  const rank = sql`case ${status} when 'received' then 0 when 'friends' then 1 when 'sent' then 2 else 3 end`;
 
   const rows = await db
     .select({
@@ -429,33 +437,27 @@ export async function searchPeople(userId: string, q?: string, limit = 20): Prom
       handle: s.users.handle,
       program: s.users.program,
       hue: s.users.hue,
-      following,
-      followsYou,
+      status,
     })
     .from(s.users)
     .where(
       and(
         ne(s.users.id, userId),
-        pattern ? or(ilike(s.users.name, pattern), ilike(s.users.handle, pattern)) : following,
+        pattern ? or(ilike(s.users.name, pattern), ilike(s.users.handle, pattern)) : sql`${status} <> 'none'`,
       ),
     )
-    // Friends first, then exact handle matches, then alphabetical.
-    .orderBy(desc(following), desc(sql`${s.users.handle} = ${q?.toLowerCase() ?? ""}`), asc(s.users.name))
+    // Connections first, then exact handle matches, then alphabetical.
+    .orderBy(asc(rank), desc(sql`${s.users.handle} = ${q?.toLowerCase() ?? ""}`), asc(s.users.name))
     .limit(limit);
 
   return rows.map((r) => ({ ...r, initials: initials(r.name) }));
 }
 
 /**
- * A completed activity the user can see — their own, or a shared one by
- * someone they follow, i.e. what `getFeed` shows. Gates comments.
+ * A completed activity the user can see — their own, or a shared one by a
+ * friend, i.e. what `getFeed` shows. Gates kudos and comments.
  */
 export async function getVisibleActivity(userId: string, sessionId: string) {
-  const following = db
-    .select({ id: s.follows.followeeId })
-    .from(s.follows)
-    .where(eq(s.follows.followerId, userId));
-
   const [row] = await db
     .select({ id: s.sessions.id, ownerId: s.sessions.userId })
     .from(s.sessions)
@@ -465,7 +467,7 @@ export async function getVisibleActivity(userId: string, sessionId: string) {
         isNotNull(s.sessions.completedAt),
         or(
           eq(s.sessions.userId, userId),
-          and(eq(s.sessions.shared, true), inArray(s.sessions.userId, following)),
+          and(eq(s.sessions.shared, true), sql`${s.sessions.userId} in ${friendIds(userId)}`),
         ),
       ),
     );

@@ -91,12 +91,17 @@ export type Comment = {
   canDelete: boolean;
 };
 
-/** Someone in friend search: whether you follow them, and whether they follow you. */
+/**
+ * Where someone stands with you: friends, a request you sent, a request they
+ * sent you, or nothing yet.
+ */
+export type FriendStatus = "friends" | "sent" | "received" | "none";
+
+/** Someone in friend search. */
 export type Person = UserSummary & {
   handle: string;
   program: string | null;
-  following: boolean;
-  followsYou: boolean;
+  status: FriendStatus;
 };
 
 export type LeaderboardEntry = UserSummary & { hours: number; you: boolean };

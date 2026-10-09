@@ -152,7 +152,7 @@ async function main() {
   await db.execute(sql`
     truncate table
       comments, kudos, sessions, enrollments,
-      user_badges, badges, follows, plans, auth_sessions, users, items
+      user_badges, badges, friendships, plans, auth_sessions, users, items
     restart identity cascade
   `);
 
@@ -177,12 +177,16 @@ async function main() {
   const friends = [lena, jonas, aisha, marco];
   const everyone = [me, ...friends, ...classmates];
 
-  await db.insert(s.follows).values([
-    ...friends.map((f) => ({ followerId: me.id, followeeId: f.id })),
-    ...[...friends, ...classmates.slice(0, 14)].map((f) => ({ followerId: f.id, followeeId: me.id })),
-    ...friends.flatMap((a) =>
-      friends.filter((b) => b !== a).map((b) => ({ followerId: a.id, followeeId: b.id })),
+  // The four friends know each other and the demo user; a few classmates have
+  // sent the demo user requests, and the demo user has sent one.
+  const accepted = new Date();
+  await db.insert(s.friendships).values([
+    ...friends.map((f) => ({ requesterId: f.id, addresseeId: me.id, acceptedAt: accepted })),
+    ...friends.flatMap((a, i) =>
+      friends.slice(i + 1).map((b) => ({ requesterId: a.id, addresseeId: b.id, acceptedAt: accepted })),
     ),
+    ...classmates.slice(0, 3).map((c) => ({ requesterId: c.id, addresseeId: me.id })),
+    { requesterId: me.id, addresseeId: classmates[3].id },
   ]);
 
   // --- Plans --------------------------------------------------------------

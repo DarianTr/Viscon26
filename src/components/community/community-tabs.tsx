@@ -6,23 +6,27 @@ import type { Activity, LeaderboardEntry, Person } from "@/lib/types";
 import { ActivityCard } from "./activity-card";
 import { FriendSearch } from "./friend-search";
 
-const segments = ["Feed", "Leaderboard", "Friends"] as const;
+const segments = ["Feed", "You", "Leaderboard", "Friends"] as const;
 const medals = ["🥇", "🥈", "🥉"];
 
 export function CommunityTabs({
   feed,
+  mine,
   leaderboard,
   friends,
 }: {
   feed: Activity[];
+  /** The user's own activities, private ones included. */
+  mine: Activity[];
   leaderboard: LeaderboardEntry[];
   friends: Person[];
 }) {
   const [segment, setSegment] = useState<(typeof segments)[number]>("Feed");
+  const requests = friends.filter((p) => p.status === "received").length;
   return (
     <>
       <div className="sticky top-0 z-10 -mx-4 bg-background/85 px-4 pt-1 pb-3 backdrop-blur-xl sm:mx-0 sm:px-0">
-        <div className="grid grid-cols-3 rounded-full bg-surface-2 p-1">
+        <div className="grid grid-cols-4 rounded-full bg-surface-2 p-1">
           {segments.map((s) => (
             <button
               key={s}
@@ -32,25 +36,28 @@ export function CommunityTabs({
               }`}
             >
               {s}
+              {s === "Friends" && requests > 0 && (
+                <span
+                  aria-label={`${requests} friend requests`}
+                  className="ml-1.5 inline-grid min-w-5 place-items-center rounded-full bg-accent px-1 text-[11px] leading-5 text-white"
+                >
+                  {requests}
+                </span>
+              )}
             </button>
           ))}
         </div>
       </div>
 
-      {segment === "Feed" && feed.length === 0 && (
-        <Card className="py-10 text-center text-sm text-muted">
-          Nothing here yet — find classmates under Friends to see their sessions.
-        </Card>
+      {segment === "Feed" && (
+        <ActivityList
+          activities={feed}
+          empty="Nothing here yet — add classmates under Friends to see their sessions."
+        />
       )}
 
-      {segment === "Feed" && (
-        <ul className="flex flex-col gap-4">
-          {feed.map((activity) => (
-            <li key={activity.id}>
-              <ActivityCard activity={activity} />
-            </li>
-          ))}
-        </ul>
+      {segment === "You" && (
+        <ActivityList activities={mine} empty="Finish a session and it shows up here." />
       )}
 
       {segment === "Leaderboard" && (
@@ -80,7 +87,21 @@ export function CommunityTabs({
       )}
 
       {segment === "Friends" && <FriendSearch friends={friends} />}
-
     </>
+  );
+}
+
+function ActivityList({ activities, empty }: { activities: Activity[]; empty: string }) {
+  if (activities.length === 0) {
+    return <Card className="py-10 text-center text-sm text-muted">{empty}</Card>;
+  }
+  return (
+    <ul className="flex flex-col gap-4">
+      {activities.map((activity) => (
+        <li key={activity.id}>
+          <ActivityCard activity={activity} />
+        </li>
+      ))}
+    </ul>
   );
 }

@@ -1,24 +1,19 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { db, schema as s } from "@/db";
 import type { SessionUser } from "./auth";
-import { toComment } from "./queries";
-import type { Comment } from "./types";
+import { getFriendStatus, toComment } from "./queries";
+import type { Comment, FriendStatus } from "./types";
 
 /*
- * Social actions (kudos, follows, comments), called from the route handlers in `src/app/api`.
+ * Social actions (kudos, friends, comments), called from the route handlers in `src/app/api`.
  * Plain CRUD lives in `./users.ts` and `./tasks.ts`.
  * Each function returns false when the target doesn't exist, which the
  * handlers turn into a 404.
  */
 
-export async function setKudos(userId: string, sessionId: string, on: boolean): Promise<boolean> {
-  const session = await db.query.sessions.findFirst({
-    where: eq(s.sessions.id, sessionId),
-    columns: { id: true },
-  });
-  if (!session) return false;
-
+/** Callers check first that the user can see the activity (`getVisibleActivity`). */
+export async function setKudos(userId: string, sessionId: string, on: boolean): Promise<void> {
   if (on) {
     await db.insert(s.kudos).values({ sessionId, userId }).onConflictDoNothing();
   } else {
@@ -26,24 +21,42 @@ export async function setKudos(userId: string, sessionId: string, on: boolean): 
       .delete(s.kudos)
       .where(and(eq(s.kudos.sessionId, sessionId), eq(s.kudos.userId, userId)));
   }
-  return true;
 }
 
-export async function setFollow(userId: string, followeeId: string, on: boolean): Promise<boolean> {
-  const followee = await db.query.users.findFirst({
-    where: eq(s.users.id, followeeId),
+/**
+ * `on`: accept their pending request, or else send one. Off: cancel, decline
+ * or unfriend — whatever row there is between the two goes. Returns the new
+ * status, or null if there's no such user.
+ */
+export async function setFriend(userId: string, otherId: string, on: boolean): Promise<FriendStatus | null> {
+  const other = await db.query.users.findFirst({
+    where: eq(s.users.id, otherId),
     columns: { id: true },
   });
-  if (!followee) return false;
+  if (!other) return null;
 
+  const f = s.friendships;
   if (on) {
-    await db.insert(s.follows).values({ followerId: userId, followeeId }).onConflictDoNothing();
+    const accepted = await db
+      .update(f)
+      .set({ acceptedAt: new Date() })
+      .where(and(eq(f.requesterId, otherId), eq(f.addresseeId, userId), isNull(f.acceptedAt)))
+      .returning({ id: f.requesterId });
+    if (accepted.length === 0) {
+      // Conflicts if there's already a row for the pair; then it stays as is.
+      await db.insert(f).values({ requesterId: userId, addresseeId: otherId }).onConflictDoNothing();
+    }
   } else {
     await db
-      .delete(s.follows)
-      .where(and(eq(s.follows.followerId, userId), eq(s.follows.followeeId, followeeId)));
+      .delete(f)
+      .where(
+        or(
+          and(eq(f.requesterId, userId), eq(f.addresseeId, otherId)),
+          and(eq(f.requesterId, otherId), eq(f.addresseeId, userId)),
+        ),
+      );
   }
-  return true;
+  return getFriendStatus(userId, otherId);
 }
 
 /** Callers check first that `user` can see the activity (`getVisibleActivity`). */

@@ -1,4 +1,4 @@
-import type { Comment, Item, Person, TaskRecord } from "./types";
+import type { Comment, FriendStatus, Item, Person, TaskRecord } from "./types";
 
 /**
  * Thin client for the backend in `src/app/api`. Relative URLs keep it working
@@ -58,10 +58,13 @@ export const api = {
   deleteComment: (taskId: string, commentId: string) =>
     request<void>(`/tasks/${taskId}/comments/${commentId}`, { method: "DELETE" }),
 
-  /** Find people by name or handle; without a query, the people you follow. */
+  /** Find people by name or handle; without a query, your friends and pending requests. */
   searchPeople: (q: string, init?: RequestInit) =>
     request<{ people: Person[] }>(`/people?${new URLSearchParams({ q })}`, init).then((r) => r.people),
 
-  setFollow: (userId: string, on: boolean) =>
-    request<void>(`/users/${userId}/follow`, { method: on ? "PUT" : "DELETE" }),
+  /** On: send a friend request, or accept theirs. Off: cancel, decline or unfriend. */
+  setFriend: (userId: string, on: boolean) =>
+    request<{ status: FriendStatus }>(`/users/${userId}/friend`, { method: on ? "PUT" : "DELETE" }).then(
+      (r) => r.status,
+    ),
 };

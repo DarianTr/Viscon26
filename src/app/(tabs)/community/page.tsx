@@ -7,8 +7,9 @@ export const metadata: Metadata = { title: "Community" };
 
 export default async function CommunityPage() {
   const user = await getCurrentUser();
-  const [feed, leaderboard, friends] = await Promise.all([
+  const [feed, mine, leaderboard, friends] = await Promise.all([
     getFeed(user.id),
+    getFeed(user.id, { mineOnly: true, limit: 50 }),
     getLeaderboard(user.id),
     searchPeople(user.id),
   ]);
@@ -16,7 +17,7 @@ export default async function CommunityPage() {
   return (
     <>
       <PageHeader eyebrow="Friends" title="Community" />
-      <CommunityTabs feed={feed} leaderboard={leaderboard} friends={friends} />
+      <CommunityTabs feed={feed} mine={mine} leaderboard={leaderboard} friends={friends} />
     </>
   );
 }

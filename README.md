@@ -113,7 +113,7 @@ src/
       page.tsx            /           Today's tasks + focus timer
       plans/page.tsx      /plans      active training plan, plan catalogue
       calendar/page.tsx   /calendar   month view + day agenda
-      community/page.tsx  /community  activity feed (kudos, comments), leaderboard, friend search
+      community/page.tsx  /community  feed, your activities, leaderboard, friends and requests
       profile/page.tsx    /profile    stats, subjects, achievements, your posts
       profile/settings/   /profile/settings  edit profile, change password, delete account
     (auth)/               /login, /signup and their server actions (+ logout)
@@ -125,7 +125,7 @@ src/
       health/route.ts     GET  /api/health
       items/route.ts      GET, POST  /api/items
       items/[id]/route.ts GET, PATCH, DELETE  /api/items/:id
-      users/              CRUD  /api/users, /api/users/:id (+ /follow)
+      users/              CRUD  /api/users, /api/users/:id (+ /friend)
       tasks/              CRUD  /api/tasks, /api/tasks/:id (+ /kudos, /comments)
       people/route.ts     GET  /api/people  friend search
   db/
@@ -145,7 +145,7 @@ src/
     admin.ts              generic table access for /admin
     queries.ts            reads for the pages (server-only)
     users.ts, tasks.ts    CRUD data layer for /api/users and /api/tasks
-    mutations.ts          kudos, follows, comments (server-only)
+    mutations.ts          kudos, friends, comments (server-only)
     session-types.ts      session type labels/colours, formatting helpers
     store.ts              data layer for /api/items
     http.ts               shared error handling for route handlers
@@ -167,12 +167,18 @@ src/
 | GET    | `/api/tasks/:id/comments` | –                | `{ comments: [] }` |
 | POST   | `/api/tasks/:id/comments` | `{ body }`       | `201 { comment }` |
 | DELETE | `/api/tasks/:id/comments/:commentId` | –     | `204`             |
-| GET    | `/api/people?q=` | – (no `q`: who you follow) | `{ people: [] }`  |
-| PUT / DELETE | `/api/users/:id/follow` | –            | `204`             |
+| GET    | `/api/people?q=` | – (no `q`: friends and pending requests) | `{ people: [] }`  |
+| PUT / DELETE | `/api/users/:id/friend` | –            | `{ status }`      |
 
-Comments work on activities you can see in your feed: your own, or shared
-ones by people you follow. You can delete your own comments and any comment
-on your own activities.
+Friendships are mutual: `PUT /api/users/:id/friend` sends a request (or
+accepts theirs, if they asked first) and the other person has to accept before
+you're friends. `DELETE` cancels, declines or unfriends. Each person in
+`/api/people` has a `status`: `none`, `sent`, `received` or `friends`.
+
+Only friends see each other's shared activities and leaderboard hours. Kudos
+and comments work on activities you can see in your feed: your own, or shared
+ones by friends. You can delete your own comments and any comment on your own
+activities.
 
 ### Users and tasks
 
@@ -185,7 +191,7 @@ session, lecture or exam. It counts as done once `completedAt` is set.
 | POST   | `/api/users`      | `{ handle, name, hue?, program?, weeklyGoalHours? }`            | `201 { user }`  |
 | GET    | `/api/users/:id`  | –                                                               | `{ user }`      |
 | PATCH  | `/api/users/:id`  | any of the POST fields                                          | `{ user }`      |
-| DELETE | `/api/users/:id`  | – (also deletes their tasks, kudos, follows)                    | `204`           |
+| DELETE | `/api/users/:id`  | – (also deletes their tasks, kudos, friendships)                    | `204`           |
 | GET    | `/api/tasks`      | `?userId=&type=&done=&from=&to=&limit=&offset=`                 | `{ tasks: [] }` |
 | POST   | `/api/tasks`      | `{ type, subject, title, scheduledAt, plannedMinutes, userId?, planId?, detail?, location?, note?, shared? }` | `201 { task }` |
 | GET    | `/api/tasks/:id`  | –                                                               | `{ task }`      |

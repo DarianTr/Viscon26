@@ -1,5 +1,7 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   date,
   index,
   integer,
@@ -10,6 +12,7 @@ import {
   real,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -59,14 +62,29 @@ export const authSessions = pgTable(
   (t) => [index().on(t.userId)],
 );
 
-export const follows = pgTable(
-  "follows",
+/**
+ * One row per pair of users. Pending until the addressee accepts the request;
+ * declining, cancelling or unfriending deletes the row.
+ */
+export const friendships = pgTable(
+  "friendships",
   {
-    followerId: uuid("follower_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-    followeeId: uuid("followee_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    requesterId: uuid("requester_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    addresseeId: uuid("addressee_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     createdAt: createdAt(),
+    /** Null while the request is pending. */
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
   },
-  (t) => [primaryKey({ columns: [t.followerId, t.followeeId] }), index().on(t.followeeId)],
+  (t) => [
+    primaryKey({ columns: [t.requesterId, t.addresseeId] }),
+    index().on(t.addresseeId),
+    // At most one row per pair, whichever way round the request went.
+    uniqueIndex("friendships_pair_index").on(
+      sql`least(${t.requesterId}, ${t.addresseeId})`,
+      sql`greatest(${t.requesterId}, ${t.addresseeId})`,
+    ),
+    check("friendships_not_self", sql`${t.requesterId} <> ${t.addresseeId}`),
+  ],
 );
 
 export type PlanPhase = { name: string; weeks: number };

@@ -47,7 +47,7 @@ export async function updateUser(id: string, patch: UserPatch): Promise<User | u
   return row && toUser(row);
 }
 
-/** Also deletes everything the user owns (tasks, kudos, follows, …). */
+/** Also deletes everything the user owns (tasks, kudos, friendships, …). */
 export async function deleteUser(id: string): Promise<boolean> {
   const rows = await db.delete(s.users).where(eq(s.users.id, id)).returning({ id: s.users.id });
   return rows.length > 0;

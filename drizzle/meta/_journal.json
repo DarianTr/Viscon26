@@ -29,6 +29,20 @@
       "when": 1791575384369,
       "tag": "0003_spirit_animal",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791575754173,
+      "tag": "0004_friendships",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791575761253,
+      "tag": "0005_drop_follows",
+      "breakpoints": true
     }
   ]
 }

@@ -166,7 +166,7 @@ function DeleteForm() {
           className="flex flex-col gap-3"
         >
           <p className="text-sm text-muted">
-            Deletes your account, sessions, kudos and follows for good.
+            Deletes your account, sessions, kudos and friends for good.
           </p>
           <input
             name="password"
