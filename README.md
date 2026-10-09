@@ -17,16 +17,28 @@ Other scripts: `npm run build`, `npm start`, `npm run lint`.
 ```
 src/
   app/
-    page.tsx              frontend — landing page
-    layout.tsx            root layout (fonts, metadata)
-    globals.css           Tailwind entry + theme tokens
+    (tabs)/               the five app tabs, sharing one shell
+      layout.tsx          sidebar (desktop) + bottom tab bar (mobile)
+      page.tsx            /           Today's tasks + focus timer
+      plans/page.tsx      /plans      active training plan, plan catalogue
+      calendar/page.tsx   /calendar   month view + day agenda
+      community/page.tsx  /community  activity feed, leaderboard, clubs
+      profile/page.tsx    /profile    stats, subjects, achievements
+    layout.tsx            root layout (fonts, metadata, viewport)
+    manifest.ts           web app manifest (installable on phones)
+    globals.css           Tailwind entry + theme tokens (light/dark)
     api/
       health/route.ts     GET  /api/health
       items/route.ts      GET, POST  /api/items
       items/[id]/route.ts GET, PATCH, DELETE  /api/items/:id
   components/
-    items-panel.tsx       client component, talks to the API
+    tab-bar.tsx           tab navigation (bottom bar + sidebar)
+    icons.tsx             inline SVG icon set
+    ui/primitives.tsx     Card, Avatar, Ring, headers
+    today/, community/, calendar-view.tsx   interactive tab pieces
+    items-panel.tsx       example client component for the items API
   lib/
+    study-data.ts         mock data for the tabs — replace with API calls
     store.ts              data layer (in-memory — swap for a real DB)
     http.ts               shared error handling for route handlers
     api-client.ts         typed fetch wrapper used by the frontend

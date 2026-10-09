@@ -1,26 +1,70 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  --background: #f6f6f4;
+  --surface: #ffffff;
+  --surface-2: #efefec;
+  --foreground: #16161a;
+  --muted: #6b6b73;
+  --border: rgb(22 22 26 / 0.08);
+  --accent: #fc4c02;
+  --accent-soft: rgb(252 76 2 / 0.1);
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Session types — the study equivalent of run types. */
+  --deep: #5b5bf6;
+  --intervals: #fc4c02;
+  --tempo: #e11d74;
+  --recovery: #10a37f;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0c0c0e;
+    --surface: #17171a;
+    --surface-2: #222226;
+    --foreground: #f2f2f3;
+    --muted: #9a9aa3;
+    --border: rgb(255 255 255 / 0.08);
+    --accent: #ff5c1a;
+    --accent-soft: rgb(255 92 26 / 0.14);
+    --deep: #8080ff;
+    --tempo: #ff4d9a;
+    --recovery: #2ed3a3;
   }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-deep: var(--deep);
+  --color-intervals: var(--intervals);
+  --color-tempo: var(--tempo);
+  --color-recovery: var(--recovery);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Room for the fixed mobile tab bar plus the home indicator on iOS. */
+.pb-tabbar {
+  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
