@@ -23,7 +23,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
   });
 }
 
-// DELETE /api/users/:id — also deletes the user's tasks, kudos and follows.
+// DELETE /api/users/:id — also deletes the user's tasks, kudos and friendships.
 export async function DELETE(_request: Request, ctx: Ctx) {
   return handle(async () => {
     const { id } = await ctx.params;

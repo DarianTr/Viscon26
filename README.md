@@ -117,8 +117,9 @@ src/
       page.tsx            /           Today's tasks + focus timer
       plans/page.tsx      /plans      active training plan, plan catalogue
       calendar/page.tsx   /calendar   month view + day agenda
-      community/page.tsx  /community  activity feed, leaderboard, clubs
-      profile/page.tsx    /profile    stats, subjects, achievements
+      community/page.tsx  /community  feed, your activities, leaderboard, friends and requests
+      profile/page.tsx    /profile    stats, subjects, achievements, your posts
+      profile/settings/   /profile/settings  edit profile, change password, delete account
     (auth)/               /login, /signup and their server actions (+ logout)
     admin/                /admin: table browser, row editor, SQL console
     layout.tsx            root layout (fonts, metadata, viewport)
@@ -128,9 +129,9 @@ src/
       health/route.ts     GET  /api/health
       items/route.ts      GET, POST  /api/items
       items/[id]/route.ts GET, PATCH, DELETE  /api/items/:id
-      users/              CRUD  /api/users, /api/users/:id
-      tasks/              CRUD  /api/tasks, /api/tasks/:id (+ /kudos)
-      clubs/[id]/membership  PUT/DELETE (join/leave)
+      users/              CRUD  /api/users, /api/users/:id (+ /friend)
+      tasks/              CRUD  /api/tasks, /api/tasks/:id (+ /kudos, /comments)
+      people/route.ts     GET  /api/people  friend search
   db/
     schema.ts             tables (Drizzle) — source of truth for migrations
     index.ts              database client
@@ -148,7 +149,7 @@ src/
     admin.ts              generic table access for /admin
     queries.ts            reads for the pages (server-only)
     users.ts, tasks.ts    CRUD data layer for /api/users and /api/tasks
-    mutations.ts          kudos and club membership (server-only)
+    mutations.ts          kudos, friends, comments (server-only)
     session-types.ts      session type labels/colours, formatting helpers
     store.ts              data layer for /api/items
     http.ts               shared error handling for route handlers
@@ -167,7 +168,30 @@ src/
 | PATCH  | `/api/items/:id` | `{ title?, done? }`       | `{ item }`        |
 | DELETE | `/api/items/:id` | –                         | `204`             |
 | PUT / DELETE | `/api/tasks/:id/kudos` | –             | `204`             |
-| PUT / DELETE | `/api/clubs/:id/membership` | –        | `204`             |
+| GET    | `/api/tasks/:id/comments` | –                | `{ comments: [] }` |
+| POST   | `/api/tasks/:id/comments` | `{ body }`       | `201 { comment }` |
+| DELETE | `/api/tasks/:id/comments/:commentId` | –     | `204`             |
+| POST   | `/api/tasks/:id/photos` | multipart `photo`  | `201 { photo }`   |
+| DELETE | `/api/tasks/:id/photos/:photoId` | –         | `204`             |
+| GET    | `/api/photos/:id` | –                        | the image         |
+| PUT    | `/api/tasks/:id/tags` | `{ userIds }`        | `204`             |
+| GET    | `/api/people?q=` | – (no `q`: friends and pending requests) | `{ people: [] }`  |
+| PUT / DELETE | `/api/users/:id/friend` | –            | `{ status }`      |
+
+Friendships are mutual: `PUT /api/users/:id/friend` sends a request (or
+accepts theirs, if they asked first) and the other person has to accept before
+you're friends. `DELETE` cancels, declines or unfriends. Each person in
+`/api/people` has a `status`: `none`, `sent`, `received` or `friends`.
+
+Only friends see each other's shared activities and leaderboard hours. Kudos
+and comments work on activities you can see in your feed: your own, or shared
+ones by friends. You can delete your own comments and any comment on your own
+activities.
+
+On your own completed sessions you can add up to 4 photos (JPEG, PNG or WebP,
+at most 5 MB each; the app shrinks them before uploading) and tag up to 10
+friends you studied with. Photos are stored in Postgres and served only to
+people who can see the activity.
 
 ### Users and tasks
 
@@ -180,7 +204,7 @@ session, lecture or exam. It counts as done once `completedAt` is set.
 | POST   | `/api/users`      | `{ handle, name, hue?, program?, weeklyGoalHours? }`            | `201 { user }`  |
 | GET    | `/api/users/:id`  | –                                                               | `{ user }`      |
 | PATCH  | `/api/users/:id`  | any of the POST fields                                          | `{ user }`      |
-| DELETE | `/api/users/:id`  | – (also deletes their tasks, kudos, follows)                    | `204`           |
+| DELETE | `/api/users/:id`  | – (also deletes their tasks, kudos, friendships)                    | `204`           |
 | GET    | `/api/tasks`      | `?userId=&type=&done=&from=&to=&limit=&offset=`                 | `{ tasks: [] }` |
 | POST   | `/api/tasks`      | `{ type, subject, title, scheduledAt, plannedMinutes, userId?, planId?, detail?, location?, note?, shared? }` | `201 { task }` |
 | GET    | `/api/tasks/:id`  | –                                                               | `{ task }`      |
@@ -202,7 +226,7 @@ Application → Cookies):
 S='session=<value>'
 curl -b $S 'localhost:3000/api/users?q=lena'
 curl -b $S -X POST localhost:3000/api/tasks -H 'content-type: application/json' \
-  -d '{"type":"deep","subject":"Analysis II","title":"Long block","scheduledAt":"2026-10-12T09:00:00+02:00","plannedMinutes":90}'
+  -d '{"type":"deep","subject":"DiskMath","title":"Long block","scheduledAt":"2026-10-12T09:00:00+02:00","plannedMinutes":90}'
 curl -b $S -X PATCH localhost:3000/api/tasks/<id> -H 'content-type: application/json' -d '{"done":true}'
 ```
 
