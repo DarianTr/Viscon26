@@ -1,0 +1,59 @@
+# The whole app: `docker compose up --build` → http://localhost:3000
+#
+#   db       Postgres, data kept in the `pgdata` volume
+#   migrate  one-off: applies migrations, seeds demo data into an empty DB
+#   app      the Next.js server, started once `migrate` has succeeded
+#
+# For local development run only the database (`npm run db:up`) and use
+# `npm run dev` — see README.
+
+x-database-url: &database-url postgres://stride:${POSTGRES_PASSWORD:-stride}@db:5432/stride
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stride
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stride}
+      POSTGRES_DB: stride
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stride"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  migrate:
+    build:
+      context: .
+      target: migrate
+    environment:
+      DATABASE_URL: *database-url
+      DEMO_USER_HANDLE: ${DEMO_USER_HANDLE:-tprazak}
+      # Set to false to start with an empty database.
+      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: *database-url
+      DEMO_USER_HANDLE: ${DEMO_USER_HANDLE:-tprazak}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:

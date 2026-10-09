@@ -1,4 +1,5 @@
-import { ZodError } from "zod";
+import { DrizzleQueryError } from "drizzle-orm/errors";
+import { z, ZodError } from "zod";
 
 /** Shape every error response shares, so the frontend can rely on it. */
 export type ApiError = { error: string; details?: unknown };
@@ -13,6 +14,22 @@ export function jsonError(
 
 export const notFound = (what = "Resource") => jsonError(404, `${what} not found`);
 
+/** Row ids are UUIDs; anything else can't exist, so callers can 404 early. */
+export const isId = (value: string) => z.uuid().safeParse(value).success;
+
+/** Parse a request's query string against a zod schema. */
+export function parseQuery<T extends z.ZodType>(request: Request, schema: T): z.infer<T> {
+  return schema.parse(Object.fromEntries(new URL(request.url).searchParams));
+}
+
+/** The Postgres error behind a failed query, if there is one. */
+function pgError(err: unknown): { code?: string; detail?: string } | null {
+  const cause = err instanceof DrizzleQueryError ? err.cause : err;
+  return cause && typeof cause === "object" && "code" in cause
+    ? (cause as { code?: string; detail?: string })
+    : null;
+}
+
 /**
  * Wrap a route handler body so validation and unexpected errors turn into
  * consistent JSON instead of an opaque 500.
@@ -22,11 +39,15 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
     return await fn();
   } catch (err) {
     if (err instanceof ZodError) {
-      return jsonError(400, "Invalid request body", err.issues);
+      return jsonError(400, "Invalid request", err.issues);
     }
     if (err instanceof SyntaxError) {
       return jsonError(400, "Request body must be valid JSON");
     }
+    // Constraint violations are the caller's fault, not the server's.
+    const pg = pgError(err);
+    if (pg?.code === "23505") return jsonError(409, "Already exists", pg.detail);
+    if (pg?.code === "23503") return jsonError(400, "Referenced record does not exist", pg.detail);
     console.error(err);
     return jsonError(500, "Internal server error");
   }

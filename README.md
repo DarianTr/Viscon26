@@ -5,29 +5,113 @@ and the backend.
 
 ## Run it
 
+Needs Docker (for the local Postgres) and Node 20+.
+
 ```bash
 npm install
-npm run dev     # http://localhost:3000
+cp .env.example .env.local
+npm run db:setup   # start Postgres, apply migrations, load demo data
+npm run dev        # http://localhost:3000
 ```
 
 Other scripts: `npm run build`, `npm start`, `npm run lint`.
+
+## Run everything in Docker
+
+One command builds the app and starts it with its database. Docker is the
+only requirement:
+
+```bash
+docker compose up --build        # or: npm run docker:up (runs in background)
+```
+
+Then open http://localhost:3000. On first start it creates the tables and
+loads the demo data. Later starts keep your data, because the seed only runs
+on an empty database. Stop with `docker compose down`. Add `-v` to also delete
+the data.
+
+| Variable            | Default   | Purpose                                     |
+| ------------------- | --------- | ------------------------------------------- |
+| `APP_PORT`          | `3000`    | Port the app is published on                |
+| `DB_PORT`           | `5432`    | Port Postgres is published on               |
+| `POSTGRES_PASSWORD` | `stride`  | Database password: change it on a server    |
+| `SEED_DEMO_DATA`    | `true`    | `false` to start with an empty database     |
+| `DEMO_USER_HANDLE`  | `tprazak` | Which user every request acts as (no auth)  |
+
+Set them inline (`APP_PORT=8080 docker compose up --build`) or in a `.env`
+file next to `docker-compose.yml`.
+
+The same `Dockerfile` works on any host that builds from a repo, such as
+Railway, Render or Fly.io. There, use a managed Postgres, set `DATABASE_URL`,
+and run `npx drizzle-kit migrate` once (the image's `migrate` stage does this).
+
+## Database
+
+Postgres via [Drizzle ORM](https://orm.drizzle.team) and the `postgres` driver.
+
+| Script                | What it does                                              |
+| --------------------- | --------------------------------------------------------- |
+| `npm run db:up`       | Start only Postgres in Docker, for `npm run dev`          |
+| `npm run db:down`     | Stop it (data persists in a Docker volume)                |
+| `npm run db:migrate`  | Apply migrations in `drizzle/`                            |
+| `npm run db:seed`     | **Wipe** all tables and load demo data                    |
+| `npm run db:generate` | Write a new migration after editing `src/db/schema.ts`    |
+| `npm run db:studio`   | Browse the data in Drizzle Studio                         |
+
+To change the schema: edit `src/db/schema.ts`, run `db:generate`, review the
+SQL it writes to `drizzle/`, then `db:migrate`. Commit the migration files.
+
+The streak, weekly hours, totals, leaderboard and kudos counts are all
+computed from rows (mainly `sessions`), never stored. A session is a plan
+entry until `completed_at` is set; then it is an activity in the feed.
+"Today" and "this week" are evaluated in `Europe/Zurich`.
+
+There is no auth yet: every request acts as the seeded user named by
+`DEMO_USER_HANDLE`. Swap `getCurrentUser()` in `src/lib/queries.ts` for a real
+session lookup when adding login.
+
+For production, point `DATABASE_URL` at any hosted Postgres (Neon, Supabase,
+RDS, …) and run `npm run db:migrate` against it. `next build` doesn't need a
+database.
 
 ## Layout
 
 ```
 src/
   app/
-    page.tsx              frontend — landing page
-    layout.tsx            root layout (fonts, metadata)
-    globals.css           Tailwind entry + theme tokens
+    (tabs)/               the five app tabs, sharing one shell
+      layout.tsx          sidebar (desktop) + bottom tab bar (mobile)
+      page.tsx            /           Today's tasks + focus timer
+      plans/page.tsx      /plans      active training plan, plan catalogue
+      calendar/page.tsx   /calendar   month view + day agenda
+      community/page.tsx  /community  activity feed, leaderboard, clubs
+      profile/page.tsx    /profile    stats, subjects, achievements
+    layout.tsx            root layout (fonts, metadata, viewport)
+    manifest.ts           web app manifest (installable on phones)
+    globals.css           Tailwind entry + theme tokens (light/dark)
     api/
       health/route.ts     GET  /api/health
       items/route.ts      GET, POST  /api/items
       items/[id]/route.ts GET, PATCH, DELETE  /api/items/:id
+      users/              CRUD  /api/users, /api/users/:id
+      tasks/              CRUD  /api/tasks, /api/tasks/:id (+ /kudos)
+      clubs/[id]/membership  PUT/DELETE (join/leave)
+  db/
+    schema.ts             tables (Drizzle) — source of truth for migrations
+    index.ts              database client
+    seed.ts               demo data
   components/
-    items-panel.tsx       client component, talks to the API
+    tab-bar.tsx           tab navigation (bottom bar + sidebar)
+    icons.tsx             inline SVG icon set
+    ui/primitives.tsx     Card, Avatar, Ring, headers
+    today/, community/, calendar-view.tsx   interactive tab pieces
+    items-panel.tsx       example client component for the items API
   lib/
-    store.ts              data layer (in-memory — swap for a real DB)
+    queries.ts            reads for the pages (server-only)
+    users.ts, tasks.ts    CRUD data layer for /api/users and /api/tasks
+    mutations.ts          kudos and club membership (server-only)
+    session-types.ts      session type labels/colours, formatting helpers
+    store.ts              data layer for /api/items
     http.ts               shared error handling for route handlers
     api-client.ts         typed fetch wrapper used by the frontend
     types.ts              types shared by both sides
@@ -37,15 +121,54 @@ src/
 
 | Method | Path             | Body                      | Response          |
 | ------ | ---------------- | ------------------------- | ----------------- |
-| GET    | `/api/health`    | –                         | `{ status, … }`   |
+| GET    | `/api/health`    | –                         | `{ status, database, … }` (503 if the DB is down) |
 | GET    | `/api/items`     | –                         | `{ items: [] }`   |
 | POST   | `/api/items`     | `{ title }`               | `201 { item }`    |
 | GET    | `/api/items/:id` | –                         | `{ item }`        |
 | PATCH  | `/api/items/:id` | `{ title?, done? }`       | `{ item }`        |
 | DELETE | `/api/items/:id` | –                         | `204`             |
+| PUT / DELETE | `/api/tasks/:id/kudos` | –             | `204`             |
+| PUT / DELETE | `/api/clubs/:id/membership` | –        | `204`             |
 
-Errors are always `{ error: string, details?: unknown }` — 400 on invalid
-input, 404 on a missing item, 500 otherwise.
+### Users and tasks
+
+Full CRUD. A **task** is one row of the `sessions` table: a planned study
+session, lecture or exam. It counts as done once `completedAt` is set.
+
+| Method | Path              | Body / query                                                    | Response        |
+| ------ | ----------------- | --------------------------------------------------------------- | --------------- |
+| GET    | `/api/users`      | `?q=&limit=&offset=` (`q` searches name and handle)             | `{ users: [] }` |
+| POST   | `/api/users`      | `{ handle, name, hue?, program?, weeklyGoalHours? }`            | `201 { user }`  |
+| GET    | `/api/users/:id`  | –                                                               | `{ user }`      |
+| PATCH  | `/api/users/:id`  | any of the POST fields                                          | `{ user }`      |
+| DELETE | `/api/users/:id`  | – (also deletes their tasks, kudos, follows)                    | `204`           |
+| GET    | `/api/tasks`      | `?userId=&type=&done=&from=&to=&limit=&offset=`                 | `{ tasks: [] }` |
+| POST   | `/api/tasks`      | `{ type, subject, title, scheduledAt, plannedMinutes, userId?, planId?, detail?, location?, note?, shared? }` | `201 { task }` |
+| GET    | `/api/tasks/:id`  | –                                                               | `{ task }`      |
+| PATCH  | `/api/tasks/:id`  | any POST field except `userId`, plus `done`, `actualMinutes`, `focus` | `{ task }` |
+| DELETE | `/api/tasks/:id`  | –                                                               | `204`           |
+
+- `type` is one of `deep`, `intervals`, `tempo`, `recovery`, `lecture`, `exam`.
+- `scheduledAt`, `from` and `to` are ISO timestamps with an offset, e.g.
+  `2026-10-12T09:00:00+02:00`. Lists are sorted by `scheduledAt`, with
+  `limit` ≤ 500 (default 100).
+- `PATCH { done: true }` marks a task complete; `actualMinutes` defaults to
+  `plannedMinutes`. `{ done: false }` clears the completion.
+- `POST /api/tasks` without `userId` creates the task for the current user.
+
+```bash
+curl localhost:3000/api/users?q=lena
+curl -X POST localhost:3000/api/tasks -H 'content-type: application/json' \
+  -d '{"type":"deep","subject":"Analysis II","title":"Long block","scheduledAt":"2026-10-12T09:00:00+02:00","plannedMinutes":90}'
+curl -X PATCH localhost:3000/api/tasks/<id> -H 'content-type: application/json' -d '{"done":true}'
+```
+
+There's no auth yet, so any caller can read or change any user or task.
+Before going public, add login and check ownership in these handlers.
+
+Errors are always `{ error: string, details?: unknown }`: 400 on invalid
+input or a reference to a missing record (e.g. an unknown `userId`), 404 on a
+missing resource, 409 on a duplicate (e.g. a taken `handle`), 500 otherwise.
 
 ```bash
 curl localhost:3000/api/items
@@ -57,11 +180,9 @@ curl -X POST localhost:3000/api/items -H 'content-type: application/json' -d '{"
 - **New page**: `src/app/<route>/page.tsx`.
 - **New endpoint**: `src/app/api/<route>/route.ts` exporting `GET`/`POST`/… .
   Wrap the body in `handle()` from `@/lib/http` and validate input with zod.
-- **Real database**: replace the bodies in `src/lib/store.ts` — every function
-  there is already async, so nothing else has to change. Put credentials in
-  `.env.local` (see `.env.example`).
-
-Note: the in-memory store resets whenever the server restarts.
+- **New table**: add it to `src/db/schema.ts`, then `npm run db:generate` and
+  `npm run db:migrate`. Reads go in `src/lib/queries.ts`, writes in
+  `src/lib/mutations.ts`.
 
 This project runs Next.js 16, which differs from older versions in places.
 Version-matched docs ship with the install at `node_modules/next/dist/docs/`.

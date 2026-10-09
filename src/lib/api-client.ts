@@ -1,4 +1,4 @@
-import type { Item } from "./types";
+import type { Item, TaskRecord } from "./types";
 
 /**
  * Thin client for the backend in `src/app/api`. Relative URLs keep it working
@@ -35,4 +35,17 @@ export const api = {
 
   deleteItem: (id: string) =>
     request<void>(`/items/${id}`, { method: "DELETE" }),
+
+  /** Mark a task done (with its real length, if timed) or undo it. */
+  setTaskDone: (id: string, done: boolean, actualMinutes?: number) =>
+    request<{ task: TaskRecord }>(`/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ done, actualMinutes }),
+    }).then((r) => r.task),
+
+  setKudos: (taskId: string, on: boolean) =>
+    request<void>(`/tasks/${taskId}/kudos`, { method: on ? "PUT" : "DELETE" }),
+
+  setClubMembership: (clubId: string, on: boolean) =>
+    request<void>(`/clubs/${clubId}/membership`, { method: on ? "PUT" : "DELETE" }),
 };
