@@ -2,29 +2,15 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { CheckIcon, PlusIcon } from "@/components/icons";
 import { Card, PageHeader, SectionTitle } from "@/components/ui/primitives";
-import { getActivePlan, getCurrentUser, listPlans } from "@/lib/queries";
+import { getActivePlan, getCurrentUser } from "@/lib/queries";
 import { sessionTypes } from "@/lib/session-types";
 import type { ActivePlan } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Plans" };
 
-<<<<<<< HEAD
-export default function PlansPage() {
-  const plan = plans.find((p) => p.id === activePlan.planId)!;
-
-  // Work out which phase the current week falls into.
-  const phases = plan.phases.map((phase, i) => {
-    const start = plan.phases.slice(0, i).reduce((sum, p) => sum + p.weeks, 0);
-    const week = activePlan.currentWeek;
-    return { ...phase, start, current: week > start && week <= start + phase.weeks };
-  });
-  const currentPhase = phases.find((p) => p.current);
-=======
 export default async function PlansPage() {
   const user = await getCurrentUser();
-  const [activePlan, plans] = await Promise.all([getActivePlan(user.id), listPlans()]);
-  const others = plans.filter((p) => p.id !== activePlan?.plan.id);
->>>>>>> 41740c5a48d8442a6e5a7072665c1db124e9b48c
+  const activePlan = await getActivePlan(user.id);
 
   return (
     <>
@@ -46,7 +32,7 @@ export default async function PlansPage() {
         <ActivePlanOverview activePlan={activePlan} />
       ) : (
         <Card className="py-10 text-center text-sm text-muted">
-          You&apos;re not following a plan yet — pick one below.
+          You&apos;re not following a plan yet — create a custom one.
         </Card>
       )}
 
@@ -59,34 +45,6 @@ export default async function PlansPage() {
           </Card>
         ))}
       </div>
-
-      <SectionTitle>Find a plan</SectionTitle>
-      <ul className="grid gap-3 sm:grid-cols-2">
-        {others.map((p) => (
-          <li key={p.id}>
-            <Card className="h-full overflow-hidden p-0">
-              <div className={`h-20 bg-gradient-to-br ${p.gradient} p-4`}>
-                <span className="rounded-full bg-black/20 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
-                  {p.level}
-                </span>
-              </div>
-              <div className="p-4">
-                <p className="text-xs text-muted">{p.subject}</p>
-                <h3 className="mt-0.5 font-semibold">{p.title}</h3>
-                <p className="mt-1 text-sm text-muted">{p.goal}</p>
-                <div className="mt-3 flex items-center justify-between text-xs text-muted">
-                  <span>
-                    {p.weeks} weeks · {p.hoursPerWeek} h/week
-                  </span>
-                  <span>
-                    {p.enrolled.toLocaleString("en-US")} {p.enrolled === 1 ? "student" : "students"}
-                  </span>
-                </div>
-              </div>
-            </Card>
-          </li>
-        ))}
-      </ul>
     </>
   );
 }
