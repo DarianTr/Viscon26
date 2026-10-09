@@ -34,6 +34,7 @@ services:
     environment:
       DATABASE_URL: *database-url
       DEMO_USER_HANDLE: ${DEMO_USER_HANDLE:-tprazak}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-stride}
       # Set to false to start with an empty database.
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
     depends_on:
@@ -46,7 +47,6 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: *database-url
-      DEMO_USER_HANDLE: ${DEMO_USER_HANDLE:-tprazak}
     ports:
       - "${APP_PORT:-3000}:3000"
     depends_on:

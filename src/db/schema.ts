@@ -38,8 +38,24 @@ export const users = pgTable("users", {
   hue: integer("hue").notNull().default(200),
   program: text("program"),
   weeklyGoalHours: integer("weekly_goal_hours").notNull().default(20),
+  /** scrypt hash from `src/db/password.ts`; null means the user can't log in. */
+  passwordHash: text("password_hash"),
+  /** Admins can open /admin and edit the database directly. */
+  isAdmin: boolean("is_admin").notNull().default(false),
   createdAt: createdAt(),
 });
+
+/** Login sessions. The cookie holds a random token; only its SHA-256 is stored. */
+export const authSessions = pgTable(
+  "auth_sessions",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId)],
+);
 
 export const follows = pgTable(
   "follows",
