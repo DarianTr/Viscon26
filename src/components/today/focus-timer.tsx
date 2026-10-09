@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { PauseIcon, PlayIcon, XIcon } from "@/components/icons";
 import { Ring } from "@/components/ui/primitives";
-import { sessionTypes } from "@/lib/session-types";
+import { sessionTypes, subjectColor } from "@/lib/session-types";
 import type { Task } from "@/lib/types";
 
 /** Full-screen session recorder — the study version of hitting "Start run". */
@@ -48,7 +48,7 @@ export function FocusTimer({
       </div>
 
       <div className="flex flex-1 flex-col items-center justify-center text-center">
-        <p className="text-sm text-muted">{task.subject}</p>
+        <p className={`text-sm font-medium ${subjectColor(task.subject).text}`}>{task.subject}</p>
         <h2 className="mt-1 max-w-sm text-xl font-bold">{task.title}</h2>
         <div className="mt-10">
           <Ring value={inBlock / blockSeconds} size={260} stroke={14}>

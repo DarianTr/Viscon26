@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { FlameIcon, SettingsIcon } from "@/components/icons";
+import { SubjectInvestment } from "@/components/profile/subject-investment";
 import { Avatar, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
 import { getCurrentUser, getProfile } from "@/lib/queries";
-import { subjectColors } from "@/lib/session-types";
+import { subjectColor } from "@/lib/session-types";
 
 export const metadata: Metadata = { title: "Profile" };
 
@@ -94,31 +95,37 @@ export default async function ProfilePage() {
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {examSubjects.map((subject) => (
-            <Card key={subject.name} className="p-4">
-              <p className="truncate text-sm font-medium" title={subject.name}>{subject.name}</p>
+            <Card key={subject.name} className="border-l-4 p-4" style={{ borderLeftColor: subjectColor(subject.name).value }}>
+              <p className={`truncate text-sm font-medium ${subjectColor(subject.name).text}`} title={subject.name}>{subject.name}</p>
               {subject.examHoursRemaining === null ? (
                 <p className="mt-2 text-sm text-muted">No exam date set</p>
               ) : (
-                <ExamCountdown hours={subject.examHoursRemaining} />
+                <ExamCountdown hours={subject.examHoursRemaining} color={subjectColor(subject.name).value} />
               )}
             </Card>
           ))}
         </div>
       )}
 
+      <SectionTitle>Time investment</SectionTitle>
+      <SubjectInvestment
+        subjects={profile.subjects.slice(0, 4).map((subject) => subject.name)}
+        userKey={profile.handle}
+      />
+
       <SectionTitle>Subjects</SectionTitle>
       <Card className="flex flex-col gap-4">
         {profile.subjects.length === 0 && (
           <p className="text-sm text-muted">Finish a session to see your subjects here.</p>
         )}
-        {profile.subjects.map((s, i) => (
+        {profile.subjects.map((s) => (
           <div key={s.name}>
             <div className="flex justify-between text-sm">
               <span className="font-medium">{s.name}</span>
               <span className="text-muted tabular-nums">{s.hours} h</span>
             </div>
             <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-surface-2">
-              <div className={`h-full rounded-full ${subjectColors[i % subjectColors.length]}`} style={{ width: `${(s.hours / maxSubject) * 100}%` }} />
+              <div className="h-full rounded-full" style={{ width: `${(s.hours / maxSubject) * 100}%`, backgroundColor: subjectColor(s.name).value }} />
             </div>
           </div>
         ))}
@@ -160,12 +167,12 @@ function Total({ label, value }: { label: string; value: number | string }) {
   );
 }
 
-function ExamCountdown({ hours }: { hours: number }) {
+function ExamCountdown({ hours, color }: { hours: number; color: string }) {
   const days = Math.floor(hours / 24);
   const remainingHours = hours % 24;
 
   return (
-    <p className="mt-2 text-2xl font-bold tabular-nums">
+    <p className="mt-2 text-2xl font-bold tabular-nums" style={{ color }}>
       {days > 0 && <>{days}d </>}
       {remainingHours}h
       <span className="sr-only"> left</span>

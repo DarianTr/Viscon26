@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { CheckIcon, ClockIcon, FlameIcon, PlayIcon } from "@/components/icons";
 import { Card, Ring, SectionTitle } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
-import { formatMinutes, sessionTypes } from "@/lib/session-types";
+import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
 import type { Task } from "@/lib/types";
 import { FocusTimer } from "./focus-timer";
 
@@ -68,7 +68,7 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
           </p>
           <h3 className="mt-1.5 text-xl leading-snug font-bold">{next.title}</h3>
           <p className="mt-1 text-sm opacity-85">
-            {sessionTypes[next.type].label} · {next.subject} · {formatMinutes(next.minutes)}
+            {sessionTypes[next.type].label} · <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ backgroundColor: subjectColor(next.subject).value }} />{next.subject}</span> · {formatMinutes(next.minutes)}
           </p>
           <button
             onClick={() => setRunning(next)}
@@ -105,7 +105,10 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
                     <span className={`rounded-full px-2 py-0.5 font-semibold ${type.soft}`}>
                       {type.label}
                     </span>
-                    <span className="text-muted">{task.subject}</span>
+                    <span className={`inline-flex items-center gap-1.5 ${subjectColor(task.subject).text}`}>
+                      <span className="size-1.5 rounded-full" style={{ backgroundColor: subjectColor(task.subject).value }} />
+                      {task.subject}
+                    </span>
                   </div>
                   <p className={`mt-1.5 font-semibold ${task.done ? "line-through" : ""}`}>
                     {task.title}
