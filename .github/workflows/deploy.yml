@@ -1,0 +1,44 @@
+# Deploys main to the VisCon VM through a self-hosted runner installed on it
+# (see deploy/README.md). The runner only makes outbound connections to
+# GitHub, so no firewall ports need to be opened.
+#
+# Never trigger this on pull_request: it runs code on the VM.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    environment: production
+    env:
+      # Fixed project name so every deploy reuses the same pgdata volume.
+      COMPOSE_PROJECT_NAME: viscon
+      ENV_FILE: /home/viscon/viscon.env
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check server config exists
+        run: test -f "$ENV_FILE" || { echo "::error::$ENV_FILE missing, see deploy/README.md"; exit 1; }
+
+      - name: Build and start
+        run: docker compose --env-file "$ENV_FILE" up -d --build --wait --remove-orphans
+
+      - name: Health check
+        run: |
+          set -a; . "$ENV_FILE"; set +a
+          curl -fsS --retry 5 --retry-delay 2 "http://localhost:${APP_PORT:-3000}/api/health"
+
+      - name: Clean up old images
+        if: always()
+        run: docker image prune -f

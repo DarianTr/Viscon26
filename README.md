@@ -33,13 +33,17 @@ the data.
 | Variable            | Default   | Purpose                                     |
 | ------------------- | --------- | ------------------------------------------- |
 | `APP_PORT`          | `3000`    | Port the app is published on                |
-| `DB_PORT`           | `5432`    | Port Postgres is published on               |
+| `DB_PORT`           | `5432`    | Port Postgres is published on (localhost)   |
 | `POSTGRES_PASSWORD` | `stride`  | Database password: change it on a server    |
 | `SEED_DEMO_DATA`    | `true`    | `false` to start with an empty database     |
 | `DEMO_USER_HANDLE`  | `tprazak` | Which user every request acts as (no auth)  |
 
 Set them inline (`APP_PORT=8080 docker compose up --build`) or in a `.env`
 file next to `docker-compose.yml`.
+
+**CI/CD:** every push runs lint, typecheck and build in GitHub Actions, and
+merging to `main` deploys to the VisCon VM. Setup is in
+[`deploy/README.md`](deploy/README.md).
 
 The same `Dockerfile` works on any host that builds from a repo, such as
 Railway, Render or Fly.io. There, use a managed Postgres, set `DATABASE_URL`,
