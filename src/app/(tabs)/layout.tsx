@@ -1,13 +1,28 @@
 import { SideNav, TabBar } from "@/components/tab-bar";
+import { getActivePlan, getCurrentUser } from "@/lib/queries";
 
-export default function TabsLayout({ children }: { children: React.ReactNode }) {
+export default async function TabsLayout({ children }: { children: React.ReactNode }) {
+  const user = await getCurrentUser();
+  const active = await getActivePlan(user.id);
+  const plan = active && {
+    title: active.plan.title,
+    week: active.currentWeek,
+    weeks: active.plan.weeks,
+    phase: currentPhase(active.plan.phases, active.currentWeek),
+  };
+
   return (
     <div className="flex min-h-dvh">
-      <SideNav />
+      <SideNav plan={plan} />
       <main className="pb-tabbar mx-auto w-full max-w-3xl px-4 sm:px-6 md:pb-12">
         {children}
       </main>
       <TabBar />
     </div>
   );
+}
+
+function currentPhase(phases: { name: string; weeks: number }[], week: number) {
+  let end = 0;
+  return phases.find((p) => week <= (end += p.weeks))?.name ?? null;
 }

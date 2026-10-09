@@ -1,63 +1,40 @@
-import { randomUUID } from "node:crypto";
+import "server-only";
+import { asc, eq } from "drizzle-orm";
+import { db, schema as s } from "@/db";
 import type { Item } from "./types";
 
 export type { Item };
 
-type Store = { items: Map<string, Item> };
+/** Data layer for the starter /api/items endpoints, backed by Postgres. */
 
-// The dev server re-evaluates modules on HMR, which would wipe a plain
-// module-level Map. Keeping the store on globalThis makes it survive reloads.
-const globalForStore = globalThis as unknown as { __store?: Store };
-const store: Store = (globalForStore.__store ??= { items: new Map() });
-
-if (store.items.size === 0) {
-  for (const title of ["Pitch the idea", "Ship the MVP", "Win the hackathon"]) {
-    const item: Item = {
-      id: randomUUID(),
-      title,
-      done: false,
-      createdAt: new Date().toISOString(),
-    };
-    store.items.set(item.id, item);
-  }
+function toItem(row: typeof s.items.$inferSelect): Item {
+  return { ...row, createdAt: row.createdAt.toISOString() };
 }
 
-// Everything below is async so swapping this file for a real database
-// (Prisma, Drizzle, Supabase, ...) is a drop-in change.
-
 export async function listItems(): Promise<Item[]> {
-  return [...store.items.values()].sort((a, b) =>
-    a.createdAt.localeCompare(b.createdAt),
-  );
+  const rows = await db.select().from(s.items).orderBy(asc(s.items.createdAt));
+  return rows.map(toItem);
 }
 
 export async function getItem(id: string): Promise<Item | undefined> {
-  return store.items.get(id);
+  const [row] = await db.select().from(s.items).where(eq(s.items.id, id));
+  return row && toItem(row);
 }
 
 export async function createItem(data: { title: string }): Promise<Item> {
-  const item: Item = {
-    id: randomUUID(),
-    title: data.title,
-    done: false,
-    createdAt: new Date().toISOString(),
-  };
-  store.items.set(item.id, item);
-  return item;
+  const [row] = await db.insert(s.items).values(data).returning();
+  return toItem(row);
 }
 
 export async function updateItem(
   id: string,
   patch: Partial<Pick<Item, "title" | "done">>,
 ): Promise<Item | undefined> {
-  const existing = store.items.get(id);
-  if (!existing) return undefined;
-
-  const updated: Item = { ...existing, ...patch };
-  store.items.set(id, updated);
-  return updated;
+  const [row] = await db.update(s.items).set(patch).where(eq(s.items.id, id)).returning();
+  return row && toItem(row);
 }
 
 export async function deleteItem(id: string): Promise<boolean> {
-  return store.items.delete(id);
+  const rows = await db.delete(s.items).where(eq(s.items.id, id)).returning({ id: s.items.id });
+  return rows.length > 0;
 }

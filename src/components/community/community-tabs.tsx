@@ -2,13 +2,37 @@
 
 import { useState } from "react";
 import { Avatar, Card } from "@/components/ui/primitives";
-import { clubs, feed, leaderboard } from "@/lib/study-data";
+import { api } from "@/lib/api-client";
+import type { Activity, Club, LeaderboardEntry } from "@/lib/types";
 import { ActivityCard } from "./activity-card";
 
 const segments = ["Feed", "Leaderboard", "Clubs"] as const;
 
-export function CommunityTabs() {
+export function CommunityTabs({
+  feed,
+  leaderboard,
+  clubs: initialClubs,
+}: {
+  feed: Activity[];
+  leaderboard: LeaderboardEntry[];
+  clubs: Club[];
+}) {
   const [segment, setSegment] = useState<(typeof segments)[number]>("Feed");
+  const [clubs, setClubs] = useState(initialClubs);
+
+  /** Optimistically join or leave, rolling back if the request fails. */
+  function toggleClub(id: string, join: boolean) {
+    const apply = (on: boolean) =>
+      setClubs((cs) =>
+        cs.map((c) =>
+          c.id === id && c.joined !== on
+            ? { ...c, joined: on, members: c.members + (on ? 1 : -1) }
+            : c,
+        ),
+      );
+    apply(join);
+    api.setClubMembership(id, join).catch(() => apply(!join));
+  }
 
   return (
     <>
@@ -28,6 +52,12 @@ export function CommunityTabs() {
         </div>
       </div>
 
+      {segment === "Feed" && feed.length === 0 && (
+        <Card className="py-10 text-center text-sm text-muted">
+          Nothing here yet — follow classmates to see their sessions.
+        </Card>
+      )}
+
       {segment === "Feed" && (
         <ul className="flex flex-col gap-4">
           {feed.map((activity) => (
@@ -46,7 +76,7 @@ export function CommunityTabs() {
           <ol>
             {leaderboard.map((entry, i) => (
               <li
-                key={entry.name}
+                key={entry.id}
                 className={`flex items-center gap-3 rounded-2xl px-3 py-3 ${entry.you ? "bg-accent-soft" : ""}`}
               >
                 <span className={`w-5 text-center font-bold ${i < 3 ? "text-accent" : "text-muted"}`}>{i + 1}</span>
@@ -62,14 +92,21 @@ export function CommunityTabs() {
       {segment === "Clubs" && (
         <ul className="grid gap-3 sm:grid-cols-2">
           {clubs.map((club) => (
-            <li key={club.name}>
+            <li key={club.id}>
               <Card className="flex items-center gap-4 p-4">
                 <span className="grid size-12 place-items-center rounded-2xl bg-surface-2 text-2xl">{club.emoji}</span>
                 <div className="flex-1">
                   <p className="font-semibold">{club.name}</p>
-                  <p className="text-sm text-muted">{club.members.toLocaleString("en-US")} members</p>
+                  <p className="text-sm text-muted">{club.members.toLocaleString("en-US")} {club.members === 1 ? "member" : "members"}</p>
                 </div>
-                <button className="rounded-full bg-accent-soft px-4 py-1.5 text-sm font-semibold text-accent">Join</button>
+                <button
+                  onClick={() => toggleClub(club.id, !club.joined)}
+                  className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
+                    club.joined ? "bg-surface-2 text-muted" : "bg-accent-soft text-accent"
+                  }`}
+                >
+                  {club.joined ? "Joined" : "Join"}
+                </button>
               </Card>
             </li>
           ))}

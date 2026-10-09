@@ -3,12 +3,22 @@
 import { useState } from "react";
 import { CommentIcon, HeartIcon, MapPinIcon } from "@/components/icons";
 import { Avatar, Card } from "@/components/ui/primitives";
-import { formatMinutes, sessionTypes, type Activity } from "@/lib/study-data";
+import { api } from "@/lib/api-client";
+import { formatMinutes, sessionTypes } from "@/lib/session-types";
+import type { Activity } from "@/lib/types";
 
 /** A Strava-style activity post for a finished study session. */
 export function ActivityCard({ activity }: { activity: Activity }) {
-  const [liked, setLiked] = useState(false);
+  const [liked, setLiked] = useState(activity.kudoed);
+  // The server count already includes our own kudos, if we gave them.
+  const others = activity.kudos - (activity.kudoed ? 1 : 0);
   const type = sessionTypes[activity.type];
+
+  function toggleKudos() {
+    const next = !liked;
+    setLiked(next);
+    api.setKudos(activity.id, next).catch(() => setLiked(!next));
+  }
 
   return (
     <Card className="p-0">
@@ -17,7 +27,13 @@ export function ActivityCard({ activity }: { activity: Activity }) {
         <div className="min-w-0 flex-1">
           <p className="font-semibold">{activity.user.name}</p>
           <p className="flex items-center gap-1 truncate text-xs text-muted">
-            {activity.postedAgo} · <MapPinIcon className="size-3" /> {activity.location}
+            {activity.postedAgo}
+            {activity.location && (
+              <>
+                {" · "}
+                <MapPinIcon className="size-3" /> {activity.location}
+              </>
+            )}
           </p>
         </div>
         <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${type.soft}`}>{type.label}</span>
@@ -31,20 +47,25 @@ export function ActivityCard({ activity }: { activity: Activity }) {
       <dl className="grid grid-cols-3 gap-2 px-4 pt-4">
         <Metric label="Subject" value={activity.subject} />
         <Metric label="Time" value={formatMinutes(activity.minutes)} />
-        <Metric label="Focus" value={`${activity.focus}%`} />
+        <Metric label="Focus" value={activity.focus === null ? "–" : `${activity.focus}%`} />
       </dl>
 
-      <FocusTrace values={activity.trace} className={type.soft.split(" ")[1]} />
+      {activity.trace && activity.trace.length > 1 ? (
+        <FocusTrace values={activity.trace} className={type.soft.split(" ")[1]} />
+      ) : (
+        <div className="h-4" />
+      )}
 
       <div className="flex items-center gap-1 border-t border-border px-2 py-1.5">
         <button
-          onClick={() => setLiked((l) => !l)}
+          onClick={toggleKudos}
+          aria-pressed={liked}
           className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium transition-colors ${
             liked ? "text-accent" : "text-muted hover:text-foreground"
           }`}
         >
           <HeartIcon className={`size-5 transition-transform ${liked ? "scale-110 fill-current" : ""}`} />
-          {activity.kudos + (liked ? 1 : 0)} kudos
+          {others + (liked ? 1 : 0)} kudos
         </button>
         <button className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium text-muted hover:text-foreground">
           <CommentIcon className="size-5" />

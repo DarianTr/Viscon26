@@ -53,8 +53,10 @@ export function TabBar() {
   );
 }
 
+type PlanSummary = { title: string; week: number; weeks: number; phase: string | null };
+
 /** The same tabs as a sidebar on tablets and desktops. */
-export function SideNav() {
+export function SideNav({ plan }: { plan: PlanSummary | null }) {
   const isActive = useIsActive();
 
   return (
@@ -86,13 +88,24 @@ export function SideNav() {
           );
         })}
       </ul>
-      <div className="mt-auto rounded-2xl bg-surface p-4 text-xs text-muted ring-1 ring-border">
-        <p className="font-semibold text-foreground">Analysis II plan</p>
-        <p className="mt-1">Week 3 of 8 · Build phase</p>
-        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-2">
-          <div className="h-full w-[37%] rounded-full bg-accent" />
-        </div>
-      </div>
+      {plan && (
+        <Link
+          href="/plans"
+          className="mt-auto rounded-2xl bg-surface p-4 text-xs text-muted ring-1 ring-border"
+        >
+          <p className="font-semibold text-foreground">{plan.title}</p>
+          <p className="mt-1">
+            Week {plan.week} of {plan.weeks}
+            {plan.phase && ` · ${plan.phase} phase`}
+          </p>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-2">
+            <div
+              className="h-full rounded-full bg-accent"
+              style={{ width: `${(plan.week / plan.weeks) * 100}%` }}
+            />
+          </div>
+        </Link>
+      )}
     </aside>
   );
 }
