@@ -1,21 +1,16 @@
 import type { Metadata } from "next";
 import { CheckIcon, PlusIcon } from "@/components/icons";
 import { Card, PageHeader, SectionTitle } from "@/components/ui/primitives";
-import { activePlan, plans, sessionTypes } from "@/lib/study-data";
+import { getActivePlan, getCurrentUser, listPlans } from "@/lib/queries";
+import { sessionTypes } from "@/lib/session-types";
+import type { ActivePlan } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Plans" };
 
-export default function PlansPage() {
-  const plan = plans.find((p) => p.id === activePlan.planId)!;
-  const others = plans.filter((p) => p.id !== plan.id);
-
-  // Work out which phase the current week falls into.
-  const phases = plan.phases.map((phase, i) => {
-    const start = plan.phases.slice(0, i).reduce((sum, p) => sum + p.weeks, 0);
-    const week = activePlan.currentWeek;
-    return { ...phase, start, current: week > start && week <= start + phase.weeks };
-  });
-  const currentPhase = phases.find((p) => p.current);
+export default async function PlansPage() {
+  const user = await getCurrentUser();
+  const [activePlan, plans] = await Promise.all([getActivePlan(user.id), listPlans()]);
+  const others = plans.filter((p) => p.id !== activePlan?.plan.id);
 
   return (
     <>
@@ -30,6 +25,68 @@ export default function PlansPage() {
         }
       />
 
+      {activePlan ? (
+        <ActivePlanOverview activePlan={activePlan} />
+      ) : (
+        <Card className="py-10 text-center text-sm text-muted">
+          You&apos;re not following a plan yet — pick one below.
+        </Card>
+      )}
+
+      <SectionTitle>Session types</SectionTitle>
+      <div className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 sm:mx-0 sm:grid sm:grid-cols-2 sm:px-0">
+        {Object.entries(sessionTypes).map(([key, t]) => (
+          <Card key={key} className="w-60 shrink-0 snap-start p-4 sm:w-auto">
+            <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${t.soft}`}>{t.label}</span>
+            <p className="mt-2 text-sm text-muted">{t.blurb}</p>
+          </Card>
+        ))}
+      </div>
+
+      <SectionTitle>Find a plan</SectionTitle>
+      <ul className="grid gap-3 sm:grid-cols-2">
+        {others.map((p) => (
+          <li key={p.id}>
+            <Card className="h-full overflow-hidden p-0">
+              <div className={`h-20 bg-gradient-to-br ${p.gradient} p-4`}>
+                <span className="rounded-full bg-black/20 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
+                  {p.level}
+                </span>
+              </div>
+              <div className="p-4">
+                <p className="text-xs text-muted">{p.subject}</p>
+                <h3 className="mt-0.5 font-semibold">{p.title}</h3>
+                <p className="mt-1 text-sm text-muted">{p.goal}</p>
+                <div className="mt-3 flex items-center justify-between text-xs text-muted">
+                  <span>
+                    {p.weeks} weeks · {p.hoursPerWeek} h/week
+                  </span>
+                  <span>
+                    {p.enrolled.toLocaleString("en-US")} {p.enrolled === 1 ? "student" : "students"}
+                  </span>
+                </div>
+              </div>
+            </Card>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function ActivePlanOverview({ activePlan }: { activePlan: ActivePlan }) {
+  const { plan } = activePlan;
+
+  // Work out which phase the current week falls into.
+  const phases = plan.phases.map((phase, i) => {
+    const start = plan.phases.slice(0, i).reduce((sum, p) => sum + p.weeks, 0);
+    const week = activePlan.currentWeek;
+    return { ...phase, start, current: week > start && week <= start + phase.weeks };
+  });
+  const currentPhase = phases.find((p) => p.current);
+
+  return (
+    <>
       <div className={`rounded-3xl bg-gradient-to-br ${plan.gradient} p-5 text-white shadow-lg shadow-accent/15`}>
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -68,8 +125,9 @@ export default function PlansPage() {
           ))}
         </div>
         <p className="mt-4 text-sm opacity-90">
-          {currentPhase?.name} phase · Exam on{" "}
-          {new Date(activePlan.examDate).toLocaleDateString("en-GB", { day: "numeric", month: "long" })}
+          {currentPhase?.name} phase
+          {activePlan.examDate &&
+            ` · Exam on ${new Date(activePlan.examDate).toLocaleDateString("en-GB", { day: "numeric", month: "long" })}`}
         </p>
       </div>
 
@@ -98,42 +156,6 @@ export default function PlansPage() {
           ))}
         </div>
       </Card>
-
-      <SectionTitle>Session types</SectionTitle>
-      <div className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 sm:mx-0 sm:grid sm:grid-cols-2 sm:px-0">
-        {Object.entries(sessionTypes).map(([key, t]) => (
-          <Card key={key} className="w-60 shrink-0 snap-start p-4 sm:w-auto">
-            <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${t.soft}`}>{t.label}</span>
-            <p className="mt-2 text-sm text-muted">{t.blurb}</p>
-          </Card>
-        ))}
-      </div>
-
-      <SectionTitle>Find a plan</SectionTitle>
-      <ul className="grid gap-3 sm:grid-cols-2">
-        {others.map((p) => (
-          <li key={p.id}>
-            <Card className="h-full overflow-hidden p-0">
-              <div className={`h-20 bg-gradient-to-br ${p.gradient} p-4`}>
-                <span className="rounded-full bg-black/20 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
-                  {p.level}
-                </span>
-              </div>
-              <div className="p-4">
-                <p className="text-xs text-muted">{p.subject}</p>
-                <h3 className="mt-0.5 font-semibold">{p.title}</h3>
-                <p className="mt-1 text-sm text-muted">{p.goal}</p>
-                <div className="mt-3 flex items-center justify-between text-xs text-muted">
-                  <span>
-                    {p.weeks} weeks · {p.hoursPerWeek} h/week
-                  </span>
-                  <span>{p.enrolled.toLocaleString("en-US")} students</span>
-                </div>
-              </div>
-            </Card>
-          </li>
-        ))}
-      </ul>
     </>
   );
 }

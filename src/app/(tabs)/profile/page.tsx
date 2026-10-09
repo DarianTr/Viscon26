@@ -1,16 +1,18 @@
 import type { Metadata } from "next";
 import { FlameIcon, SettingsIcon } from "@/components/icons";
 import { Avatar, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
-import { profile } from "@/lib/study-data";
+import { getCurrentUser, getProfile } from "@/lib/queries";
+import { subjectColors } from "@/lib/session-types";
 
 export const metadata: Metadata = { title: "Profile" };
 
 const days = ["M", "T", "W", "T", "F", "S", "S"];
 
-export default function ProfilePage() {
+export default async function ProfilePage() {
+  const profile = await getProfile(await getCurrentUser());
   const weekHours = profile.week.reduce((a, b) => a + b, 0);
   const maxDay = Math.max(...profile.week, 1);
-  const maxSubject = Math.max(...profile.subjects.map((s) => s.hours));
+  const maxSubject = Math.max(...profile.subjects.map((s) => s.hours), 1);
 
   return (
     <>
@@ -25,11 +27,11 @@ export default function ProfilePage() {
 
       <Card>
         <div className="flex items-center gap-4">
-          <Avatar initials={profile.initials} hue={200} size="lg" />
+          <Avatar initials={profile.initials} hue={profile.hue} size="lg" />
           <div className="min-w-0">
             <h2 className="text-xl font-bold">{profile.name}</h2>
             <p className="text-sm text-muted">{profile.handle}</p>
-            <p className="mt-1 text-sm">{profile.program}</p>
+            {profile.program && <p className="mt-1 text-sm">{profile.program}</p>}
           </div>
         </div>
         <div className="mt-5 grid grid-cols-3 divide-x divide-border text-center">
@@ -72,14 +74,17 @@ export default function ProfilePage() {
 
       <SectionTitle>Subjects</SectionTitle>
       <Card className="flex flex-col gap-4">
-        {profile.subjects.map((s) => (
+        {profile.subjects.length === 0 && (
+          <p className="text-sm text-muted">Finish a session to see your subjects here.</p>
+        )}
+        {profile.subjects.map((s, i) => (
           <div key={s.name}>
             <div className="flex justify-between text-sm">
               <span className="font-medium">{s.name}</span>
               <span className="text-muted tabular-nums">{s.hours} h</span>
             </div>
             <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-surface-2">
-              <div className={`h-full rounded-full ${s.color}`} style={{ width: `${(s.hours / maxSubject) * 100}%` }} />
+              <div className={`h-full rounded-full ${subjectColors[i % subjectColors.length]}`} style={{ width: `${(s.hours / maxSubject) * 100}%` }} />
             </div>
           </div>
         ))}

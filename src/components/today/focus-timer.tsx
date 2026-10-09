@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { PauseIcon, PlayIcon, XIcon } from "@/components/icons";
 import { Ring } from "@/components/ui/primitives";
-import { sessionTypes, type Task } from "@/lib/study-data";
+import { sessionTypes } from "@/lib/session-types";
+import type { Task } from "@/lib/types";
 
 /** Full-screen session recorder — the study version of hitting "Start run". */
 export function FocusTimer({
@@ -13,7 +14,8 @@ export function FocusTimer({
 }: {
   task: Task;
   onClose: () => void;
-  onFinish: () => void;
+  /** Called with the minutes actually studied (at least 1). */
+  onFinish: (minutes: number) => void;
 }) {
   // Intervals run as 25-minute reps; everything else as one block.
   const blockSeconds = (task.type === "intervals" ? 25 : task.minutes) * 60;
@@ -69,7 +71,7 @@ export function FocusTimer({
           {paused ? <PlayIcon className="size-6" /> : <PauseIcon className="size-6" />}
         </button>
         <button
-          onClick={onFinish}
+          onClick={() => onFinish(Math.max(1, Math.round(elapsed / 60)))}
           className="h-16 rounded-full bg-accent px-8 text-base font-semibold text-white shadow-lg shadow-accent/30 transition-transform active:scale-95"
         >
           Finish &amp; save
