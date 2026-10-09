@@ -10,9 +10,12 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { sql } from "drizzle-orm";
 import postgres from "postgres";
 import * as s from "./schema";
+import { hashPassword } from "./password";
 
 const TZ = "Europe/Zurich";
 const DEMO_HANDLE = process.env.DEMO_USER_HANDLE ?? "tprazak";
+/** Every seeded user gets this password; the demo user is also an admin. */
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? "stride";
 
 const client = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
 const db = drizzle(client, { schema: s });
@@ -149,15 +152,16 @@ async function main() {
   await db.execute(sql`
     truncate table
       comments, kudos, sessions, enrollments, club_members, clubs,
-      user_badges, badges, follows, plans, users, items
+      user_badges, badges, follows, plans, auth_sessions, users, items
     restart identity cascade
   `);
 
   // --- Users --------------------------------------------------------------
+  const passwordHash = await hashPassword(DEMO_PASSWORD);
   const [me, lena, jonas, aisha, marco, ...classmates] = await db
     .insert(s.users)
     .values([
-      { handle: DEMO_HANDLE, name: "Tomas P.", hue: 200, program: "BSc Computer Science · Semester 3", weeklyGoalHours: 25 },
+      { handle: DEMO_HANDLE, name: "Tomas P.", hue: 200, program: "BSc Computer Science · Semester 3", weeklyGoalHours: 25, isAdmin: true },
       { handle: "lena", name: "Lena Meier", hue: 260, program: "BSc Mathematics" },
       { handle: "jonas", name: "Jonas Keller", hue: 160, program: "BSc Physics" },
       { handle: "aisha", name: "Aisha Rahman", hue: 20, program: "BSc Computer Science" },
@@ -168,7 +172,7 @@ async function main() {
         hue: (i * 47) % 360,
         program: pick(["BSc Computer Science", "BSc Mathematics", "BSc Physics"]),
       })),
-    ])
+    ].map((u) => ({ ...u, passwordHash })))
     .returning();
   const friends = [lena, jonas, aisha, marco];
   const everyone = [me, ...friends, ...classmates];
@@ -454,7 +458,7 @@ async function main() {
 
   console.log(
     `Seeded ${everyone.length} users, ${inserted.length} sessions, ${kudosRows.length} kudos. ` +
-      `Demo user: @${DEMO_HANDLE}`,
+      `Log in as @${DEMO_HANDLE} (admin) or any other handle, password "${DEMO_PASSWORD}".`,
   );
 }
 

@@ -3,6 +3,7 @@ import { cache } from "react";
 import { connection } from "next/server";
 import { and, asc, count, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { db, schema as s, TIME_ZONE } from "@/db";
+import { requireUser, type SessionUser } from "./auth";
 import { initials } from "./session-types";
 import type {
   ActivePlan,
@@ -32,18 +33,12 @@ const weekStart = sql`(date_trunc('week', now() at time zone ${tz}) at time zone
 const studyTypes: SessionType[] = ["deep", "intervals", "tempo", "recovery"];
 
 /**
- * The signed-in user. There is no auth yet, so this is the seeded demo user
- * named by DEMO_USER_HANDLE — replace with a session lookup when auth lands.
- * Also marks the calling page as per-request, since it reads live data.
+ * The signed-in user; redirects to /login if there is none. Also marks the
+ * calling page as per-request, since it reads live data.
  */
 export const getCurrentUser = cache(async () => {
   await connection();
-  const handle = process.env.DEMO_USER_HANDLE ?? "tprazak";
-  const user = await db.query.users.findFirst({ where: eq(s.users.handle, handle) });
-  if (!user) {
-    throw new Error(`No user @${handle} in the database — run \`npm run db:seed\`.`);
-  }
-  return user;
+  return requireUser();
 });
 
 const zurichTime = new Intl.DateTimeFormat("en-GB", {
@@ -293,7 +288,7 @@ export async function getClubs(userId: string): Promise<Club[]> {
   return rows.map((r) => ({ ...r, joined: r.joined ?? false }));
 }
 
-export async function getProfile(user: typeof s.users.$inferSelect): Promise<Profile> {
+export async function getProfile(user: SessionUser): Promise<Profile> {
   const userId = user.id;
   const mine = eq(s.sessions.userId, userId);
   const done = and(mine, isNotNull(s.sessions.completedAt));

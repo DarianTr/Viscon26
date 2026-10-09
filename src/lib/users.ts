@@ -10,7 +10,11 @@ export type NewUser = Pick<Row, "handle" | "name"> &
   Partial<Pick<Row, "hue" | "program" | "weeklyGoalHours">>;
 export type UserPatch = Partial<NewUser>;
 
-const toUser = (row: Row): User => ({ ...row, createdAt: row.createdAt.toISOString() });
+// Never send the password hash (or admin flag) out through the API.
+function toUser(row: Row): User {
+  const { passwordHash, isAdmin, ...user } = row;
+  return { ...user, createdAt: row.createdAt.toISOString() };
+}
 
 export async function listUsers(opts: {
   q?: string;

@@ -12,6 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx --env-file-if-exists=.env.local src/db/seed.ts",
+    "db:set-password": "tsx --env-file-if-exists=.env.local src/db/set-password.ts",
     "db:setup": "npm run db:up && npm run db:migrate && npm run db:seed",
     "db:studio": "drizzle-kit studio",
     "docker:up": "docker compose up -d --build --wait",

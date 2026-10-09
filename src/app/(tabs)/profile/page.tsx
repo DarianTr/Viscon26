@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { logout } from "@/app/(auth)/actions";
 import { FlameIcon, SettingsIcon } from "@/components/icons";
 import { Avatar, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
 import { getCurrentUser, getProfile } from "@/lib/queries";
@@ -9,7 +11,8 @@ export const metadata: Metadata = { title: "Profile" };
 const days = ["M", "T", "W", "T", "F", "S", "S"];
 
 export default async function ProfilePage() {
-  const profile = await getProfile(await getCurrentUser());
+  const user = await getCurrentUser();
+  const profile = await getProfile(user);
   const weekHours = profile.week.reduce((a, b) => a + b, 0);
   const maxDay = Math.max(...profile.week, 1);
   const maxSubject = Math.max(...profile.subjects.map((s) => s.hours), 1);
@@ -19,9 +22,19 @@ export default async function ProfilePage() {
       <PageHeader
         title="Profile"
         action={
-          <button aria-label="Settings" className="grid size-10 place-items-center rounded-full bg-surface-2">
-            <SettingsIcon className="size-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {user.isAdmin && (
+              <Link href="/admin" className="rounded-full bg-surface-2 px-4 py-2 text-sm font-medium">
+                Admin
+              </Link>
+            )}
+            <form action={logout}>
+              <button className="rounded-full bg-surface-2 px-4 py-2 text-sm font-medium">Log out</button>
+            </form>
+            <button aria-label="Settings" className="grid size-10 place-items-center rounded-full bg-surface-2">
+              <SettingsIcon className="size-5" />
+            </button>
+          </div>
         }
       />
 
