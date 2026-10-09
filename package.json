@@ -16,7 +16,8 @@
     "db:setup": "npm run db:up && npm run db:migrate && npm run db:seed",
     "db:studio": "drizzle-kit studio",
     "docker:up": "docker compose up -d --build --wait",
-    "docker:down": "docker compose down"
+    "docker:down": "docker compose down",
+    "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
