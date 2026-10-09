@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { connection } from "next/server";
 import { and, asc, count, desc, eq, ilike, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db, schema as s, TIME_ZONE } from "@/db";
 import { requireUser, type SessionUser } from "./auth";
 import { initials } from "./session-types";
@@ -51,6 +52,16 @@ function friendStatus(userId: string, otherId: unknown) {
     where (${f.requesterId} = ${userId} and ${f.addresseeId} = ${otherId})
       or (${f.requesterId} = ${otherId} and ${f.addresseeId} = ${userId})
   ), 'none')`;
+}
+
+/** Which of `ids` are the user's friends. */
+export async function filterFriends(userId: string, ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({ id: s.users.id })
+    .from(s.users)
+    .where(and(inArray(s.users.id, ids), sql`${s.users.id} in ${friendIds(userId)}`));
+  return rows.map((r) => r.id);
 }
 
 export async function getFriendStatus(userId: string, otherId: string): Promise<FriendStatus> {
@@ -222,6 +233,21 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
 
 const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
+const taggedUser = alias(s.users, "tagged_user");
+
+/** Photo ids on the session in the current row, oldest first. */
+const photoIds = sql<string[]>`coalesce((
+  select json_agg(${s.sessionPhotos.id} order by ${s.sessionPhotos.createdAt})
+  from ${s.sessionPhotos} where ${s.sessionPhotos.sessionId} = ${s.sessions.id}
+), '[]')`;
+
+/** Friends tagged on the session in the current row, by name. */
+const taggedUsers = sql<{ id: string; name: string; hue: number }[]>`coalesce((
+  select json_agg(json_build_object('id', ${taggedUser.id}, 'name', ${taggedUser.name}, 'hue', ${taggedUser.hue}) order by ${taggedUser.name})
+  from ${s.sessionTags} inner join ${s.users} as "tagged_user" on ${taggedUser.id} = ${s.sessionTags.userId}
+  where ${s.sessionTags.sessionId} = ${s.sessions.id}
+), '[]')`;
+
 function timeAgo(date: Date) {
   const minutes = Math.round((Date.now() - date.getTime()) / 60_000);
   if (minutes < 1) return "just now";
@@ -246,6 +272,8 @@ export async function getFeed(
       kudos: sql<number>`(select count(*) from ${s.kudos} where ${s.kudos.sessionId} = ${s.sessions.id})::int`,
       kudoed: sql<boolean>`exists (select 1 from ${s.kudos} where ${s.kudos.sessionId} = ${s.sessions.id} and ${s.kudos.userId} = ${userId})`,
       comments: sql<number>`(select count(*) from ${s.comments} where ${s.comments.sessionId} = ${s.sessions.id})::int`,
+      photos: photoIds,
+      tagged: taggedUsers,
     })
     .from(s.sessions)
     .innerJoin(s.users, eq(s.users.id, s.sessions.userId))
@@ -263,7 +291,7 @@ export async function getFeed(
     .orderBy(desc(s.sessions.completedAt))
     .limit(limit);
 
-  return rows.map(({ session, user, kudos, kudoed, comments }) => ({
+  return rows.map(({ session, user, kudos, kudoed, comments, photos, tagged }) => ({
     id: session.id,
     user: { ...user, initials: initials(user.name) },
     postedAgo: timeAgo(session.completedAt!),
@@ -278,6 +306,8 @@ export async function getFeed(
     kudoed,
     comments,
     note: session.note,
+    photos: photos.map((id) => ({ id, url: `/api/photos/${id}` })),
+    tagged: tagged.map((u) => ({ ...u, name: u.id === userId ? "You" : u.name, initials: initials(u.name) })),
     mine: session.userId === userId,
     shared: session.shared,
   }));
@@ -455,22 +485,45 @@ export async function searchPeople(userId: string, q?: string, limit = q ? 20 : 
 
 /**
  * A completed activity the user can see — their own, or a shared one by a
- * friend, i.e. what `getFeed` shows. Gates kudos and comments.
+ * friend, i.e. what `getFeed` shows.
  */
+function visibleTo(userId: string) {
+  return and(
+    isNotNull(s.sessions.completedAt),
+    or(
+      eq(s.sessions.userId, userId),
+      and(eq(s.sessions.shared, true), sql`${s.sessions.userId} in ${friendIds(userId)}`),
+    ),
+  );
+}
+
+/** An activity the user can see (see `visibleTo`). Gates kudos and comments. */
 export async function getVisibleActivity(userId: string, sessionId: string) {
   const [row] = await db
     .select({ id: s.sessions.id, ownerId: s.sessions.userId })
     .from(s.sessions)
+    .where(and(eq(s.sessions.id, sessionId), visibleTo(userId)));
+  return row;
+}
+
+/** A completed activity the user posted. Gates editing its photos and tags. */
+export async function getOwnActivity(userId: string, sessionId: string) {
+  const [row] = await db
+    .select({ id: s.sessions.id, ownerId: s.sessions.userId })
+    .from(s.sessions)
     .where(
-      and(
-        eq(s.sessions.id, sessionId),
-        isNotNull(s.sessions.completedAt),
-        or(
-          eq(s.sessions.userId, userId),
-          and(eq(s.sessions.shared, true), sql`${s.sessions.userId} in ${friendIds(userId)}`),
-        ),
-      ),
+      and(eq(s.sessions.id, sessionId), eq(s.sessions.userId, userId), isNotNull(s.sessions.completedAt)),
     );
+  return row;
+}
+
+/** A photo, if it's on an activity the user can see. */
+export async function getVisiblePhoto(userId: string, photoId: string) {
+  const [row] = await db
+    .select({ contentType: s.sessionPhotos.contentType, data: s.sessionPhotos.data })
+    .from(s.sessionPhotos)
+    .innerJoin(s.sessions, eq(s.sessions.id, s.sessionPhotos.sessionId))
+    .where(and(eq(s.sessionPhotos.id, photoId), visibleTo(userId)));
   return row;
 }
 

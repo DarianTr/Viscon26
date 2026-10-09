@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { CommentIcon, HeartIcon, MapPinIcon } from "@/components/icons";
+import { useRef, useState } from "react";
+import { CameraIcon, CommentIcon, HeartIcon, MapPinIcon, UsersIcon, XIcon } from "@/components/icons";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Avatar, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
+import { MAX_PHOTOS } from "@/lib/photos";
+import { shrinkImage } from "@/lib/shrink-image";
 import type { Activity, Comment } from "@/lib/types";
 import { CommentThread } from "./comment-thread";
+import { TagFriends } from "./tag-friends";
 
 /** A Strava-style activity post for a finished study session. */
 export function ActivityCard({ activity }: { activity: Activity }) {
@@ -18,6 +22,13 @@ export function ActivityCard({ activity }: { activity: Activity }) {
   /** Fetched the first time the thread is opened. */
   const [comments, setComments] = useState<Comment[] | null>(null);
   const commentCount = comments?.length ?? activity.comments;
+  const [photos, setPhotos] = useState(activity.photos);
+  const [tagged, setTagged] = useState(activity.tagged);
+  const [showTags, setShowTags] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [confirm, confirmDialog] = useConfirm();
 
   function toggleKudos() {
     const next = !liked;
@@ -35,8 +46,45 @@ export function ActivityCard({ activity }: { activity: Activity }) {
     }
   }
 
+  async function uploadPhotos(files: FileList) {
+    setUploading(true);
+    setPhotoError(null);
+    try {
+      for (const file of [...files].slice(0, MAX_PHOTOS - photos.length)) {
+        const photo = await api.addPhoto(activity.id, await shrinkImage(file));
+        setPhotos((ps) => [...ps, photo]);
+      }
+    } catch (err) {
+      setPhotoError((err as Error).message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  /** After confirming, optimistically remove, putting it back if the request fails. */
+  async function removePhoto(photo: Activity["photos"][number]) {
+    const ok = await confirm({
+      preview: (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={photo.url} alt="" className="size-24 rounded-2xl object-cover ring-1 ring-border" />
+      ),
+      title: "Delete this photo?",
+      message: "It will be removed from your post for good.",
+      confirmLabel: "Delete photo",
+    });
+    if (!ok) return;
+    // Updater functions, since an upload may have finished while the dialog was open.
+    const index = photos.indexOf(photo);
+    setPhotos((ps) => ps.filter((p) => p.id !== photo.id));
+    api.deletePhoto(activity.id, photo.id).catch((err) => {
+      setPhotos((ps) => [...ps.slice(0, index), photo, ...ps.slice(index)]);
+      setPhotoError(err.message);
+    });
+  }
+
   return (
     <Card className="p-0">
+      {confirmDialog}
       <div className="flex items-center gap-3 px-4 pt-4">
         <Avatar initials={activity.user.initials} hue={activity.user.hue} />
         <div className="min-w-0 flex-1">
@@ -58,7 +106,26 @@ export function ActivityCard({ activity }: { activity: Activity }) {
       <div className="px-4 pt-3">
         <h3 className="text-lg font-bold">{activity.title}</h3>
         {activity.note && <p className="mt-1 text-sm">{activity.note}</p>}
+        {tagged.length > 0 && (
+          <p className="mt-2 flex items-center gap-2 text-sm text-muted">
+            <span className="flex -space-x-2">
+              {tagged.slice(0, 3).map((u) => (
+                <span key={u.id} className="rounded-full ring-2 ring-surface">
+                  <Avatar initials={u.initials} hue={u.hue} size="sm" />
+                </span>
+              ))}
+            </span>
+            <span className="min-w-0">
+              with <span className="font-medium text-foreground">{listNames(tagged.map((u) => u.name))}</span>
+            </span>
+          </p>
+        )}
       </div>
+
+      {photos.length > 0 && (
+        <PhotoGrid photos={photos} onRemove={activity.mine ? removePhoto : undefined} />
+      )}
+      {photoError && <p className="px-4 pt-2 text-sm text-tempo">{photoError}</p>}
 
       <dl className="grid grid-cols-3 gap-2 px-4 pt-4">
         <Metric label="Subject" value={activity.subject} className={subjectColor(activity.subject).text} />
@@ -93,12 +160,101 @@ export function ActivityCard({ activity }: { activity: Activity }) {
           <CommentIcon className="size-5" />
           {commentCount}
         </button>
+
+        {activity.mine && (
+          <div className="ml-auto flex items-center">
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/*"
+              multiple
+              hidden
+              onChange={(e) => {
+                if (e.target.files?.length) uploadPhotos(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => fileInput.current?.click()}
+              disabled={uploading || photos.length >= MAX_PHOTOS}
+              aria-label="Add photos"
+              title={photos.length >= MAX_PHOTOS ? `At most ${MAX_PHOTOS} photos` : "Add photos"}
+              className="rounded-full p-2 text-muted transition-colors hover:text-foreground disabled:opacity-40"
+            >
+              <CameraIcon className={`size-5 ${uploading ? "animate-pulse" : ""}`} />
+            </button>
+            <button
+              onClick={() => setShowTags(!showTags)}
+              aria-expanded={showTags}
+              aria-label="Tag friends"
+              title="Tag friends you studied with"
+              className={`rounded-full p-2 transition-colors ${showTags ? "text-foreground" : "text-muted hover:text-foreground"}`}
+            >
+              <UsersIcon className="size-5" />
+            </button>
+          </div>
+        )}
       </div>
+
+      {showTags && (
+        <TagFriends
+          activityId={activity.id}
+          tagged={tagged}
+          onSaved={(next) => {
+            setTagged(next);
+            setShowTags(false);
+          }}
+        />
+      )}
 
       {showComments && (
         <CommentThread activityId={activity.id} comments={comments} onChange={setComments} />
       )}
     </Card>
+  );
+}
+
+/** "Lena", "Lena and Jonas", "Lena, Jonas and 2 others". */
+function listNames(names: string[]) {
+  if (names.length <= 2) return names.join(" and ");
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`;
+  return `${names[0]}, ${names[1]} and ${names.length - 2} others`;
+}
+
+/** One photo full width; more in a two-column grid, the first spanning both when odd. */
+function PhotoGrid({
+  photos,
+  onRemove,
+}: {
+  photos: Activity["photos"];
+  onRemove?: (photo: Activity["photos"][number]) => void;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-1 px-4 pt-3">
+      {photos.map((photo, i) => (
+        <div
+          key={photo.id}
+          className={`group relative overflow-hidden rounded-2xl bg-surface-2 ${
+            photos.length % 2 === 1 && i === 0 ? "col-span-2 aspect-[4/3]" : "aspect-square"
+          }`}
+        >
+          <a href={photo.url} target="_blank" rel="noreferrer">
+            {/* Served by our own authenticated route, so next/image's optimizer can't fetch it. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={photo.url} alt="" loading="lazy" className="size-full object-cover" />
+          </a>
+          {onRemove && (
+            <button
+              onClick={() => onRemove(photo)}
+              aria-label="Remove photo"
+              className="absolute top-2 right-2 grid size-7 place-items-center rounded-full bg-black/55 text-white"
+            >
+              <XIcon className="size-4" />
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 

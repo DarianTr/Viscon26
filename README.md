@@ -167,6 +167,10 @@ src/
 | GET    | `/api/tasks/:id/comments` | –                | `{ comments: [] }` |
 | POST   | `/api/tasks/:id/comments` | `{ body }`       | `201 { comment }` |
 | DELETE | `/api/tasks/:id/comments/:commentId` | –     | `204`             |
+| POST   | `/api/tasks/:id/photos` | multipart `photo`  | `201 { photo }`   |
+| DELETE | `/api/tasks/:id/photos/:photoId` | –         | `204`             |
+| GET    | `/api/photos/:id` | –                        | the image         |
+| PUT    | `/api/tasks/:id/tags` | `{ userIds }`        | `204`             |
 | GET    | `/api/people?q=` | – (no `q`: friends and pending requests) | `{ people: [] }`  |
 | PUT / DELETE | `/api/users/:id/friend` | –            | `{ status }`      |
 
@@ -179,6 +183,11 @@ Only friends see each other's shared activities and leaderboard hours. Kudos
 and comments work on activities you can see in your feed: your own, or shared
 ones by friends. You can delete your own comments and any comment on your own
 activities.
+
+On your own completed sessions you can add up to 4 photos (JPEG, PNG or WebP,
+at most 5 MB each; the app shrinks them before uploading) and tag up to 10
+friends you studied with. Photos are stored in Postgres and served only to
+people who can see the activity.
 
 ### Users and tasks
 

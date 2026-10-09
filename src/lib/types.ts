@@ -75,6 +75,10 @@ export type Activity = {
   kudoed: boolean;
   comments: number;
   note: string | null;
+  /** URLs of the post's photos, oldest first. */
+  photos: { id: string; url: string }[];
+  /** Friends the author studied with. */
+  tagged: UserSummary[];
   mine: boolean;
   /** False for private sessions, which only their author sees. */
   shared: boolean;

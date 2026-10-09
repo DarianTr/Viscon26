@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { XIcon } from "@/components/icons";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Avatar } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import type { Comment } from "@/lib/types";
@@ -20,6 +21,7 @@ export function CommentThread({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -37,12 +39,23 @@ export function CommentThread({
       .finally(() => setSending(false));
   }
 
-  /** Optimistically remove, putting it back if the request fails. */
-  function remove(id: string) {
-    if (!comments) return;
+  /** After confirming, optimistically remove, putting it back if the request fails. */
+  async function remove(comment: Comment) {
+    const ok = await confirm({
+      preview: (
+        <p className="line-clamp-3 max-w-full rounded-2xl bg-surface-2 px-3 py-2 text-left text-sm break-words">
+          {comment.body}
+        </p>
+      ),
+      title: "Delete comment?",
+      message: comment.mine ? "This can't be undone." : `${comment.user.name} wrote this on your post. This can't be undone.`,
+      confirmLabel: "Delete",
+    });
+    // The modal blocks the comment form, so `comments` is still current here.
+    if (!ok || !comments) return;
     const before = comments;
-    onChange(comments.filter((c) => c.id !== id));
-    api.deleteComment(activityId, id).catch((err) => {
+    onChange(comments.filter((c) => c.id !== comment.id));
+    api.deleteComment(activityId, comment.id).catch((err) => {
       onChange(before);
       setError(err.message);
     });
@@ -50,6 +63,7 @@ export function CommentThread({
 
   return (
     <div className="border-t border-border px-4 py-3">
+      {confirmDialog}
       {comments === null && <p className="py-2 text-sm text-muted">Loading comments…</p>}
 
       {comments && comments.length > 0 && (
@@ -66,7 +80,7 @@ export function CommentThread({
               </div>
               {c.canDelete && (
                 <button
-                  onClick={() => remove(c.id)}
+                  onClick={() => remove(c)}
                   aria-label="Delete comment"
                   className="self-center rounded-full p-1 text-muted hover:text-foreground"
                 >

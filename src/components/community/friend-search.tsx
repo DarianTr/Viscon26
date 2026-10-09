@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CheckIcon } from "@/components/icons";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Avatar, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import type { FriendStatus, Person } from "@/lib/types";
@@ -24,6 +26,7 @@ export function FriendSearch({ friends }: { friends: Person[] }) {
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const inflight = useRef<AbortController>(undefined);
+  const [confirm, confirmDialog] = useConfirm();
 
   /** Debounced search; a newer keystroke cancels the older request. */
   function search(q: string) {
@@ -52,8 +55,19 @@ export function FriendSearch({ friends }: { friends: Person[] }) {
    * Optimistically send, accept, cancel, decline or unfriend; the server's
    * answer wins, and the feed and leaderboard refresh after.
    */
-  function setFriend(person: Person, on: boolean) {
-    if (!on && person.status === "friends" && !confirm(`Remove ${person.name} from your friends?`)) return;
+  async function setFriend(person: Person, on: boolean) {
+    if (
+      !on &&
+      person.status === "friends" &&
+      !(await confirm({
+        preview: <Avatar initials={person.initials} hue={person.hue} size="lg" />,
+        title: `Remove ${person.name}?`,
+        message: "You'll stop seeing each other's sessions. To be friends again, one of you will need to send a new request.",
+        confirmLabel: "Remove friend",
+      }))
+    ) {
+      return;
+    }
     const apply = (status: FriendStatus) =>
       setPeople((ps) => ps.map((p) => (p.id === person.id ? { ...p, status } : p)));
     apply(on ? (person.status === "received" ? "friends" : "sent") : "none");
@@ -86,6 +100,7 @@ export function FriendSearch({ friends }: { friends: Person[] }) {
       />
 
       {error && <p className="px-1 text-sm text-tempo">{error}</p>}
+      {confirmDialog}
 
       {shown.length === 0 && !loading && (
         <Card className="py-10 text-center text-sm text-muted">
@@ -164,8 +179,16 @@ function FriendButtons({ person, onSet }: { person: Person; onSet: (person: Pers
       );
     case "friends":
       return (
-        <button onClick={() => onSet(person, false)} className={secondary}>
-          Friends
+        <button
+          onClick={() => onSet(person, false)}
+          aria-label={`Remove ${person.name} from friends`}
+          className={`${button} group grid bg-surface-2 text-muted hover:bg-tempo/10 hover:text-tempo focus-visible:bg-tempo/10 focus-visible:text-tempo`}
+        >
+          {/* Both labels share one grid cell, so the button keeps its width when they swap. */}
+          <span className="col-start-1 row-start-1 flex items-center justify-center gap-1 group-hover:invisible group-focus-visible:invisible">
+            <CheckIcon className="size-4" /> Friends
+          </span>
+          <span className="invisible col-start-1 row-start-1 group-hover:visible group-focus-visible:visible">Remove</span>
         </button>
       );
     case "sent":

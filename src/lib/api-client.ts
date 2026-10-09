@@ -7,7 +7,8 @@ import type { Comment, FriendStatus, Item, Person, TaskRecord } from "./types";
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    // FormData bodies set their own multipart Content-Type.
+    headers: init?.body instanceof FormData ? init.headers : { "Content-Type": "application/json", ...init?.headers },
   });
 
   if (!res.ok) {
@@ -57,6 +58,23 @@ export const api = {
 
   deleteComment: (taskId: string, commentId: string) =>
     request<void>(`/tasks/${taskId}/comments/${commentId}`, { method: "DELETE" }),
+
+  /** Upload a photo to your own activity. */
+  addPhoto: (taskId: string, photo: Blob) => {
+    const form = new FormData();
+    form.append("photo", photo, "photo");
+    return request<{ photo: { id: string; url: string } }>(`/tasks/${taskId}/photos`, {
+      method: "POST",
+      body: form,
+    }).then((r) => r.photo);
+  },
+
+  deletePhoto: (taskId: string, photoId: string) =>
+    request<void>(`/tasks/${taskId}/photos/${photoId}`, { method: "DELETE" }),
+
+  /** Replace the friends tagged on your own activity. */
+  setTags: (taskId: string, userIds: string[]) =>
+    request<void>(`/tasks/${taskId}/tags`, { method: "PUT", body: JSON.stringify({ userIds }) }),
 
   /** Find people by name or handle; without a query, your friends and pending requests. */
   searchPeople: (q: string, init?: RequestInit) =>

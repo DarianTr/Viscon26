@@ -43,6 +43,13 @@
       "when": 1791575761253,
       "tag": "0005_drop_follows",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791576379531,
+      "tag": "0006_post_photos_and_tags",
+      "breakpoints": true
     }
   ]
 }

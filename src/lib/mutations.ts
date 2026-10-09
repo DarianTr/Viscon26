@@ -1,12 +1,13 @@
 import "server-only";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, count, eq, isNull, or } from "drizzle-orm";
 import { db, schema as s } from "@/db";
 import type { SessionUser } from "./auth";
-import { getFriendStatus, toComment } from "./queries";
+import { MAX_PHOTOS } from "./photos";
+import { filterFriends, getFriendStatus, toComment } from "./queries";
 import type { Comment, FriendStatus } from "./types";
 
 /*
- * Social actions (kudos, friends, comments), called from the route handlers in `src/app/api`.
+ * Social actions (kudos, friends, comments, post photos and tags), called from the route handlers in `src/app/api`.
  * Plain CRUD lives in `./users.ts` and `./tasks.ts`.
  * Each function returns false when the target doesn't exist, which the
  * handlers turn into a 404.
@@ -87,4 +88,51 @@ export async function deleteComment(
     .where(and(eq(s.comments.id, commentId), eq(s.comments.sessionId, activity.id), mayDelete))
     .returning({ id: s.comments.id });
   return rows.length > 0;
+}
+
+/**
+ * Adds a photo to the user's own activity (`getOwnActivity`). Null once the
+ * post already has `MAX_PHOTOS`.
+ */
+export async function addPhoto(
+  sessionId: string,
+  contentType: string,
+  data: Buffer,
+): Promise<{ id: string; url: string } | null> {
+  const [{ n }] = await db
+    .select({ n: count() })
+    .from(s.sessionPhotos)
+    .where(eq(s.sessionPhotos.sessionId, sessionId));
+  if (n >= MAX_PHOTOS) return null;
+
+  const [row] = await db
+    .insert(s.sessionPhotos)
+    .values({ sessionId, contentType, data })
+    .returning({ id: s.sessionPhotos.id });
+  return { id: row.id, url: `/api/photos/${row.id}` };
+}
+
+export async function deletePhoto(sessionId: string, photoId: string): Promise<boolean> {
+  const rows = await db
+    .delete(s.sessionPhotos)
+    .where(and(eq(s.sessionPhotos.id, photoId), eq(s.sessionPhotos.sessionId, sessionId)))
+    .returning({ id: s.sessionPhotos.id });
+  return rows.length > 0;
+}
+
+/**
+ * Replaces who's tagged on the user's own activity. Only friends can be
+ * tagged; returns false (and changes nothing) if any of `userIds` isn't one.
+ */
+export async function setTags(ownerId: string, sessionId: string, userIds: string[]): Promise<boolean> {
+  const ids = [...new Set(userIds)];
+  if ((await filterFriends(ownerId, ids)).length !== ids.length) return false;
+
+  await db.transaction(async (tx) => {
+    await tx.delete(s.sessionTags).where(eq(s.sessionTags.sessionId, sessionId));
+    if (ids.length > 0) {
+      await tx.insert(s.sessionTags).values(ids.map((userId) => ({ sessionId, userId })));
+    }
+  });
+  return true;
 }

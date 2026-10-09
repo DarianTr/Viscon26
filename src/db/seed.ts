@@ -151,7 +151,7 @@ async function main() {
   console.log("Clearing tables…");
   await db.execute(sql`
     truncate table
-      comments, kudos, sessions, enrollments,
+      session_photos, session_tags, comments, kudos, sessions, enrollments,
       user_badges, badges, friendships, plans, auth_sessions, users, items
     restart identity cascade
   `);
@@ -426,6 +426,19 @@ async function main() {
       })),
     ),
   );
+
+  // Some recent posts by the friend group were studied together. Everyone in
+  // the group is friends with everyone else, so any of them can be tagged.
+  const group = [me, ...friends];
+  const tagRows = recent
+    .filter((post) => group.some((u) => u.id === post.userId))
+    .flatMap((post) =>
+      sample(group.filter((u) => u.id !== post.userId), pick([0, 0, 1, 2])).map((u) => ({
+        sessionId: post.id,
+        userId: u.id,
+      })),
+    );
+  if (tagRows.length > 0) await db.insert(s.sessionTags).values(tagRows);
 
   // --- Badges ---------------------------------------------------------------------
   await db.insert(s.badges).values([

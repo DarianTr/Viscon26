@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   check,
+  customType,
   date,
   index,
   integer,
@@ -158,6 +159,33 @@ export const kudos = pgTable(
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.sessionId, t.userId] })],
+);
+
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
+
+/** Photos on a session's post, stored in the database so the app needs no file storage. */
+export const sessionPhotos = pgTable(
+  "session_photos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+    /** Sniffed from the bytes on upload: image/jpeg, image/png or image/webp. */
+    contentType: text("content_type").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.sessionId, t.createdAt)],
+);
+
+/** Friends the author studied with, tagged on the session's post. */
+export const sessionTags = pgTable(
+  "session_tags",
+  {
+    sessionId: uuid("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.sessionId, t.userId] }), index().on(t.userId)],
 );
 
 export const comments = pgTable(
