@@ -1,10 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { Card } from "@/components/ui/primitives";
 import { subjectColor } from "@/lib/session-types";
 
 const initialAllocation = [25, 25, 25, 25];
+
+/** Same-tab listeners; other tabs are covered by the `storage` event. */
+const listeners = new Set<() => void>();
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    listeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
 
 export function SubjectInvestment({
   subjects,
@@ -13,29 +25,18 @@ export function SubjectInvestment({
   subjects: string[];
   userKey: string;
 }) {
-  const [allocation, setAllocation] = useState(initialAllocation);
-  const [loaded, setLoaded] = useState(false);
   const storageKey = `stride-subject-investment:${userKey}`;
-
-  useEffect(() => {
-    const saved = localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        const parsed: unknown = JSON.parse(saved);
-        if (isAllocation(parsed, subjects.length)) setAllocation(parsed);
-      } catch {
-        localStorage.removeItem(storageKey);
-      }
-    }
-    setLoaded(true);
-  }, [storageKey, subjects.length]);
-
-  useEffect(() => {
-    if (loaded) localStorage.setItem(storageKey, JSON.stringify(allocation));
-  }, [allocation, loaded, storageKey]);
+  // The saved split lives in localStorage; the server render (null) shows the default.
+  const saved = useSyncExternalStore(
+    subscribe,
+    () => localStorage.getItem(storageKey),
+    () => null,
+  );
+  const allocation = useMemo(() => parseAllocation(saved, subjects.length) ?? initialAllocation, [saved, subjects.length]);
 
   function changeAllocation(index: number, value: number) {
-    setAllocation((current) => rebalance(current, index, value));
+    localStorage.setItem(storageKey, JSON.stringify(rebalance(allocation, index, value)));
+    listeners.forEach((listener) => listener());
   }
 
   return (
@@ -67,6 +68,17 @@ export function SubjectInvestment({
   );
 }
 
+/** The saved split, or null if there is none or it doesn't fit these subjects. */
+function parseAllocation(saved: string | null, length: number): number[] | null {
+  if (!saved) return null;
+  try {
+    const parsed: unknown = JSON.parse(saved);
+    return isAllocation(parsed, length) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function isAllocation(value: unknown, length: number): value is number[] {
   return (
     Array.isArray(value) &&
@@ -96,7 +108,7 @@ function rebalance(current: number[], selectedIndex: number, selectedValue: numb
     next[index] = Math.floor(exactShare);
     return { index, remainder: exactShare - next[index] };
   });
-  let unassigned = remaining - others.reduce((sum, index) => sum + next[index], 0);
+  const unassigned = remaining - others.reduce((sum, index) => sum + next[index], 0);
   shares.sort((a, b) => b.remainder - a.remainder);
   for (let index = 0; index < unassigned; index++) next[shares[index].index]++;
 
