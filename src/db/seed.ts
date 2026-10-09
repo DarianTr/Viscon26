@@ -10,9 +10,12 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { sql } from "drizzle-orm";
 import postgres from "postgres";
 import * as s from "./schema";
+import { hashPassword } from "./password";
 
 const TZ = "Europe/Zurich";
 const DEMO_HANDLE = process.env.DEMO_USER_HANDLE ?? "tprazak";
+/** Every seeded user gets this password; the demo user is also an admin. */
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? "stride";
 
 const client = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
 const db = drizzle(client, { schema: s });
@@ -148,16 +151,17 @@ async function main() {
   console.log("Clearing tables…");
   await db.execute(sql`
     truncate table
-      comments, kudos, sessions, enrollments, club_members, clubs,
-      user_badges, badges, follows, plans, users, items
+      session_photos, session_tags, comments, kudos, sessions, enrollments,
+      user_badges, badges, friendships, plans, auth_sessions, users, items
     restart identity cascade
   `);
 
   // --- Users --------------------------------------------------------------
+  const passwordHash = await hashPassword(DEMO_PASSWORD);
   const [me, lena, jonas, aisha, marco, ...classmates] = await db
     .insert(s.users)
     .values([
-      { handle: DEMO_HANDLE, name: "Tomas P.", hue: 200, spiritAnimal: "fox", program: "BSc Computer Science · Semester 3", weeklyGoalHours: 25 },
+      { handle: DEMO_HANDLE, name: "Tomas P.", hue: 200, spiritAnimal: "fox", program: "BSc Computer Science · Semester 3", weeklyGoalHours: 25, isAdmin: true },
       { handle: "lena", name: "Lena Meier", hue: 260, spiritAnimal: "owl", program: "BSc Mathematics" },
       { handle: "jonas", name: "Jonas Keller", hue: 160, spiritAnimal: "wolf", program: "BSc Physics" },
       { handle: "aisha", name: "Aisha Rahman", hue: 20, spiritAnimal: "deer", program: "BSc Computer Science" },
@@ -168,17 +172,21 @@ async function main() {
         hue: (i * 47) % 360,
         program: pick(["BSc Computer Science", "BSc Mathematics", "BSc Physics"]),
       })),
-    ])
+    ].map((u) => ({ ...u, passwordHash })))
     .returning();
   const friends = [lena, jonas, aisha, marco];
   const everyone = [me, ...friends, ...classmates];
 
-  await db.insert(s.follows).values([
-    ...friends.map((f) => ({ followerId: me.id, followeeId: f.id })),
-    ...[...friends, ...classmates.slice(0, 14)].map((f) => ({ followerId: f.id, followeeId: me.id })),
-    ...friends.flatMap((a) =>
-      friends.filter((b) => b !== a).map((b) => ({ followerId: a.id, followeeId: b.id })),
+  // The four friends know each other and the demo user; a few classmates have
+  // sent the demo user requests, and the demo user has sent one.
+  const accepted = new Date();
+  await db.insert(s.friendships).values([
+    ...friends.map((f) => ({ requesterId: f.id, addresseeId: me.id, acceptedAt: accepted })),
+    ...friends.flatMap((a, i) =>
+      friends.slice(i + 1).map((b) => ({ requesterId: a.id, addresseeId: b.id, acceptedAt: accepted })),
     ),
+    ...classmates.slice(0, 3).map((c) => ({ requesterId: c.id, addresseeId: me.id })),
+    { requesterId: me.id, addresseeId: classmates[3].id },
   ]);
 
   // --- Plans --------------------------------------------------------------
@@ -419,29 +427,26 @@ async function main() {
     ),
   );
 
-  // --- Clubs and badges ---------------------------------------------------------
-  const clubRows = await db
-    .insert(s.clubs)
-    .values([
-      { name: "D-INFK First Years", emoji: "💻" },
-      { name: "DiskMath Survivors", emoji: "∫" },
-      { name: "5am Library Club", emoji: "🌅" },
-    ])
-    .returning();
-  await db.insert(s.clubMembers).values([
-    { clubId: clubRows[1].id, userId: me.id },
-    ...clubRows.flatMap((club) =>
-      sample([...friends, ...classmates], between(6, 18)).map((u) => ({ clubId: club.id, userId: u.id })),
-    ),
-  ]);
+  // Some recent posts by the friend group were studied together. Everyone in
+  // the group is friends with everyone else, so any of them can be tagged.
+  const group = [me, ...friends];
+  const tagRows = recent
+    .filter((post) => group.some((u) => u.id === post.userId))
+    .flatMap((post) =>
+      sample(group.filter((u) => u.id !== post.userId), pick([0, 0, 1, 2])).map((u) => ({
+        sessionId: post.id,
+        userId: u.id,
+      })),
+    );
+  if (tagRows.length > 0) await db.insert(s.sessionTags).values(tagRows);
 
+  // --- Badges ---------------------------------------------------------------------
   await db.insert(s.badges).values([
     { id: "streak-10", emoji: "🔥", label: "10-day streak", position: 1 },
     { id: "early-bird", emoji: "🌅", label: "Early bird", position: 2 },
     { id: "deep-3h", emoji: "🧠", label: "3 h deep block", position: 3 },
     { id: "hours-100", emoji: "🏔️", label: "100 h club", position: 4 },
     { id: "plan-finisher", emoji: "🏁", label: "Plan finisher", position: 5 },
-    { id: "club-first", emoji: "👑", label: "Club #1", position: 6 },
   ]);
   await db.insert(s.userBadges).values(
     ["streak-10", "early-bird", "deep-3h"].map((badgeId) => ({ userId: me.id, badgeId })),
@@ -454,7 +459,7 @@ async function main() {
 
   console.log(
     `Seeded ${everyone.length} users, ${inserted.length} sessions, ${kudosRows.length} kudos. ` +
-      `Demo user: @${DEMO_HANDLE}`,
+      `Log in as @${DEMO_HANDLE} (admin) or any other handle, password "${DEMO_PASSWORD}".`,
   );
 }
 

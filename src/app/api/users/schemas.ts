@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const userFields = {
+export const userFields = {
   handle: z
     .string()
     .trim()

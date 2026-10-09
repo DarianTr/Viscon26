@@ -1,17 +1,20 @@
 import "server-only";
 import { cache } from "react";
 import { connection } from "next/server";
-import { and, asc, count, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, schema as s, TIME_ZONE } from "@/db";
+import { requireUser, type SessionUser } from "./auth";
 import { initials } from "./session-types";
 import type {
   ActivePlan,
   Activity,
   CalendarEvent,
-  Club,
+  Comment,
+  FriendStatus,
   LeaderboardEntry,
   Plan,
+  Person,
   Profile,
   SessionType,
   Task,
@@ -32,6 +35,42 @@ const weekStart = sql`(date_trunc('week', now() at time zone ${tz}) at time zone
 
 const studyTypes: SessionType[] = ["deep", "intervals", "tempo", "recovery"];
 
+const f = s.friendships;
+
+/** Subquery: ids of the user's friends (accepted requests, either direction). */
+function friendIds(userId: string) {
+  return sql`(select case when ${f.requesterId} = ${userId} then ${f.addresseeId} else ${f.requesterId} end
+    from ${f} where ${f.acceptedAt} is not null and ${userId} in (${f.requesterId}, ${f.addresseeId}))`;
+}
+
+/** Where `otherId` stands with `userId`: friends, a pending request either way, or nothing. */
+function friendStatus(userId: string, otherId: unknown) {
+  return sql<FriendStatus>`coalesce((
+    select case when ${f.acceptedAt} is not null then 'friends'
+      when ${f.requesterId} = ${userId} then 'sent' else 'received' end
+    from ${f}
+    where (${f.requesterId} = ${userId} and ${f.addresseeId} = ${otherId})
+      or (${f.requesterId} = ${otherId} and ${f.addresseeId} = ${userId})
+  ), 'none')`;
+}
+
+/** Which of `ids` are the user's friends. */
+export async function filterFriends(userId: string, ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const rows = await db
+    .select({ id: s.users.id })
+    .from(s.users)
+    .where(and(inArray(s.users.id, ids), sql`${s.users.id} in ${friendIds(userId)}`));
+  return rows.map((r) => r.id);
+}
+
+export async function getFriendStatus(userId: string, otherId: string): Promise<FriendStatus> {
+  const [{ status }] = await db.execute<{ status: FriendStatus }>(
+    sql`select ${friendStatus(userId, otherId)} as status`,
+  );
+  return status;
+}
+
 function displaySubjectName(name: string) {
   if (name === "Physics") return "EProg";
   if (name === "Analysis II") return "DiskMath";
@@ -39,18 +78,12 @@ function displaySubjectName(name: string) {
 }
 
 /**
- * The signed-in user. There is no auth yet, so this is the seeded demo user
- * named by DEMO_USER_HANDLE — replace with a session lookup when auth lands.
- * Also marks the calling page as per-request, since it reads live data.
+ * The signed-in user; redirects to /login if there is none. Also marks the
+ * calling page as per-request, since it reads live data.
  */
 export const getCurrentUser = cache(async () => {
   await connection();
-  const handle = process.env.DEMO_USER_HANDLE ?? "tprazak";
-  const user = await db.query.users.findFirst({ where: eq(s.users.handle, handle) });
-  if (!user) {
-    throw new Error(`No user @${handle} in the database — run \`npm run db:seed\`.`);
-  }
-  return user;
+  return requireUser();
 });
 
 const zurichTime = new Intl.DateTimeFormat("en-GB", {
@@ -202,6 +235,21 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
 
 const relative = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
 
+const taggedUser = alias(s.users, "tagged_user");
+
+/** Photo ids on the session in the current row, oldest first. */
+const photoIds = sql<string[]>`coalesce((
+  select json_agg(${s.sessionPhotos.id} order by ${s.sessionPhotos.createdAt})
+  from ${s.sessionPhotos} where ${s.sessionPhotos.sessionId} = ${s.sessions.id}
+), '[]')`;
+
+/** Friends tagged on the session in the current row, by name. */
+const taggedUsers = sql<{ id: string; name: string; hue: number }[]>`coalesce((
+  select json_agg(json_build_object('id', ${taggedUser.id}, 'name', ${taggedUser.name}, 'hue', ${taggedUser.hue}) order by ${taggedUser.name})
+  from ${s.sessionTags} inner join ${s.users} as "tagged_user" on ${taggedUser.id} = ${s.sessionTags.userId}
+  where ${s.sessionTags.sessionId} = ${s.sessions.id}
+), '[]')`;
+
 function timeAgo(date: Date) {
   const minutes = Math.round((Date.now() - date.getTime()) / 60_000);
   if (minutes < 1) return "just now";
@@ -211,13 +259,14 @@ function timeAgo(date: Date) {
   return relative.format(-Math.round(hours / 24), "day");
 }
 
-/** Completed, shared sessions by the user and everyone they follow. */
-export async function getFeed(userId: string, limit = 20): Promise<Activity[]> {
-  const following = db
-    .select({ id: s.follows.followeeId })
-    .from(s.follows)
-    .where(eq(s.follows.followerId, userId));
-
+/**
+ * Completed, shared sessions by the user and their friends. With `mineOnly`,
+ * just the user's own — private ones included.
+ */
+export async function getFeed(
+  userId: string,
+  { limit = 20, mineOnly = false }: { limit?: number; mineOnly?: boolean } = {},
+): Promise<Activity[]> {
   const rows = await db
     .select({
       session: s.sessions,
@@ -225,20 +274,26 @@ export async function getFeed(userId: string, limit = 20): Promise<Activity[]> {
       kudos: sql<number>`(select count(*) from ${s.kudos} where ${s.kudos.sessionId} = ${s.sessions.id})::int`,
       kudoed: sql<boolean>`exists (select 1 from ${s.kudos} where ${s.kudos.sessionId} = ${s.sessions.id} and ${s.kudos.userId} = ${userId})`,
       comments: sql<number>`(select count(*) from ${s.comments} where ${s.comments.sessionId} = ${s.sessions.id})::int`,
+      photos: photoIds,
+      tagged: taggedUsers,
     })
     .from(s.sessions)
     .innerJoin(s.users, eq(s.users.id, s.sessions.userId))
     .where(
       and(
         isNotNull(s.sessions.completedAt),
-        eq(s.sessions.shared, true),
-        or(eq(s.sessions.userId, userId), inArray(s.sessions.userId, following)),
+        mineOnly
+          ? eq(s.sessions.userId, userId)
+          : and(
+              eq(s.sessions.shared, true),
+              or(eq(s.sessions.userId, userId), sql`${s.sessions.userId} in ${friendIds(userId)}`),
+            ),
       ),
     )
     .orderBy(desc(s.sessions.completedAt))
     .limit(limit);
 
-  return rows.map(({ session, user, kudos, kudoed, comments }) => ({
+  return rows.map(({ session, user, kudos, kudoed, comments, photos, tagged }) => ({
     id: session.id,
     user: { ...user, initials: initials(user.name) },
     postedAgo: timeAgo(session.completedAt!),
@@ -253,17 +308,15 @@ export async function getFeed(userId: string, limit = 20): Promise<Activity[]> {
     kudoed,
     comments,
     note: session.note,
+    photos: photos.map((id) => ({ id, url: `/api/photos/${id}` })),
+    tagged: tagged.map((u) => ({ ...u, name: u.id === userId ? "You" : u.name, initials: initials(u.name) })),
     mine: session.userId === userId,
+    shared: session.shared,
   }));
 }
 
-/** Study hours this week for the user and everyone they follow. */
+/** Study hours this week for the user and their friends. */
 export async function getLeaderboard(userId: string): Promise<LeaderboardEntry[]> {
-  const following = db
-    .select({ id: s.follows.followeeId })
-    .from(s.follows)
-    .where(eq(s.follows.followerId, userId));
-
   const rows = await db
     .select({
       id: s.users.id,
@@ -276,7 +329,7 @@ export async function getLeaderboard(userId: string): Promise<LeaderboardEntry[]
       s.sessions,
       and(eq(s.sessions.userId, s.users.id), sql`${s.sessions.completedAt} >= ${weekStart}`),
     )
-    .where(or(eq(s.users.id, userId), inArray(s.users.id, following)))
+    .where(or(eq(s.users.id, userId), sql`${s.users.id} in ${friendIds(userId)}`))
     .groupBy(s.users.id)
     .orderBy(desc(sql`4`));
 
@@ -290,46 +343,17 @@ export async function getLeaderboard(userId: string): Promise<LeaderboardEntry[]
   }));
 }
 
-export async function getClubs(userId: string): Promise<Club[]> {
-  const rows = await db
-    .select({
-      id: s.clubs.id,
-      name: s.clubs.name,
-      emoji: s.clubs.emoji,
-      members: count(s.clubMembers.userId),
-      joined: sql<boolean>`bool_or(${s.clubMembers.userId} = ${userId})`,
-    })
-    .from(s.clubs)
-    .leftJoin(s.clubMembers, eq(s.clubMembers.clubId, s.clubs.id))
-    .groupBy(s.clubs.id)
-    .orderBy(asc(s.clubs.createdAt), asc(s.clubs.name));
-  return rows.map((r) => ({
-    ...r,
-    name: r.name === "Analysis Survivors" ? "DiskMath Survivors" : r.name,
-    joined: r.joined ?? false,
-  }));
-}
-
-export async function getProfile(user: typeof s.users.$inferSelect): Promise<Profile> {
+export async function getProfile(user: SessionUser): Promise<Profile> {
   const userId = user.id;
   const mine = eq(s.sessions.userId, userId);
   const done = and(mine, isNotNull(s.sessions.completedAt));
-  const outgoingFollows = alias(s.follows, "outgoing_follows");
-  const incomingFollows = alias(s.follows, "incoming_follows");
 
   const [[friends], [totals], [kudos], week, subjects, badges, streak, exams] =
     await Promise.all([
       db
         .select({ n: count() })
-        .from(outgoingFollows)
-        .innerJoin(
-          incomingFollows,
-          and(
-            eq(outgoingFollows.followeeId, incomingFollows.followerId),
-            eq(outgoingFollows.followerId, incomingFollows.followeeId),
-          ),
-        )
-        .where(eq(outgoingFollows.followerId, userId)),
+        .from(f)
+        .where(and(isNotNull(f.acceptedAt), or(eq(f.requesterId, userId), eq(f.addresseeId, userId)))),
       db
         .select({
           minutes: sql<number>`coalesce(sum(${s.sessions.actualMinutes}), 0)::int`,
@@ -425,5 +449,116 @@ export async function getProfile(user: typeof s.users.$inferSelect): Promise<Pro
     weeklyGoal: user.weeklyGoalHours,
     subjects: [...subjectSummaries.values()],
     badges,
+  };
+}
+
+/**
+ * Friend search: other users whose name or handle matches `q`. Without a
+ * query, everyone the user is connected to — incoming requests, friends, and
+ * requests they've sent, in that order.
+ */
+export async function searchPeople(userId: string, q?: string, limit = q ? 20 : 200): Promise<Person[]> {
+  const status = friendStatus(userId, s.users.id);
+  const pattern = q && `%${q.replace(/[%_\\]/g, "\\$&")}%`;
+  const rank = sql`case ${status} when 'received' then 0 when 'friends' then 1 when 'sent' then 2 else 3 end`;
+
+  const rows = await db
+    .select({
+      id: s.users.id,
+      name: s.users.name,
+      handle: s.users.handle,
+      program: s.users.program,
+      hue: s.users.hue,
+      status,
+    })
+    .from(s.users)
+    .where(
+      and(
+        ne(s.users.id, userId),
+        pattern ? or(ilike(s.users.name, pattern), ilike(s.users.handle, pattern)) : sql`${status} <> 'none'`,
+      ),
+    )
+    // Connections first, then exact handle matches, then alphabetical.
+    .orderBy(asc(rank), desc(sql`${s.users.handle} = ${q?.toLowerCase() ?? ""}`), asc(s.users.name))
+    .limit(limit);
+
+  return rows.map((r) => ({ ...r, initials: initials(r.name) }));
+}
+
+/**
+ * A completed activity the user can see — their own, or a shared one by a
+ * friend, i.e. what `getFeed` shows.
+ */
+function visibleTo(userId: string) {
+  return and(
+    isNotNull(s.sessions.completedAt),
+    or(
+      eq(s.sessions.userId, userId),
+      and(eq(s.sessions.shared, true), sql`${s.sessions.userId} in ${friendIds(userId)}`),
+    ),
+  );
+}
+
+/** An activity the user can see (see `visibleTo`). Gates kudos and comments. */
+export async function getVisibleActivity(userId: string, sessionId: string) {
+  const [row] = await db
+    .select({ id: s.sessions.id, ownerId: s.sessions.userId })
+    .from(s.sessions)
+    .where(and(eq(s.sessions.id, sessionId), visibleTo(userId)));
+  return row;
+}
+
+/** A completed activity the user posted. Gates editing its photos and tags. */
+export async function getOwnActivity(userId: string, sessionId: string) {
+  const [row] = await db
+    .select({ id: s.sessions.id, ownerId: s.sessions.userId })
+    .from(s.sessions)
+    .where(
+      and(eq(s.sessions.id, sessionId), eq(s.sessions.userId, userId), isNotNull(s.sessions.completedAt)),
+    );
+  return row;
+}
+
+/** A photo, if it's on an activity the user can see. */
+export async function getVisiblePhoto(userId: string, photoId: string) {
+  const [row] = await db
+    .select({ contentType: s.sessionPhotos.contentType, data: s.sessionPhotos.data })
+    .from(s.sessionPhotos)
+    .innerJoin(s.sessions, eq(s.sessions.id, s.sessionPhotos.sessionId))
+    .where(and(eq(s.sessionPhotos.id, photoId), visibleTo(userId)));
+  return row;
+}
+
+/** Comments on an activity, oldest first. `ownerId` is the activity's author. */
+export async function listComments(userId: string, sessionId: string, ownerId: string): Promise<Comment[]> {
+  const rows = await db
+    .select({
+      id: s.comments.id,
+      body: s.comments.body,
+      createdAt: s.comments.createdAt,
+      user: { id: s.users.id, name: s.users.name, hue: s.users.hue },
+    })
+    .from(s.comments)
+    .innerJoin(s.users, eq(s.users.id, s.comments.userId))
+    .where(eq(s.comments.sessionId, sessionId))
+    .orderBy(asc(s.comments.createdAt));
+
+  return rows.map((r) => toComment(r, userId, ownerId));
+}
+
+export function toComment(
+  r: { id: string; body: string; createdAt: Date; user: { id: string; name: string; hue: number } },
+  userId: string,
+  ownerId: string,
+): Comment {
+  const mine = r.user.id === userId;
+  return {
+    id: r.id,
+    body: r.body,
+    postedAgo: timeAgo(r.createdAt),
+    // Only the public summary — `r.user` may be a full SessionUser.
+    user: { id: r.user.id, name: r.user.name, hue: r.user.hue, initials: initials(r.user.name) },
+    mine,
+    canDelete: mine || ownerId === userId,
   };
 }

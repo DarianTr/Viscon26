@@ -76,12 +76,40 @@ export type Activity = {
   kudoed: boolean;
   comments: number;
   note: string | null;
+  /** URLs of the post's photos, oldest first. */
+  photos: { id: string; url: string }[];
+  /** Friends the author studied with. */
+  tagged: UserSummary[];
   mine: boolean;
+  /** False for private sessions, which only their author sees. */
+  shared: boolean;
+};
+
+export type Comment = {
+  id: string;
+  user: UserSummary;
+  body: string;
+  postedAgo: string;
+  /** The current user wrote it. */
+  mine: boolean;
+  /** The current user may delete it: their own comment, or one on their activity. */
+  canDelete: boolean;
+};
+
+/**
+ * Where someone stands with you: friends, a request you sent, a request they
+ * sent you, or nothing yet.
+ */
+export type FriendStatus = "friends" | "sent" | "received" | "none";
+
+/** Someone in friend search. */
+export type Person = UserSummary & {
+  handle: string;
+  program: string | null;
+  status: FriendStatus;
 };
 
 export type LeaderboardEntry = UserSummary & { hours: number; you: boolean };
-
-export type Club = { id: string; name: string; emoji: string; members: number; joined: boolean };
 
 export type Profile = {
   name: string;

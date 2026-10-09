@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 import { CheckIcon, PlusIcon } from "@/components/icons";
 import { Card, PageHeader, SectionTitle } from "@/components/ui/primitives";
@@ -18,10 +19,13 @@ export default async function PlansPage() {
         eyebrow="Training plans"
         title="Plans"
         action={
-          <button className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background">
+          <Link
+            href="/plans/new"
+            className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background"
+          >
             <PlusIcon className="size-4" />
             Custom
-          </button>
+          </Link>
         }
       />
 

@@ -2,43 +2,31 @@
 
 import { useState } from "react";
 import { Avatar, Card } from "@/components/ui/primitives";
-import { api } from "@/lib/api-client";
-import type { Activity, Club, LeaderboardEntry } from "@/lib/types";
+import type { Activity, LeaderboardEntry, Person } from "@/lib/types";
 import { ActivityCard } from "./activity-card";
+import { FriendSearch } from "./friend-search";
 
-const segments = ["Feed", "Leaderboard", "Clubs"] as const;
+const segments = ["Feed", "You", "Leaderboard", "Friends"] as const;
 const medals = ["🥇", "🥈", "🥉"];
 
 export function CommunityTabs({
   feed,
+  mine,
   leaderboard,
-  clubs: initialClubs,
+  friends,
 }: {
   feed: Activity[];
+  /** The user's own activities, private ones included. */
+  mine: Activity[];
   leaderboard: LeaderboardEntry[];
-  clubs: Club[];
+  friends: Person[];
 }) {
   const [segment, setSegment] = useState<(typeof segments)[number]>("Feed");
-  const [clubs, setClubs] = useState(initialClubs);
-
-  /** Optimistically join or leave, rolling back if the request fails. */
-  function toggleClub(id: string, join: boolean) {
-    const apply = (on: boolean) =>
-      setClubs((cs) =>
-        cs.map((c) =>
-          c.id === id && c.joined !== on
-            ? { ...c, joined: on, members: c.members + (on ? 1 : -1) }
-            : c,
-        ),
-      );
-    apply(join);
-    api.setClubMembership(id, join).catch(() => apply(!join));
-  }
-
+  const requests = friends.filter((p) => p.status === "received").length;
   return (
     <>
       <div className="sticky top-0 z-10 -mx-4 bg-background/85 px-4 pt-1 pb-3 backdrop-blur-xl sm:mx-0 sm:px-0">
-        <div className="grid grid-cols-3 rounded-full bg-surface-2 p-1">
+        <div className="grid grid-cols-4 rounded-full bg-surface-2 p-1">
           {segments.map((s) => (
             <button
               key={s}
@@ -48,25 +36,28 @@ export function CommunityTabs({
               }`}
             >
               {s}
+              {s === "Friends" && requests > 0 && (
+                <span
+                  aria-label={`${requests} friend requests`}
+                  className="ml-1.5 inline-grid min-w-5 place-items-center rounded-full bg-accent px-1 text-[11px] leading-5 text-white"
+                >
+                  {requests}
+                </span>
+              )}
             </button>
           ))}
         </div>
       </div>
 
-      {segment === "Feed" && feed.length === 0 && (
-        <Card className="py-10 text-center text-sm text-muted">
-          Nothing here yet — follow classmates to see their sessions.
-        </Card>
+      {segment === "Feed" && (
+        <ActivityList
+          activities={feed}
+          empty="Nothing here yet — add classmates under Friends to see their sessions."
+        />
       )}
 
-      {segment === "Feed" && (
-        <ul className="flex flex-col gap-4">
-          {feed.map((activity) => (
-            <li key={activity.id}>
-              <ActivityCard activity={activity} />
-            </li>
-          ))}
-        </ul>
+      {segment === "You" && (
+        <ActivityList activities={mine} empty="Finish a session and it shows up here." />
       )}
 
       {segment === "Leaderboard" && (
@@ -95,29 +86,22 @@ export function CommunityTabs({
         </Card>
       )}
 
-      {segment === "Clubs" && (
-        <ul className="grid gap-3 sm:grid-cols-2">
-          {clubs.map((club) => (
-            <li key={club.id}>
-              <Card className="flex items-center gap-4 p-4">
-                <span className="grid size-12 place-items-center rounded-2xl bg-surface-2 text-2xl">{club.emoji}</span>
-                <div className="flex-1">
-                  <p className="font-semibold">{club.name}</p>
-                  <p className="text-sm text-muted">{club.members.toLocaleString("en-US")} {club.members === 1 ? "member" : "members"}</p>
-                </div>
-                <button
-                  onClick={() => toggleClub(club.id, !club.joined)}
-                  className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
-                    club.joined ? "bg-surface-2 text-muted" : "bg-accent-soft text-accent"
-                  }`}
-                >
-                  {club.joined ? "Joined" : "Join"}
-                </button>
-              </Card>
-            </li>
-          ))}
-        </ul>
-      )}
+      {segment === "Friends" && <FriendSearch friends={friends} />}
     </>
+  );
+}
+
+function ActivityList({ activities, empty }: { activities: Activity[]; empty: string }) {
+  if (activities.length === 0) {
+    return <Card className="py-10 text-center text-sm text-muted">{empty}</Card>;
+  }
+  return (
+    <ul className="flex flex-col gap-4">
+      {activities.map((activity) => (
+        <li key={activity.id}>
+          <ActivityCard activity={activity} />
+        </li>
+      ))}
+    </ul>
   );
 }

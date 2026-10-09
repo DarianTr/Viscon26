@@ -15,6 +15,8 @@ npm run db:setup
 npm run dev
 ```
 
+Log in as `tprazak` with password `stride` (an admin), or as any other seeded
+handle with the same password. `/signup` creates new accounts.
 Open http://localhost:3000.
 
 Other scripts: `npm run build`, `npm start`, `npm run lint`.
@@ -38,13 +40,18 @@ the data.
 | Variable            | Default   | Purpose                                     |
 | ------------------- | --------- | ------------------------------------------- |
 | `APP_PORT`          | `3000`    | Port the app is published on                |
-| `DB_PORT`           | `5432`    | Port Postgres is published on               |
+| `DB_PORT`           | `5432`    | Port Postgres is published on (localhost)   |
 | `POSTGRES_PASSWORD` | `stride`  | Database password: change it on a server    |
 | `SEED_DEMO_DATA`    | `true`    | `false` to start with an empty database     |
-| `DEMO_USER_HANDLE`  | `tprazak` | Which user every request acts as (no auth)  |
+| `DEMO_USER_HANDLE`  | `tprazak` | Seeded admin user                           |
+| `DEMO_PASSWORD`     | `stride`  | Password of every seeded user               |
 
 Set them inline (`APP_PORT=8080 docker compose up --build`) or in a `.env`
 file next to `docker-compose.yml`.
+
+**CI/CD:** every push runs lint, typecheck and build in GitHub Actions, and
+merging to `main` deploys to the VisCon VM. Setup is in
+[`deploy/README.md`](deploy/README.md).
 
 The same `Dockerfile` works on any host that builds from a repo, such as
 Railway, Render or Fly.io. There, use a managed Postgres, set `DATABASE_URL`,
@@ -60,6 +67,7 @@ Postgres via [Drizzle ORM](https://orm.drizzle.team) and the `postgres` driver.
 | `npm run db:down`     | Stop it (data persists in a Docker volume)                |
 | `npm run db:migrate`  | Apply migrations in `drizzle/`                            |
 | `npm run db:seed`     | **Wipe** all tables and load demo data                    |
+| `npm run db:set-password -- <handle> <pw> [--admin]` | Set a password, optionally make the user an admin |
 | `npm run db:generate` | Write a new migration after editing `src/db/schema.ts`    |
 | `npm run db:studio`   | Browse the data in Drizzle Studio                         |
 
@@ -71,9 +79,33 @@ computed from rows (mainly `sessions`), never stored. A session is a plan
 entry until `completed_at` is set; then it is an activity in the feed.
 "Today" and "this week" are evaluated in `Europe/Zurich`.
 
-There is no auth yet: every request acts as the seeded user named by
-`DEMO_USER_HANDLE`. Swap `getCurrentUser()` in `src/lib/queries.ts` for a real
-session lookup when adding login.
+## Auth and admin
+
+Users log in at `/login` with their handle and password (or sign up at
+`/signup`). Passwords are hashed with scrypt (`src/db/password.ts`). A login
+creates a row in `auth_sessions` and an httpOnly cookie holding a random
+token; only the token's SHA-256 is stored. Sessions last 30 days, and logging
+out (on the Profile tab) deletes the row. `src/lib/auth.ts` has the helpers:
+`getSessionUser()`, `requireUser()` and `requireAdmin()`.
+
+- Pages call `getCurrentUser()`, which redirects to `/login` without a session.
+- Every API route wrapped in `handle()` answers `401` without a session
+  (`/api/health` stays public).
+- The cookie is `Secure` in production, so serve the app over HTTPS there.
+
+**Admin interface** at `/admin`, for users with `users.is_admin = true` (others
+get a 404; admins see an "Admin" button on their profile):
+
+- Browse any table, 50 rows per page.
+- Insert, edit and delete rows. Values are edited as text and Postgres casts
+  them to the column type, so write arrays as `{1,2}` and timestamps as
+  `2026-10-12 09:00+02`. Tick "null" to store NULL. When inserting, blank
+  fields get the column default.
+- A SQL console that runs any statement directly. There's no undo.
+
+To make someone an admin on a database that wasn't seeded, run
+`npm run db:set-password -- <handle> <password> --admin`. In Docker:
+`docker compose run --rm migrate npx tsx src/db/set-password.ts <handle> <password> --admin`.
 
 For production, point `DATABASE_URL` at any hosted Postgres (Neon, Supabase,
 RDS, …) and run `npm run db:migrate` against it. `next build` doesn't need a
@@ -89,8 +121,11 @@ src/
       page.tsx            /           Today's tasks + focus timer
       plans/page.tsx      /plans      active training plan, plan catalogue
       calendar/page.tsx   /calendar   month view + day agenda
-      community/page.tsx  /community  activity feed, leaderboard, clubs
-      profile/page.tsx    /profile    stats, subjects, achievements
+      community/page.tsx  /community  feed, your activities, leaderboard, friends and requests
+      profile/page.tsx    /profile    stats, subjects, achievements, your posts
+      profile/settings/   /profile/settings  edit profile, change password, delete account
+    (auth)/               /login, /signup and their server actions (+ logout)
+    admin/                /admin: table browser, row editor, SQL console
     layout.tsx            root layout (fonts, metadata, viewport)
     manifest.ts           web app manifest (installable on phones)
     globals.css           Tailwind entry + theme tokens (light/dark)
@@ -98,13 +133,15 @@ src/
       health/route.ts     GET  /api/health
       items/route.ts      GET, POST  /api/items
       items/[id]/route.ts GET, PATCH, DELETE  /api/items/:id
-      users/              CRUD  /api/users, /api/users/:id
-      tasks/              CRUD  /api/tasks, /api/tasks/:id (+ /kudos)
-      clubs/[id]/membership  PUT/DELETE (join/leave)
+      users/              CRUD  /api/users, /api/users/:id (+ /friend)
+      tasks/              CRUD  /api/tasks, /api/tasks/:id (+ /kudos, /comments)
+      people/route.ts     GET  /api/people  friend search
   db/
     schema.ts             tables (Drizzle) — source of truth for migrations
     index.ts              database client
     seed.ts               demo data
+    password.ts           scrypt hashing (shared with the seed script)
+    set-password.ts       CLI: set a password / make an admin
   components/
     tab-bar.tsx           tab navigation (bottom bar + sidebar)
     icons.tsx             inline SVG icon set
@@ -112,9 +149,11 @@ src/
     today/, community/, calendar-view.tsx   interactive tab pieces
     items-panel.tsx       example client component for the items API
   lib/
+    auth.ts               sessions: login cookie, requireUser, requireAdmin
+    admin.ts              generic table access for /admin
     queries.ts            reads for the pages (server-only)
     users.ts, tasks.ts    CRUD data layer for /api/users and /api/tasks
-    mutations.ts          kudos and club membership (server-only)
+    mutations.ts          kudos, friends, comments (server-only)
     session-types.ts      session type labels/colours, formatting helpers
     store.ts              data layer for /api/items
     http.ts               shared error handling for route handlers
@@ -133,7 +172,30 @@ src/
 | PATCH  | `/api/items/:id` | `{ title?, done? }`       | `{ item }`        |
 | DELETE | `/api/items/:id` | –                         | `204`             |
 | PUT / DELETE | `/api/tasks/:id/kudos` | –             | `204`             |
-| PUT / DELETE | `/api/clubs/:id/membership` | –        | `204`             |
+| GET    | `/api/tasks/:id/comments` | –                | `{ comments: [] }` |
+| POST   | `/api/tasks/:id/comments` | `{ body }`       | `201 { comment }` |
+| DELETE | `/api/tasks/:id/comments/:commentId` | –     | `204`             |
+| POST   | `/api/tasks/:id/photos` | multipart `photo`  | `201 { photo }`   |
+| DELETE | `/api/tasks/:id/photos/:photoId` | –         | `204`             |
+| GET    | `/api/photos/:id` | –                        | the image         |
+| PUT    | `/api/tasks/:id/tags` | `{ userIds }`        | `204`             |
+| GET    | `/api/people?q=` | – (no `q`: friends and pending requests) | `{ people: [] }`  |
+| PUT / DELETE | `/api/users/:id/friend` | –            | `{ status }`      |
+
+Friendships are mutual: `PUT /api/users/:id/friend` sends a request (or
+accepts theirs, if they asked first) and the other person has to accept before
+you're friends. `DELETE` cancels, declines or unfriends. Each person in
+`/api/people` has a `status`: `none`, `sent`, `received` or `friends`.
+
+Only friends see each other's shared activities and leaderboard hours. Kudos
+and comments work on activities you can see in your feed: your own, or shared
+ones by friends. You can delete your own comments and any comment on your own
+activities.
+
+On your own completed sessions you can add up to 4 photos (JPEG, PNG or WebP,
+at most 5 MB each; the app shrinks them before uploading) and tag up to 10
+friends you studied with. Photos are stored in Postgres and served only to
+people who can see the activity.
 
 ### Users and tasks
 
@@ -146,7 +208,7 @@ session, lecture or exam. It counts as done once `completedAt` is set.
 | POST   | `/api/users`      | `{ handle, name, hue?, program?, weeklyGoalHours? }`            | `201 { user }`  |
 | GET    | `/api/users/:id`  | –                                                               | `{ user }`      |
 | PATCH  | `/api/users/:id`  | any of the POST fields                                          | `{ user }`      |
-| DELETE | `/api/users/:id`  | – (also deletes their tasks, kudos, follows)                    | `204`           |
+| DELETE | `/api/users/:id`  | – (also deletes their tasks, kudos, friendships)                    | `204`           |
 | GET    | `/api/tasks`      | `?userId=&type=&done=&from=&to=&limit=&offset=`                 | `{ tasks: [] }` |
 | POST   | `/api/tasks`      | `{ type, subject, title, scheduledAt, plannedMinutes, userId?, planId?, detail?, location?, note?, shared? }` | `201 { task }` |
 | GET    | `/api/tasks/:id`  | –                                                               | `{ task }`      |
@@ -161,23 +223,29 @@ session, lecture or exam. It counts as done once `completedAt` is set.
   `plannedMinutes`. `{ done: false }` clears the completion.
 - `POST /api/tasks` without `userId` creates the task for the current user.
 
+With curl, pass the `session` cookie from a logged-in browser (DevTools →
+Application → Cookies):
+
 ```bash
-curl localhost:3000/api/users?q=lena
-curl -X POST localhost:3000/api/tasks -H 'content-type: application/json' \
+S='session=<value>'
+curl -b $S 'localhost:3000/api/users?q=lena'
+curl -b $S -X POST localhost:3000/api/tasks -H 'content-type: application/json' \
   -d '{"type":"deep","subject":"DiskMath","title":"Long block","scheduledAt":"2026-10-12T09:00:00+02:00","plannedMinutes":90}'
-curl -X PATCH localhost:3000/api/tasks/<id> -H 'content-type: application/json' -d '{"done":true}'
+curl -b $S -X PATCH localhost:3000/api/tasks/<id> -H 'content-type: application/json' -d '{"done":true}'
 ```
 
-There's no auth yet, so any caller can read or change any user or task.
-Before going public, add login and check ownership in these handlers.
+Every endpoint except `/api/health` needs a login session (the cookie set by
+`/login`) and returns `401` otherwise. There are no ownership checks yet: any
+logged-in user can read or change any user or task. Add those before going
+public.
 
 Errors are always `{ error: string, details?: unknown }`: 400 on invalid
 input or a reference to a missing record (e.g. an unknown `userId`), 404 on a
 missing resource, 409 on a duplicate (e.g. a taken `handle`), 500 otherwise.
 
 ```bash
-curl localhost:3000/api/items
-curl -X POST localhost:3000/api/items -H 'content-type: application/json' -d '{"title":"ship it"}'
+curl -b $S localhost:3000/api/items
+curl -b $S -X POST localhost:3000/api/items -H 'content-type: application/json' -d '{"title":"ship it"}'
 ```
 
 ## Adding to it

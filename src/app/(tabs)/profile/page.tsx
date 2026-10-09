@@ -1,13 +1,17 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { logout } from "@/app/(auth)/actions";
+import { ActivityCard } from "@/components/community/activity-card";
 import { FlameIcon, SettingsIcon } from "@/components/icons";
 import { SubjectInvestment } from "@/components/profile/subject-investment";
 import { Avatar, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
-import { getCurrentUser, getProfile } from "@/lib/queries";
+import { getCurrentUser, getFeed, getProfile } from "@/lib/queries";
 import { subjectColor } from "@/lib/session-types";
 
 export const metadata: Metadata = { title: "Profile" };
 
 const days = ["M", "T", "W", "T", "F", "S", "S"];
+const POSTS_STEP = 10;
 const spiritAnimalDetails: Record<string, { name: string; emoji: string }> = {
   owl: { name: "Owl", emoji: "🦉" },
   fox: { name: "Fox", emoji: "🦊" },
@@ -16,8 +20,16 @@ const spiritAnimalDetails: Record<string, { name: string; emoji: string }> = {
   deer: { name: "Deer", emoji: "🦌" },
 };
 
-export default async function ProfilePage() {
-  const profile = await getProfile(await getCurrentUser());
+export default async function ProfilePage({ searchParams }: PageProps<"/profile">) {
+  const user = await getCurrentUser();
+  // ?posts=N shows the latest N posts; "Show more" bumps it.
+  const requested = Number((await searchParams).posts);
+  const shown = Number.isInteger(requested) ? Math.min(Math.max(requested, POSTS_STEP), 200) : POSTS_STEP;
+  const [profile, posts] = await Promise.all([
+    getProfile(user),
+    getFeed(user.id, { mineOnly: true, limit: shown + 1 }),
+  ]);
+  const hasMore = posts.length > shown;
   const weekHours = profile.week.reduce((a, b) => a + b, 0);
   const maxDay = Math.max(...profile.week, 1);
   const maxSubject = Math.max(...profile.subjects.map((s) => s.hours), 1);
@@ -29,9 +41,23 @@ export default async function ProfilePage() {
       <PageHeader
         title="Profile"
         action={
-          <button aria-label="Settings" className="grid size-10 place-items-center rounded-full bg-surface-2">
-            <SettingsIcon className="size-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {user.isAdmin && (
+              <Link href="/admin" className="rounded-full bg-surface-2 px-4 py-2 text-sm font-medium">
+                Admin
+              </Link>
+            )}
+            <form action={logout}>
+              <button className="rounded-full bg-surface-2 px-4 py-2 text-sm font-medium">Log out</button>
+            </form>
+            <Link
+              href="/profile/settings"
+              aria-label="Settings"
+              className="grid size-10 place-items-center rounded-full bg-surface-2"
+            >
+              <SettingsIcon className="size-5" />
+            </Link>
+          </div>
         }
       />
 
@@ -142,6 +168,30 @@ export default async function ProfilePage() {
           </li>
         ))}
       </ul>
+
+      <SectionTitle>Your posts</SectionTitle>
+      {posts.length === 0 ? (
+        <Card className="py-10 text-center text-sm text-muted">
+          Finish a session and it shows up here.
+        </Card>
+      ) : (
+        <ul className="flex flex-col gap-4">
+          {posts.slice(0, shown).map((activity) => (
+            <li key={activity.id}>
+              <ActivityCard activity={activity} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {hasMore && (
+        <Link
+          href={`/profile?posts=${shown + POSTS_STEP}`}
+          scroll={false}
+          className="mt-4 block rounded-2xl bg-surface-2 py-3 text-center text-sm font-medium"
+        >
+          Show more
+        </Link>
+      )}
     </>
   );
 }
