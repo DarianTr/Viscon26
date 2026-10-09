@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "spirit_animal" text DEFAULT 'owl' NOT NULL;
