@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 import { CheckIcon, PlusIcon } from "@/components/icons";
 import { Card, PageHeader, SectionTitle } from "@/components/ui/primitives";
@@ -7,10 +8,23 @@ import type { ActivePlan } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Plans" };
 
+<<<<<<< HEAD
+export default function PlansPage() {
+  const plan = plans.find((p) => p.id === activePlan.planId)!;
+
+  // Work out which phase the current week falls into.
+  const phases = plan.phases.map((phase, i) => {
+    const start = plan.phases.slice(0, i).reduce((sum, p) => sum + p.weeks, 0);
+    const week = activePlan.currentWeek;
+    return { ...phase, start, current: week > start && week <= start + phase.weeks };
+  });
+  const currentPhase = phases.find((p) => p.current);
+=======
 export default async function PlansPage() {
   const user = await getCurrentUser();
   const [activePlan, plans] = await Promise.all([getActivePlan(user.id), listPlans()]);
   const others = plans.filter((p) => p.id !== activePlan?.plan.id);
+>>>>>>> 41740c5a48d8442a6e5a7072665c1db124e9b48c
 
   return (
     <>
@@ -18,10 +32,13 @@ export default async function PlansPage() {
         eyebrow="Training plans"
         title="Plans"
         action={
-          <button className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background">
+          <Link
+            href="/plans/new"
+            className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background"
+          >
             <PlusIcon className="size-4" />
             Custom
-          </button>
+          </Link>
         }
       />
 
