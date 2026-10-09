@@ -8,7 +8,7 @@ import type { EventType, TaskRecord } from "./types";
 type Row = typeof s.sessions.$inferSelect;
 
 export type NewTask = Pick<Row, "userId" | "type" | "subject" | "title" | "scheduledAt" | "plannedMinutes"> &
-  Partial<Pick<Row, "planId" | "detail" | "location" | "note" | "shared">>;
+  Partial<Pick<Row, "planId" | "detail" | "location" | "note" | "shared" | "calendarOrder">>;
 
 export type TaskPatch = Partial<Omit<NewTask, "userId">> &
   Partial<Pick<Row, "actualMinutes" | "focus">> & {

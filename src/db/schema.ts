@@ -127,6 +127,8 @@ export const sessions = pgTable(
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     planId: text("plan_id").references(() => plans.id, { onDelete: "set null" }),
     type: sessionType("type").notNull(),
+    blocksStudy: boolean("blocks_study").notNull().default(false),
+    calendarOrder: integer("calendar_order"),
     subject: text("subject").notNull(),
     title: text("title").notNull(),
     detail: text("detail"),

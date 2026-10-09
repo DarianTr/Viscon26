@@ -55,6 +55,7 @@ export type CalendarEvent = {
   /** ISO timestamp. */
   start: string;
   minutes: number;
+  calendarOrder: number | null;
 };
 
 export type UserSummary = { id: string; name: string; initials: string; hue: number };

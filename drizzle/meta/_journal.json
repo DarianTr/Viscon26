@@ -50,6 +50,27 @@
       "when": 1791576379531,
       "tag": "0006_post_photos_and_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791576906000,
+      "tag": "0007_vacation",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791577432000,
+      "tag": "0008_blocks_study",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791578327000,
+      "tag": "0009_calendar_order",
+      "breakpoints": true
     }
   ]
 }

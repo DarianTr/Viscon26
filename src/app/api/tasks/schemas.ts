@@ -17,6 +17,7 @@ export const createTaskSchema = z.object({
   location: optionalText(200),
   note: optionalText(2000),
   shared: z.boolean().optional(),
+  calendarOrder: z.number().int().min(0).nullable().optional(),
 });
 
 export const updateTaskSchema = createTaskSchema
