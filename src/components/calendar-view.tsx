@@ -3,12 +3,8 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { ChevronLeftIcon, ChevronRightIcon, ClockIcon } from "@/components/icons";
 import { Card } from "@/components/ui/primitives";
-import {
-  calendarTemplate,
-  formatMinutes,
-  sessionTypes,
-  type CalendarEvent,
-} from "@/lib/study-data";
+import { formatMinutes, sessionTypes } from "@/lib/session-types";
+import type { CalendarEvent } from "@/lib/types";
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -27,35 +23,31 @@ const noop = () => () => {};
  * "Today" is only known in the browser — the page itself is prerendered at
  * build time — so render a placeholder on the server and fill in on hydrate.
  */
-export function CalendarView() {
+export function CalendarView({ events }: { events: CalendarEvent[] }) {
   const todayIso = useSyncExternalStore(
     noop,
     () => startOfDay(new Date()).toISOString(),
     () => null,
   );
   if (!todayIso) return <Card className="h-96 animate-pulse" />;
-  return <Calendar key={todayIso} today={new Date(todayIso)} />;
+  return <Calendar key={todayIso} today={new Date(todayIso)} events={events} />;
 }
 
-function Calendar({ today }: { today: Date }) {
+const timeFormat = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+function Calendar({ today, events: list }: { today: Date; events: CalendarEvent[] }) {
   const [month, setMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
   const [selected, setSelected] = useState(today);
 
-  // Expand the offset-based template into real dates around today.
+  // Group events by local day; they arrive sorted by start time.
   const events = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
-    for (const [offset, list] of Object.entries(calendarTemplate)) {
-      const date = new Date(today);
-      date.setDate(date.getDate() + Number(offset));
-      map.set(
-        dayKey(date),
-        list
-          .map((e, i) => ({ ...e, id: `${offset}-${i}` }))
-          .sort((a, b) => a.start.localeCompare(b.start)),
-      );
+    for (const event of list) {
+      const key = dayKey(new Date(event.start));
+      map.set(key, [...(map.get(key) ?? []), event]);
     }
     return map;
-  }, [today]);
+  }, [list]);
 
   // Grid cells for the month, Monday first, padded with nulls.
   const cells = useMemo(() => {
@@ -152,7 +144,7 @@ function Calendar({ today }: { today: Date }) {
               const style = eventStyles[e.type];
               return (
                 <li key={e.id} className="flex gap-4">
-                  <span className="w-12 shrink-0 pt-3.5 text-right font-mono text-xs text-muted tabular-nums">{e.start}</span>
+                  <span className="w-12 shrink-0 pt-3.5 text-right font-mono text-xs text-muted tabular-nums">{timeFormat.format(new Date(e.start))}</span>
                   <Card className="relative flex-1 p-4">
                     <span className={`absolute top-5 -left-[0.8125rem] size-2.5 rounded-full ring-4 ring-background ${style.color}`} />
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${style.soft}`}>{style.label}</span>

@@ -1,34 +1,47 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { CheckIcon, ClockIcon, FlameIcon, PlayIcon } from "@/components/icons";
 import { Card, Ring, SectionTitle } from "@/components/ui/primitives";
-import {
-  formatMinutes,
-  sessionTypes,
-  todaysTasks,
-  type Task,
-} from "@/lib/study-data";
+import { api } from "@/lib/api-client";
+import { formatMinutes, sessionTypes } from "@/lib/session-types";
+import type { Task } from "@/lib/types";
 import { FocusTimer } from "./focus-timer";
 
-export function TodayBoard({ streak }: { streak: number }) {
-  const [tasks, setTasks] = useState(todaysTasks);
+export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; streak: number }) {
+  const router = useRouter();
+  const [tasks, setTasks] = useState(initialTasks);
   const [running, setRunning] = useState<Task | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const total = tasks.reduce((sum, t) => sum + t.minutes, 0);
   const done = tasks.filter((t) => t.done).reduce((sum, t) => sum + t.minutes, 0);
+  const progress = total ? done / total : 0;
   const next = tasks.find((t) => !t.done);
 
-  function toggle(id: string) {
-    setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+  /** Optimistically flip a task, then save; roll back if the save fails. */
+  function setDone(id: string, value: boolean, minutes?: number) {
+    const markAs = (v: boolean) =>
+      setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, done: v } : t)));
+    markAs(value);
+    setError(null);
+    api
+      .setTaskDone(id, value, minutes)
+      // Refresh server data that depends on it (streak, sidebar, other tabs).
+      .then(() => router.refresh())
+      .catch((err: Error) => {
+        markAs(!value);
+        setError(err.message);
+      });
   }
 
   return (
     <>
       <Card className="flex items-center gap-5">
-        <Ring value={done / total} size={88} stroke={9}>
+        <Ring value={progress} size={88} stroke={9}>
           <div className="text-center leading-none">
-            <p className="text-lg font-bold">{Math.round((done / total) * 100)}%</p>
+            <p className="text-lg font-bold">{Math.round(progress * 100)}%</p>
             <p className="mt-1 text-[10px] text-muted">of today</p>
           </div>
         </Ring>
@@ -70,6 +83,16 @@ export function TodayBoard({ streak }: { streak: number }) {
       )}
 
       <SectionTitle>Today&apos;s sessions</SectionTitle>
+      {error && (
+        <p role="alert" className="mb-3 rounded-2xl bg-tempo/10 px-4 py-3 text-sm text-tempo">
+          Couldn&apos;t save: {error}
+        </p>
+      )}
+      {tasks.length === 0 && (
+        <Card className="py-10 text-center text-sm text-muted">
+          Nothing planned today — a rest day counts too.
+        </Card>
+      )}
       <ul className="flex flex-col gap-3">
         {tasks.map((task) => {
           const type = sessionTypes[task.type];
@@ -87,7 +110,7 @@ export function TodayBoard({ streak }: { streak: number }) {
                   <p className={`mt-1.5 font-semibold ${task.done ? "line-through" : ""}`}>
                     {task.title}
                   </p>
-                  <p className="mt-0.5 text-sm text-muted">{task.detail}</p>
+                  {task.detail && <p className="mt-0.5 text-sm text-muted">{task.detail}</p>}
                   <p className="mt-2 flex items-center gap-1.5 text-xs text-muted">
                     <ClockIcon className="size-3.5" />
                     {task.time} · {formatMinutes(task.minutes)}
@@ -95,7 +118,7 @@ export function TodayBoard({ streak }: { streak: number }) {
                 </div>
                 <div className="flex flex-col items-center justify-between gap-2">
                   <button
-                    onClick={() => toggle(task.id)}
+                    onClick={() => setDone(task.id, !task.done)}
                     aria-label={task.done ? "Mark as not done" : "Mark as done"}
                     className={`grid size-8 place-items-center rounded-full ring-2 transition-colors ${
                       task.done
@@ -125,8 +148,8 @@ export function TodayBoard({ streak }: { streak: number }) {
         <FocusTimer
           task={running}
           onClose={() => setRunning(null)}
-          onFinish={() => {
-            setTasks((ts) => ts.map((t) => (t.id === running.id ? { ...t, done: true } : t)));
+          onFinish={(minutes) => {
+            setDone(running.id, true, minutes);
             setRunning(null);
           }}
         />

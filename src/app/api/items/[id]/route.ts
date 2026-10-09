@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { deleteItem, getItem, updateItem } from "@/lib/store";
-import { handle, notFound } from "@/lib/http";
+import { handle, isId, notFound } from "@/lib/http";
 
 const updateItemSchema = z
   .object({
@@ -17,6 +17,7 @@ type Ctx = RouteContext<"/api/items/[id]">;
 export async function GET(_request: Request, ctx: Ctx) {
   return handle(async () => {
     const { id } = await ctx.params;
+    if (!isId(id)) return notFound("Item");
     const item = await getItem(id);
     return item ? Response.json({ item }) : notFound("Item");
   });
@@ -26,6 +27,7 @@ export async function GET(_request: Request, ctx: Ctx) {
 export async function PATCH(request: Request, ctx: Ctx) {
   return handle(async () => {
     const { id } = await ctx.params;
+    if (!isId(id)) return notFound("Item");
     const patch = updateItemSchema.parse(await request.json());
     const item = await updateItem(id, patch);
     return item ? Response.json({ item }) : notFound("Item");
@@ -36,6 +38,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
 export async function DELETE(_request: Request, ctx: Ctx) {
   return handle(async () => {
     const { id } = await ctx.params;
+    if (!isId(id)) return notFound("Item");
     const deleted = await deleteItem(id);
     return deleted ? new Response(null, { status: 204 }) : notFound("Item");
   });
