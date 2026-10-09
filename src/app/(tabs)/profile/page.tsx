@@ -3,14 +3,22 @@ import Link from "next/link";
 import { logout } from "@/app/(auth)/actions";
 import { ActivityCard } from "@/components/community/activity-card";
 import { FlameIcon, SettingsIcon } from "@/components/icons";
+import { SubjectInvestment } from "@/components/profile/subject-investment";
 import { Avatar, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
 import { getCurrentUser, getFeed, getProfile } from "@/lib/queries";
-import { subjectColors } from "@/lib/session-types";
+import { subjectColor } from "@/lib/session-types";
 
 export const metadata: Metadata = { title: "Profile" };
 
 const days = ["M", "T", "W", "T", "F", "S", "S"];
 const POSTS_STEP = 10;
+const spiritAnimalDetails: Record<string, { name: string; emoji: string }> = {
+  owl: { name: "Owl", emoji: "🦉" },
+  fox: { name: "Fox", emoji: "🦊" },
+  tortoise: { name: "Tortoise", emoji: "🐢" },
+  wolf: { name: "Wolf", emoji: "🐺" },
+  deer: { name: "Deer", emoji: "🦌" },
+};
 
 export default async function ProfilePage({ searchParams }: PageProps<"/profile">) {
   const user = await getCurrentUser();
@@ -25,6 +33,8 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
   const weekHours = profile.week.reduce((a, b) => a + b, 0);
   const maxDay = Math.max(...profile.week, 1);
   const maxSubject = Math.max(...profile.subjects.map((s) => s.hours), 1);
+  const spiritAnimal = spiritAnimalDetails[profile.spiritAnimal] ?? spiritAnimalDetails.owl;
+  const examSubjects = profile.subjects;
 
   return (
     <>
@@ -53,16 +63,23 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
 
       <Card>
         <div className="flex items-center gap-4">
-          <Avatar initials={profile.initials} hue={profile.hue} size="lg" />
+          <span className="relative shrink-0">
+            <Avatar initials={profile.initials} hue={profile.hue} size="lg" />
+            <span
+              aria-label={`${spiritAnimal.name} spirit animal`}
+              className="absolute -right-1 -bottom-1 grid size-7 place-items-center rounded-full bg-surface text-base shadow-sm ring-1 ring-border"
+            >
+              {spiritAnimal.emoji}
+            </span>
+          </span>
           <div className="min-w-0">
             <h2 className="text-xl font-bold">{profile.name}</h2>
             <p className="text-sm text-muted">{profile.handle}</p>
             {profile.program && <p className="mt-1 text-sm">{profile.program}</p>}
           </div>
         </div>
-        <div className="mt-5 grid grid-cols-3 divide-x divide-border text-center">
-          <Count label="Followers" value={profile.followers} />
-          <Count label="Following" value={profile.following} />
+        <div className="mt-5 grid grid-cols-2 divide-x divide-border border-t border-border pt-4 text-center">
+          <Count label="Friends" value={profile.friends} />
           <Count label="Day streak" value={profile.streak} icon />
         </div>
       </Card>
@@ -98,19 +115,43 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
         <Total label="Kudos" value={profile.totals.kudos.toLocaleString("en-US")} />
       </div>
 
+      <SectionTitle>Exam countdowns</SectionTitle>
+      {examSubjects.length === 0 ? (
+        <Card className="text-sm text-muted">No subjects yet.</Card>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {examSubjects.map((subject) => (
+            <Card key={subject.name} className="border-l-4 p-4" style={{ borderLeftColor: subjectColor(subject.name).value }}>
+              <p className={`truncate text-sm font-medium ${subjectColor(subject.name).text}`} title={subject.name}>{subject.name}</p>
+              {subject.examHoursRemaining === null ? (
+                <p className="mt-2 text-sm text-muted">No exam date set</p>
+              ) : (
+                <ExamCountdown hours={subject.examHoursRemaining} color={subjectColor(subject.name).value} />
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <SectionTitle>Time investment</SectionTitle>
+      <SubjectInvestment
+        subjects={profile.subjects.slice(0, 4).map((subject) => subject.name)}
+        userKey={profile.handle}
+      />
+
       <SectionTitle>Subjects</SectionTitle>
       <Card className="flex flex-col gap-4">
         {profile.subjects.length === 0 && (
           <p className="text-sm text-muted">Finish a session to see your subjects here.</p>
         )}
-        {profile.subjects.map((s, i) => (
+        {profile.subjects.map((s) => (
           <div key={s.name}>
             <div className="flex justify-between text-sm">
               <span className="font-medium">{s.name}</span>
               <span className="text-muted tabular-nums">{s.hours} h</span>
             </div>
             <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-surface-2">
-              <div className={`h-full rounded-full ${subjectColors[i % subjectColors.length]}`} style={{ width: `${(s.hours / maxSubject) * 100}%` }} />
+              <div className="h-full rounded-full" style={{ width: `${(s.hours / maxSubject) * 100}%`, backgroundColor: subjectColor(s.name).value }} />
             </div>
           </div>
         ))}
@@ -173,5 +214,18 @@ function Total({ label, value }: { label: string; value: number | string }) {
       <p className="text-2xl font-bold tabular-nums">{value}</p>
       <p className="text-xs text-muted">{label}</p>
     </Card>
+  );
+}
+
+function ExamCountdown({ hours, color }: { hours: number; color: string }) {
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+
+  return (
+    <p className="mt-2 text-2xl font-bold tabular-nums" style={{ color }}>
+      {days > 0 && <>{days}d </>}
+      {remainingHours}h
+      <span className="sr-only"> left</span>
+    </p>
   );
 }

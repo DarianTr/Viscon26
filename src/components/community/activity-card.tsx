@@ -4,7 +4,7 @@ import { useState } from "react";
 import { CommentIcon, HeartIcon, MapPinIcon } from "@/components/icons";
 import { Avatar, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
-import { formatMinutes, sessionTypes } from "@/lib/session-types";
+import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
 import type { Activity, Comment } from "@/lib/types";
 import { CommentThread } from "./comment-thread";
 
@@ -61,7 +61,7 @@ export function ActivityCard({ activity }: { activity: Activity }) {
       </div>
 
       <dl className="grid grid-cols-3 gap-2 px-4 pt-4">
-        <Metric label="Subject" value={activity.subject} />
+        <Metric label="Subject" value={activity.subject} className={subjectColor(activity.subject).text} />
         <Metric label="Time" value={formatMinutes(activity.minutes)} />
         <Metric label="Focus" value={activity.focus === null ? "–" : `${activity.focus}%`} />
       </dl>
@@ -102,11 +102,11 @@ export function ActivityCard({ activity }: { activity: Activity }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, className = "" }: { label: string; value: string; className?: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-[11px] text-muted">{label}</dt>
-      <dd className="truncate font-semibold">{value}</dd>
+      <dd className={`truncate font-semibold ${className}`}>{value}</dd>
     </div>
   );
 }

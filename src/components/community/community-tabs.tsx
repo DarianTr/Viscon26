@@ -7,6 +7,7 @@ import { ActivityCard } from "./activity-card";
 import { FriendSearch } from "./friend-search";
 
 const segments = ["Feed", "Leaderboard", "Friends"] as const;
+const medals = ["🥇", "🥈", "🥉"];
 
 export function CommunityTabs({
   feed,
@@ -63,7 +64,12 @@ export function CommunityTabs({
                 key={entry.id}
                 className={`flex items-center gap-3 rounded-2xl px-3 py-3 ${entry.you ? "bg-accent-soft" : ""}`}
               >
-                <span className={`w-5 text-center font-bold ${i < 3 ? "text-accent" : "text-muted"}`}>{i + 1}</span>
+                <span
+                  aria-label={i < 3 ? `${i + 1}${["st", "nd", "rd"][i]} place` : undefined}
+                  className={`w-7 text-center font-bold ${i < 3 ? "text-xl" : "text-sm text-muted"}`}
+                >
+                  {medals[i] ?? i + 1}
+                </span>
                 <Avatar initials={entry.initials} hue={entry.hue} size="sm" />
                 <span className="flex-1 font-medium">{entry.name}</span>
                 <span className="font-mono text-sm font-semibold tabular-nums">{entry.hours.toFixed(1)} h</span>

@@ -36,6 +36,8 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   /** Avatar gradient hue, 0–360. */
   hue: integer("hue").notNull().default(200),
+  /** The student's chosen personal spirit animal. */
+  spiritAnimal: text("spirit_animal").notNull().default("owl"),
   program: text("program"),
   weeklyGoalHours: integer("weekly_goal_hours").notNull().default(20),
   /** scrypt hash from `src/db/password.ts`; null means the user can't log in. */
@@ -70,7 +72,7 @@ export const follows = pgTable(
 export type PlanPhase = { name: string; weeks: number };
 
 export const plans = pgTable("plans", {
-  /** Readable slug, e.g. "analysis-exam". */
+  /** Readable plan slug. */
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   subject: text("subject").notNull(),

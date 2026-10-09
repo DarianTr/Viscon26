@@ -31,8 +31,30 @@ export const sessionTypes: Record<
   },
 };
 
-/** Bar colours for the profile's subject breakdown, by rank. */
-export const subjectColors = ["bg-deep", "bg-intervals", "bg-tempo", "bg-recovery"];
+const subjectPalette = [
+  { text: "text-deep", value: "var(--deep)" },
+  { text: "text-intervals", value: "var(--intervals)" },
+  { text: "text-tempo", value: "var(--tempo)" },
+  { text: "text-recovery", value: "var(--recovery)" },
+];
+
+const namedSubjectColors = {
+  DiskMath: subjectPalette[0],
+  "Linear Algebra": subjectPalette[1],
+  EProg: subjectPalette[2],
+  Algorithms: subjectPalette[3],
+};
+
+/** Stable colors for a subject name across profile, schedule, and feed views. */
+export function subjectColor(subject: string) {
+  const canonical = subject === "Physics" ? "EProg" : subject === "Analysis II" ? "DiskMath" : subject;
+  const known = namedSubjectColors[canonical as keyof typeof namedSubjectColors];
+  if (known) return known;
+
+  let hash = 0;
+  for (const character of canonical) hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  return subjectPalette[((hash % subjectPalette.length) + subjectPalette.length) % subjectPalette.length];
+}
 
 export function formatMinutes(minutes: number) {
   const h = Math.floor(minutes / 60);

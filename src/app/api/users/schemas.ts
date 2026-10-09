@@ -8,6 +8,7 @@ export const userFields = {
     .regex(/^[a-z0-9._-]{2,32}$/, "2–32 characters: letters, digits, . _ -"),
   name: z.string().trim().min(1).max(100),
   hue: z.number().int().min(0).max(360),
+  spiritAnimal: z.string().trim().min(1).max(40),
   program: z.string().trim().max(200).nullable(),
   weeklyGoalHours: z.number().int().min(0).max(100),
 };
