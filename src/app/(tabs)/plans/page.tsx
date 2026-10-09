@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { CheckIcon, PlusIcon } from "@/components/icons";
 import { Card, PageHeader, SectionTitle } from "@/components/ui/primitives";
 import { getActivePlan, getCurrentUser, listPlans } from "@/lib/queries";
-import { sessionTypes } from "@/lib/session-types";
+import { sessionTypes, subjectColor } from "@/lib/session-types";
 import type { ActivePlan } from "@/lib/types";
 
 export const metadata: Metadata = { title: "Plans" };
@@ -54,7 +54,7 @@ export default async function PlansPage() {
                 </span>
               </div>
               <div className="p-4">
-                <p className="text-xs text-muted">{p.subject}</p>
+                <p className={`text-xs font-medium ${subjectColor(p.subject).text}`}>{p.subject}</p>
                 <h3 className="mt-0.5 font-semibold">{p.title}</h3>
                 <p className="mt-1 text-sm text-muted">{p.goal}</p>
                 <div className="mt-3 flex items-center justify-between text-xs text-muted">

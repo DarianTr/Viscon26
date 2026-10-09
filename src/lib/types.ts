@@ -87,16 +87,16 @@ export type Profile = {
   name: string;
   initials: string;
   hue: number;
+  spiritAnimal: string;
   handle: string;
   program: string | null;
-  followers: number;
-  following: number;
+  friends: number;
   streak: number;
   totals: { hours: number; sessions: number; kudos: number };
   /** Hours per day this week, Monday first. */
   week: number[];
   weeklyGoal: number;
-  subjects: { name: string; hours: number }[];
+  subjects: { name: string; hours: number; examHoursRemaining: number | null }[];
   badges: { emoji: string; label: string; earned: boolean }[];
 };
 
@@ -106,6 +106,7 @@ export type User = {
   handle: string;
   name: string;
   hue: number;
+  spiritAnimal: string;
   program: string | null;
   weeklyGoalHours: number;
   createdAt: string;

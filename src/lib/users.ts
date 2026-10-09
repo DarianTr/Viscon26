@@ -7,7 +7,7 @@ import type { User } from "./types";
 
 type Row = typeof s.users.$inferSelect;
 export type NewUser = Pick<Row, "handle" | "name"> &
-  Partial<Pick<Row, "hue" | "program" | "weeklyGoalHours">>;
+  Partial<Pick<Row, "hue" | "spiritAnimal" | "program" | "weeklyGoalHours">>;
 export type UserPatch = Partial<NewUser>;
 
 const toUser = (row: Row): User => ({ ...row, createdAt: row.createdAt.toISOString() });

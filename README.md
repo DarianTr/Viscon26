@@ -164,7 +164,7 @@ session, lecture or exam. It counts as done once `completedAt` is set.
 ```bash
 curl localhost:3000/api/users?q=lena
 curl -X POST localhost:3000/api/tasks -H 'content-type: application/json' \
-  -d '{"type":"deep","subject":"Analysis II","title":"Long block","scheduledAt":"2026-10-12T09:00:00+02:00","plannedMinutes":90}'
+  -d '{"type":"deep","subject":"DiskMath","title":"Long block","scheduledAt":"2026-10-12T09:00:00+02:00","plannedMinutes":90}'
 curl -X PATCH localhost:3000/api/tasks/<id> -H 'content-type: application/json' -d '{"done":true}'
 ```
 
