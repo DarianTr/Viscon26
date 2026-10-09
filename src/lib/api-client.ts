@@ -1,4 +1,4 @@
-import type { Item, TaskRecord } from "./types";
+import type { Comment, Item, Person, TaskRecord } from "./types";
 
 /**
  * Thin client for the backend in `src/app/api`. Relative URLs keep it working
@@ -46,6 +46,22 @@ export const api = {
   setKudos: (taskId: string, on: boolean) =>
     request<void>(`/tasks/${taskId}/kudos`, { method: on ? "PUT" : "DELETE" }),
 
-  setClubMembership: (clubId: string, on: boolean) =>
-    request<void>(`/clubs/${clubId}/membership`, { method: on ? "PUT" : "DELETE" }),
+  listComments: (taskId: string) =>
+    request<{ comments: Comment[] }>(`/tasks/${taskId}/comments`).then((r) => r.comments),
+
+  addComment: (taskId: string, body: string) =>
+    request<{ comment: Comment }>(`/tasks/${taskId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }).then((r) => r.comment),
+
+  deleteComment: (taskId: string, commentId: string) =>
+    request<void>(`/tasks/${taskId}/comments/${commentId}`, { method: "DELETE" }),
+
+  /** Find people by name or handle; without a query, the people you follow. */
+  searchPeople: (q: string, init?: RequestInit) =>
+    request<{ people: Person[] }>(`/people?${new URLSearchParams({ q })}`, init).then((r) => r.people),
+
+  setFollow: (userId: string, on: boolean) =>
+    request<void>(`/users/${userId}/follow`, { method: on ? "PUT" : "DELETE" }),
 };

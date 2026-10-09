@@ -2,38 +2,22 @@
 
 import { useState } from "react";
 import { Avatar, Card } from "@/components/ui/primitives";
-import { api } from "@/lib/api-client";
-import type { Activity, Club, LeaderboardEntry } from "@/lib/types";
+import type { Activity, LeaderboardEntry, Person } from "@/lib/types";
 import { ActivityCard } from "./activity-card";
+import { FriendSearch } from "./friend-search";
 
-const segments = ["Feed", "Leaderboard", "Clubs"] as const;
+const segments = ["Feed", "Leaderboard", "Friends"] as const;
 
 export function CommunityTabs({
   feed,
   leaderboard,
-  clubs: initialClubs,
+  friends,
 }: {
   feed: Activity[];
   leaderboard: LeaderboardEntry[];
-  clubs: Club[];
+  friends: Person[];
 }) {
   const [segment, setSegment] = useState<(typeof segments)[number]>("Feed");
-  const [clubs, setClubs] = useState(initialClubs);
-
-  /** Optimistically join or leave, rolling back if the request fails. */
-  function toggleClub(id: string, join: boolean) {
-    const apply = (on: boolean) =>
-      setClubs((cs) =>
-        cs.map((c) =>
-          c.id === id && c.joined !== on
-            ? { ...c, joined: on, members: c.members + (on ? 1 : -1) }
-            : c,
-        ),
-      );
-    apply(join);
-    api.setClubMembership(id, join).catch(() => apply(!join));
-  }
-
   return (
     <>
       <div className="sticky top-0 z-10 -mx-4 bg-background/85 px-4 pt-1 pb-3 backdrop-blur-xl sm:mx-0 sm:px-0">
@@ -54,7 +38,7 @@ export function CommunityTabs({
 
       {segment === "Feed" && feed.length === 0 && (
         <Card className="py-10 text-center text-sm text-muted">
-          Nothing here yet — follow classmates to see their sessions.
+          Nothing here yet — find classmates under Friends to see their sessions.
         </Card>
       )}
 
@@ -89,29 +73,8 @@ export function CommunityTabs({
         </Card>
       )}
 
-      {segment === "Clubs" && (
-        <ul className="grid gap-3 sm:grid-cols-2">
-          {clubs.map((club) => (
-            <li key={club.id}>
-              <Card className="flex items-center gap-4 p-4">
-                <span className="grid size-12 place-items-center rounded-2xl bg-surface-2 text-2xl">{club.emoji}</span>
-                <div className="flex-1">
-                  <p className="font-semibold">{club.name}</p>
-                  <p className="text-sm text-muted">{club.members.toLocaleString("en-US")} {club.members === 1 ? "member" : "members"}</p>
-                </div>
-                <button
-                  onClick={() => toggleClub(club.id, !club.joined)}
-                  className={`rounded-full px-4 py-1.5 text-sm font-semibold transition-colors ${
-                    club.joined ? "bg-surface-2 text-muted" : "bg-accent-soft text-accent"
-                  }`}
-                >
-                  {club.joined ? "Joined" : "Join"}
-                </button>
-              </Card>
-            </li>
-          ))}
-        </ul>
-      )}
+      {segment === "Friends" && <FriendSearch friends={friends} />}
+
     </>
   );
 }

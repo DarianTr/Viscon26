@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, ne } from "drizzle-orm";
 import { db, schema as s } from "@/db";
 
 /*
@@ -38,6 +38,16 @@ export async function deleteSession() {
   const token = jar.get(SESSION_COOKIE)?.value;
   if (token) await db.delete(s.authSessions).where(eq(s.authSessions.tokenHash, sha256(token)));
   jar.delete(SESSION_COOKIE);
+}
+
+/** Ends every session of the user except the current one, e.g. after a password change. */
+export async function deleteOtherSessions(userId: string) {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  await db
+    .delete(s.authSessions)
+    .where(
+      and(eq(s.authSessions.userId, userId), token ? ne(s.authSessions.tokenHash, sha256(token)) : undefined),
+    );
 }
 
 /** The logged-in user, or null. Cached for the rest of the request. */

@@ -5,7 +5,8 @@ import { CommentIcon, HeartIcon, MapPinIcon } from "@/components/icons";
 import { Avatar, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import { formatMinutes, sessionTypes } from "@/lib/session-types";
-import type { Activity } from "@/lib/types";
+import type { Activity, Comment } from "@/lib/types";
+import { CommentThread } from "./comment-thread";
 
 /** A Strava-style activity post for a finished study session. */
 export function ActivityCard({ activity }: { activity: Activity }) {
@@ -13,11 +14,25 @@ export function ActivityCard({ activity }: { activity: Activity }) {
   // The server count already includes our own kudos, if we gave them.
   const others = activity.kudos - (activity.kudoed ? 1 : 0);
   const type = sessionTypes[activity.type];
+  const [showComments, setShowComments] = useState(false);
+  /** Fetched the first time the thread is opened. */
+  const [comments, setComments] = useState<Comment[] | null>(null);
+  const commentCount = comments?.length ?? activity.comments;
 
   function toggleKudos() {
     const next = !liked;
     setLiked(next);
     api.setKudos(activity.id, next).catch(() => setLiked(!next));
+  }
+
+  function toggleComments() {
+    setShowComments(!showComments);
+    if (comments === null) {
+      api
+        .listComments(activity.id)
+        .then(setComments)
+        .catch(() => setComments([]));
+    }
   }
 
   return (
@@ -28,6 +43,7 @@ export function ActivityCard({ activity }: { activity: Activity }) {
           <p className="font-semibold">{activity.user.name}</p>
           <p className="flex items-center gap-1 truncate text-xs text-muted">
             {activity.postedAgo}
+            {!activity.shared && " · Only you"}
             {activity.location && (
               <>
                 {" · "}
@@ -67,11 +83,21 @@ export function ActivityCard({ activity }: { activity: Activity }) {
           <HeartIcon className={`size-5 transition-transform ${liked ? "scale-110 fill-current" : ""}`} />
           {others + (liked ? 1 : 0)} kudos
         </button>
-        <button className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium text-muted hover:text-foreground">
+        <button
+          onClick={toggleComments}
+          aria-expanded={showComments}
+          className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+            showComments ? "text-foreground" : "text-muted hover:text-foreground"
+          }`}
+        >
           <CommentIcon className="size-5" />
-          {activity.comments}
+          {commentCount}
         </button>
       </div>
+
+      {showComments && (
+        <CommentThread activityId={activity.id} comments={comments} onChange={setComments} />
+      )}
     </Card>
   );
 }

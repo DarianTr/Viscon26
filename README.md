@@ -113,8 +113,9 @@ src/
       page.tsx            /           Today's tasks + focus timer
       plans/page.tsx      /plans      active training plan, plan catalogue
       calendar/page.tsx   /calendar   month view + day agenda
-      community/page.tsx  /community  activity feed, leaderboard, clubs
-      profile/page.tsx    /profile    stats, subjects, achievements
+      community/page.tsx  /community  activity feed (kudos, comments), leaderboard, friend search
+      profile/page.tsx    /profile    stats, subjects, achievements, your posts
+      profile/settings/   /profile/settings  edit profile, change password, delete account
     (auth)/               /login, /signup and their server actions (+ logout)
     admin/                /admin: table browser, row editor, SQL console
     layout.tsx            root layout (fonts, metadata, viewport)
@@ -124,9 +125,9 @@ src/
       health/route.ts     GET  /api/health
       items/route.ts      GET, POST  /api/items
       items/[id]/route.ts GET, PATCH, DELETE  /api/items/:id
-      users/              CRUD  /api/users, /api/users/:id
-      tasks/              CRUD  /api/tasks, /api/tasks/:id (+ /kudos)
-      clubs/[id]/membership  PUT/DELETE (join/leave)
+      users/              CRUD  /api/users, /api/users/:id (+ /follow)
+      tasks/              CRUD  /api/tasks, /api/tasks/:id (+ /kudos, /comments)
+      people/route.ts     GET  /api/people  friend search
   db/
     schema.ts             tables (Drizzle) — source of truth for migrations
     index.ts              database client
@@ -144,7 +145,7 @@ src/
     admin.ts              generic table access for /admin
     queries.ts            reads for the pages (server-only)
     users.ts, tasks.ts    CRUD data layer for /api/users and /api/tasks
-    mutations.ts          kudos and club membership (server-only)
+    mutations.ts          kudos, follows, comments (server-only)
     session-types.ts      session type labels/colours, formatting helpers
     store.ts              data layer for /api/items
     http.ts               shared error handling for route handlers
@@ -163,7 +164,15 @@ src/
 | PATCH  | `/api/items/:id` | `{ title?, done? }`       | `{ item }`        |
 | DELETE | `/api/items/:id` | –                         | `204`             |
 | PUT / DELETE | `/api/tasks/:id/kudos` | –             | `204`             |
-| PUT / DELETE | `/api/clubs/:id/membership` | –        | `204`             |
+| GET    | `/api/tasks/:id/comments` | –                | `{ comments: [] }` |
+| POST   | `/api/tasks/:id/comments` | `{ body }`       | `201 { comment }` |
+| DELETE | `/api/tasks/:id/comments/:commentId` | –     | `204`             |
+| GET    | `/api/people?q=` | – (no `q`: who you follow) | `{ people: [] }`  |
+| PUT / DELETE | `/api/users/:id/follow` | –            | `204`             |
+
+Comments work on activities you can see in your feed: your own, or shared
+ones by people you follow. You can delete your own comments and any comment
+on your own activities.
 
 ### Users and tasks
 

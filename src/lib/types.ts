@@ -76,11 +76,30 @@ export type Activity = {
   comments: number;
   note: string | null;
   mine: boolean;
+  /** False for private sessions, which only their author sees. */
+  shared: boolean;
+};
+
+export type Comment = {
+  id: string;
+  user: UserSummary;
+  body: string;
+  postedAgo: string;
+  /** The current user wrote it. */
+  mine: boolean;
+  /** The current user may delete it: their own comment, or one on their activity. */
+  canDelete: boolean;
+};
+
+/** Someone in friend search: whether you follow them, and whether they follow you. */
+export type Person = UserSummary & {
+  handle: string;
+  program: string | null;
+  following: boolean;
+  followsYou: boolean;
 };
 
 export type LeaderboardEntry = UserSummary & { hours: number; you: boolean };
-
-export type Club = { id: string; name: string; emoji: string; members: number; joined: boolean };
 
 export type Profile = {
   name: string;

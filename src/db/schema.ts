@@ -152,23 +152,6 @@ export const comments = pgTable(
   (t) => [index().on(t.sessionId)],
 );
 
-export const clubs = pgTable("clubs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  emoji: text("emoji").notNull(),
-  createdAt: createdAt(),
-});
-
-export const clubMembers = pgTable(
-  "club_members",
-  {
-    clubId: uuid("club_id").notNull().references(() => clubs.id, { onDelete: "cascade" }),
-    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [primaryKey({ columns: [t.clubId, t.userId] }), index().on(t.userId)],
-);
-
 export const badges = pgTable("badges", {
   id: text("id").primaryKey(),
   emoji: text("emoji").notNull(),

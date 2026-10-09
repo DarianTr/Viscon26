@@ -1,7 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { connection } from "next/server";
-import { and, asc, count, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import { db, schema as s, TIME_ZONE } from "@/db";
 import { requireUser, type SessionUser } from "./auth";
 import { initials } from "./session-types";
@@ -9,9 +9,10 @@ import type {
   ActivePlan,
   Activity,
   CalendarEvent,
-  Club,
+  Comment,
   LeaderboardEntry,
   Plan,
+  Person,
   Profile,
   SessionType,
   Task,
@@ -193,8 +194,14 @@ function timeAgo(date: Date) {
   return relative.format(-Math.round(hours / 24), "day");
 }
 
-/** Completed, shared sessions by the user and everyone they follow. */
-export async function getFeed(userId: string, limit = 20): Promise<Activity[]> {
+/**
+ * Completed, shared sessions by the user and everyone they follow. With
+ * `mineOnly`, just the user's own — private ones included, for their profile.
+ */
+export async function getFeed(
+  userId: string,
+  { limit = 20, mineOnly = false }: { limit?: number; mineOnly?: boolean } = {},
+): Promise<Activity[]> {
   const following = db
     .select({ id: s.follows.followeeId })
     .from(s.follows)
@@ -213,8 +220,12 @@ export async function getFeed(userId: string, limit = 20): Promise<Activity[]> {
     .where(
       and(
         isNotNull(s.sessions.completedAt),
-        eq(s.sessions.shared, true),
-        or(eq(s.sessions.userId, userId), inArray(s.sessions.userId, following)),
+        mineOnly
+          ? eq(s.sessions.userId, userId)
+          : and(
+              eq(s.sessions.shared, true),
+              or(eq(s.sessions.userId, userId), inArray(s.sessions.userId, following)),
+            ),
       ),
     )
     .orderBy(desc(s.sessions.completedAt))
@@ -236,6 +247,7 @@ export async function getFeed(userId: string, limit = 20): Promise<Activity[]> {
     comments,
     note: session.note,
     mine: session.userId === userId,
+    shared: session.shared,
   }));
 }
 
@@ -270,22 +282,6 @@ export async function getLeaderboard(userId: string): Promise<LeaderboardEntry[]
     hours: r.minutes / 60,
     you: r.id === userId,
   }));
-}
-
-export async function getClubs(userId: string): Promise<Club[]> {
-  const rows = await db
-    .select({
-      id: s.clubs.id,
-      name: s.clubs.name,
-      emoji: s.clubs.emoji,
-      members: count(s.clubMembers.userId),
-      joined: sql<boolean>`bool_or(${s.clubMembers.userId} = ${userId})`,
-    })
-    .from(s.clubs)
-    .leftJoin(s.clubMembers, eq(s.clubMembers.clubId, s.clubs.id))
-    .groupBy(s.clubs.id)
-    .orderBy(asc(s.clubs.createdAt), asc(s.clubs.name));
-  return rows.map((r) => ({ ...r, joined: r.joined ?? false }));
 }
 
 export async function getProfile(user: SessionUser): Promise<Profile> {
@@ -358,5 +354,98 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
     weeklyGoal: user.weeklyGoalHours,
     subjects: subjects.map((r) => ({ name: r.name, hours: Math.round(r.minutes / 60) })),
     badges,
+  };
+}
+
+/**
+ * Friend search: other users whose name or handle matches `q`. Without a
+ * query, the people the user already follows.
+ */
+export async function searchPeople(userId: string, q?: string, limit = 20): Promise<Person[]> {
+  const following = sql<boolean>`exists (select 1 from ${s.follows} where ${s.follows.followerId} = ${userId} and ${s.follows.followeeId} = ${s.users.id})`;
+  const followsYou = sql<boolean>`exists (select 1 from ${s.follows} where ${s.follows.followerId} = ${s.users.id} and ${s.follows.followeeId} = ${userId})`;
+  const pattern = q && `%${q.replace(/[%_\\]/g, "\\$&")}%`;
+
+  const rows = await db
+    .select({
+      id: s.users.id,
+      name: s.users.name,
+      handle: s.users.handle,
+      program: s.users.program,
+      hue: s.users.hue,
+      following,
+      followsYou,
+    })
+    .from(s.users)
+    .where(
+      and(
+        ne(s.users.id, userId),
+        pattern ? or(ilike(s.users.name, pattern), ilike(s.users.handle, pattern)) : following,
+      ),
+    )
+    // Friends first, then exact handle matches, then alphabetical.
+    .orderBy(desc(following), desc(sql`${s.users.handle} = ${q?.toLowerCase() ?? ""}`), asc(s.users.name))
+    .limit(limit);
+
+  return rows.map((r) => ({ ...r, initials: initials(r.name) }));
+}
+
+/**
+ * A completed activity the user can see — their own, or a shared one by
+ * someone they follow, i.e. what `getFeed` shows. Gates comments.
+ */
+export async function getVisibleActivity(userId: string, sessionId: string) {
+  const following = db
+    .select({ id: s.follows.followeeId })
+    .from(s.follows)
+    .where(eq(s.follows.followerId, userId));
+
+  const [row] = await db
+    .select({ id: s.sessions.id, ownerId: s.sessions.userId })
+    .from(s.sessions)
+    .where(
+      and(
+        eq(s.sessions.id, sessionId),
+        isNotNull(s.sessions.completedAt),
+        or(
+          eq(s.sessions.userId, userId),
+          and(eq(s.sessions.shared, true), inArray(s.sessions.userId, following)),
+        ),
+      ),
+    );
+  return row;
+}
+
+/** Comments on an activity, oldest first. `ownerId` is the activity's author. */
+export async function listComments(userId: string, sessionId: string, ownerId: string): Promise<Comment[]> {
+  const rows = await db
+    .select({
+      id: s.comments.id,
+      body: s.comments.body,
+      createdAt: s.comments.createdAt,
+      user: { id: s.users.id, name: s.users.name, hue: s.users.hue },
+    })
+    .from(s.comments)
+    .innerJoin(s.users, eq(s.users.id, s.comments.userId))
+    .where(eq(s.comments.sessionId, sessionId))
+    .orderBy(asc(s.comments.createdAt));
+
+  return rows.map((r) => toComment(r, userId, ownerId));
+}
+
+export function toComment(
+  r: { id: string; body: string; createdAt: Date; user: { id: string; name: string; hue: number } },
+  userId: string,
+  ownerId: string,
+): Comment {
+  const mine = r.user.id === userId;
+  return {
+    id: r.id,
+    body: r.body,
+    postedAgo: timeAgo(r.createdAt),
+    // Only the public summary — `r.user` may be a full SessionUser.
+    user: { id: r.user.id, name: r.user.name, hue: r.user.hue, initials: initials(r.user.name) },
+    mine,
+    canDelete: mine || ownerId === userId,
   };
 }

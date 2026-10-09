@@ -151,7 +151,7 @@ async function main() {
   console.log("Clearing tables…");
   await db.execute(sql`
     truncate table
-      comments, kudos, sessions, enrollments, club_members, clubs,
+      comments, kudos, sessions, enrollments,
       user_badges, badges, follows, plans, auth_sessions, users, items
     restart identity cascade
   `);
@@ -423,29 +423,13 @@ async function main() {
     ),
   );
 
-  // --- Clubs and badges ---------------------------------------------------------
-  const clubRows = await db
-    .insert(s.clubs)
-    .values([
-      { name: "D-INFK First Years", emoji: "💻" },
-      { name: "Analysis Survivors", emoji: "∫" },
-      { name: "5am Library Club", emoji: "🌅" },
-    ])
-    .returning();
-  await db.insert(s.clubMembers).values([
-    { clubId: clubRows[1].id, userId: me.id },
-    ...clubRows.flatMap((club) =>
-      sample([...friends, ...classmates], between(6, 18)).map((u) => ({ clubId: club.id, userId: u.id })),
-    ),
-  ]);
-
+  // --- Badges ---------------------------------------------------------------------
   await db.insert(s.badges).values([
     { id: "streak-10", emoji: "🔥", label: "10-day streak", position: 1 },
     { id: "early-bird", emoji: "🌅", label: "Early bird", position: 2 },
     { id: "deep-3h", emoji: "🧠", label: "3 h deep block", position: 3 },
     { id: "hours-100", emoji: "🏔️", label: "100 h club", position: 4 },
     { id: "plan-finisher", emoji: "🏁", label: "Plan finisher", position: 5 },
-    { id: "club-first", emoji: "👑", label: "Club #1", position: 6 },
   ]);
   await db.insert(s.userBadges).values(
     ["streak-10", "early-bird", "deep-3h"].map((badgeId) => ({ userId: me.id, badgeId })),
