@@ -113,31 +113,7 @@ export default function PlansPage() {
         ))}
       </div>
 
-      <SectionTitle>Find a plan</SectionTitle>
-      <ul className="grid gap-3 sm:grid-cols-2">
-        {others.map((p) => (
-          <li key={p.id}>
-            <Card className="h-full overflow-hidden p-0">
-              <div className={`h-20 bg-gradient-to-br ${p.gradient} p-4`}>
-                <span className="rounded-full bg-black/20 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
-                  {p.level}
-                </span>
-              </div>
-              <div className="p-4">
-                <p className="text-xs text-muted">{p.subject}</p>
-                <h3 className="mt-0.5 font-semibold">{p.title}</h3>
-                <p className="mt-1 text-sm text-muted">{p.goal}</p>
-                <div className="mt-3 flex items-center justify-between text-xs text-muted">
-                  <span>
-                    {p.weeks} weeks · {p.hoursPerWeek} h/week
-                  </span>
-                  <span>{p.enrolled.toLocaleString("en-US")} students</span>
-                </div>
-              </div>
-            </Card>
-          </li>
-        ))}
-      </ul>
+      
     </>
   );
 }
