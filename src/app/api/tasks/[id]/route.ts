@@ -1,5 +1,5 @@
-import { handle, isId, notFound } from "@/lib/http";
-import { deleteTask, getTask, updateTask } from "@/lib/tasks";
+import { handle, isId, jsonError, notFound } from "@/lib/http";
+import { deleteTask, getTask, updateTask, ScheduleConflictError } from "@/lib/tasks";
 import { updateTaskSchema } from "../schemas";
 
 type Ctx = RouteContext<"/api/tasks/[id]">;
@@ -20,7 +20,13 @@ export async function PATCH(request: Request, ctx: Ctx) {
   return handle(async () => {
     const { id } = await ctx.params;
     if (!isId(id)) return notFound("Task");
-    const task = await updateTask(id, updateTaskSchema.parse(await request.json()));
+    let task;
+    try {
+      task = await updateTask(id, updateTaskSchema.parse(await request.json()));
+    } catch (error) {
+      if (error instanceof ScheduleConflictError) return jsonError(409, error.message);
+      throw error;
+    }
     return task ? Response.json({ task }) : notFound("Task");
   });
 }

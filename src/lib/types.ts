@@ -11,7 +11,7 @@ export type Item = {
 export type SessionType = "deep" | "intervals" | "tempo" | "recovery";
 
 /** Everything the calendar can show. */
-export type EventType = SessionType | "lecture" | "exam";
+export type EventType = SessionType | "lecture" | "exam" | "vacation";
 
 export type Task = {
   id: string;

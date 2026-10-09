@@ -10,9 +10,12 @@ Needs Docker (for the local Postgres) and Node 20+.
 ```bash
 npm install
 cp .env.example .env.local
-npm run db:setup   # start Postgres, apply migrations, load demo data
-npm run dev        # http://localhost:3000
+# Starts Postgres, applies migrations, and loads demo data
+npm run db:setup
+npm run dev
 ```
+
+Open http://localhost:3000.
 
 Other scripts: `npm run build`, `npm start`, `npm run lint`.
 
@@ -22,8 +25,10 @@ One command builds the app and starts it with its database. Docker is the
 only requirement:
 
 ```bash
-docker compose up --build        # or: npm run docker:up (runs in background)
+docker compose up --build
 ```
+
+To run it in the background instead, use `npm run docker:up`.
 
 Then open http://localhost:3000. On first start it creates the tables and
 loads the demo data. Later starts keep your data, because the seed only runs

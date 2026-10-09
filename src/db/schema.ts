@@ -24,6 +24,7 @@ export const sessionType = pgEnum("session_type", [
   "recovery",
   "lecture",
   "exam",
+  "vacation",
 ]);
 
 export const planLevel = pgEnum("plan_level", ["Beginner", "Intermediate", "Advanced"]);
