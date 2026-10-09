@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const taskType = z.enum(["deep", "intervals", "tempo", "recovery", "lecture", "exam", "vacation"]);
+const taskType = z.enum(["deep", "intervals", "tempo", "recovery", "lecture", "exam"]);
 const timestamp = z.iso.datetime({ offset: true }).transform((v) => new Date(v));
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 
@@ -17,6 +17,7 @@ export const createTaskSchema = z.object({
   location: optionalText(200),
   note: optionalText(2000),
   shared: z.boolean().optional(),
+  calendarOrder: z.number().int().min(0).nullable().optional(),
 });
 
 export const updateTaskSchema = createTaskSchema

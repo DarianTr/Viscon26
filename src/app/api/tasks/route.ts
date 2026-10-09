@@ -1,6 +1,6 @@
-import { handle, jsonError, parseQuery } from "@/lib/http";
+import { handle, parseQuery } from "@/lib/http";
 import { getCurrentUser } from "@/lib/queries";
-import { createTask, listTasks, ScheduleConflictError } from "@/lib/tasks";
+import { createTask, listTasks } from "@/lib/tasks";
 import { createTaskSchema, listTasksQuery } from "./schemas";
 
 // GET /api/tasks?userId=&type=&done=&from=&to=&limit=&offset= — oldest first.
@@ -16,13 +16,7 @@ export async function POST(request: Request) {
   return handle(async () => {
     const { userId, ...data } = createTaskSchema.parse(await request.json());
     const owner = userId ?? (await getCurrentUser()).id;
-    let task;
-    try {
-      task = await createTask({ ...data, userId: owner });
-    } catch (error) {
-      if (error instanceof ScheduleConflictError) return jsonError(409, error.message);
-      throw error;
-    }
+    const task = await createTask({ ...data, userId: owner });
     return Response.json({ task }, { status: 201 });
   });
 }

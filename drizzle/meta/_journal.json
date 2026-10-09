@@ -15,6 +15,20 @@
       "when": 1791576906000,
       "tag": "0001_vacation",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791577432000,
+      "tag": "0002_blocks_study",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791578327000,
+      "tag": "0003_calendar_order",
+      "breakpoints": true
     }
   ]
 }

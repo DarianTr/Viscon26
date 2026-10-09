@@ -174,11 +174,13 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
       title: s.sessions.title,
       start: s.sessions.scheduledAt,
       minutes: s.sessions.plannedMinutes,
+      calendarOrder: s.sessions.calendarOrder,
     })
     .from(s.sessions)
     .where(
       and(
         eq(s.sessions.userId, userId),
+        sql`${s.sessions.type} <> 'vacation'`,
         sql`${s.sessions.scheduledAt} > now() - interval '3 months'`,
         sql`${s.sessions.scheduledAt} < now() + interval '6 months'`,
       ),
