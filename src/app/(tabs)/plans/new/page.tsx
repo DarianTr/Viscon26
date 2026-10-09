@@ -194,7 +194,7 @@ export default function NewPlanPage() {
 
         const result = normalized.map(Math.floor);
 
-        let remainder =
+        const remainder =
             total - result.reduce((a, b) => a + b, 0);
 
         const order = normalized
@@ -326,7 +326,7 @@ export default function NewPlanPage() {
                 </p>
 
                 <h1 className="mt-2 text-3xl font-bold">
-                    Let's create your study plan
+                    Let&apos;s create your study plan
                 </h1>
 
                 <p className="mt-2 text-sm text-muted">
@@ -541,7 +541,7 @@ export default function NewPlanPage() {
                                 Vacation days
                             </p>
                             <p className="mt-1 text-xs text-muted">
-                                Add periods when you won't be studying.
+                                Add periods when you won&apos;t be studying.
                             </p>
                         </div>
 
@@ -1136,7 +1136,7 @@ export default function NewPlanPage() {
 
                         <p className="mt-2 text-sm text-muted">
                             Based on your current level, target grades,
-                            and exam dates, here's how we recommend
+                            and exam dates, here&apos;s how we recommend
                             distributing your study time.
                         </p>
 

@@ -8,7 +8,6 @@ export const metadata: Metadata = { title: "Plans" };
 
 export default function PlansPage() {
   const plan = plans.find((p) => p.id === activePlan.planId)!;
-  const others = plans.filter((p) => p.id !== plan.id);
 
   // Work out which phase the current week falls into.
   const phases = plan.phases.map((phase, i) => {
