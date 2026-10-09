@@ -2,6 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { connection } from "next/server";
 import { and, asc, count, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { db, schema as s, TIME_ZONE } from "@/db";
 import { initials } from "./session-types";
 import type {
@@ -30,6 +31,12 @@ const today = sql`(now() at time zone ${tz})::date`;
 const weekStart = sql`(date_trunc('week', now() at time zone ${tz}) at time zone ${tz})`;
 
 const studyTypes: SessionType[] = ["deep", "intervals", "tempo", "recovery"];
+
+function displaySubjectName(name: string) {
+  if (name === "Physics") return "EProg";
+  if (name === "Analysis II") return "DiskMath";
+  return name;
+}
 
 /**
  * The signed-in user. There is no auth yet, so this is the seeded demo user
@@ -69,7 +76,7 @@ export async function getTodaysTasks(userId: string): Promise<Task[]> {
   return rows.map((r) => ({
     id: r.id,
     type: r.type as SessionType,
-    subject: r.subject,
+    subject: displaySubjectName(r.subject),
     title: r.title,
     detail: r.detail,
     minutes: r.plannedMinutes,
@@ -116,7 +123,11 @@ export async function listPlans(): Promise<Plan[]> {
     .from(s.plans)
     .leftJoin(counts, eq(counts.planId, s.plans.id))
     .orderBy(desc(sql`coalesce(${counts.enrolled}, 0)`));
-  return rows.map(({ plan, enrolled }) => ({ ...plan, enrolled }));
+  return rows.map(({ plan, enrolled }) => ({
+    ...plan,
+    title: plan.id === "analysis-exam" ? "DiskMath Exam Prep" : plan.title,
+    enrolled,
+  }));
 }
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -232,7 +243,7 @@ export async function getFeed(userId: string, limit = 20): Promise<Activity[]> {
     location: session.location,
     title: session.title,
     type: session.type as SessionType,
-    subject: session.subject,
+    subject: displaySubjectName(session.subject),
     minutes: session.actualMinutes ?? session.plannedMinutes,
     focus: session.focus,
     trace: session.trace,
@@ -290,18 +301,33 @@ export async function getClubs(userId: string): Promise<Club[]> {
     .leftJoin(s.clubMembers, eq(s.clubMembers.clubId, s.clubs.id))
     .groupBy(s.clubs.id)
     .orderBy(asc(s.clubs.createdAt), asc(s.clubs.name));
-  return rows.map((r) => ({ ...r, joined: r.joined ?? false }));
+  return rows.map((r) => ({
+    ...r,
+    name: r.name === "Analysis Survivors" ? "DiskMath Survivors" : r.name,
+    joined: r.joined ?? false,
+  }));
 }
 
 export async function getProfile(user: typeof s.users.$inferSelect): Promise<Profile> {
   const userId = user.id;
   const mine = eq(s.sessions.userId, userId);
   const done = and(mine, isNotNull(s.sessions.completedAt));
+  const outgoingFollows = alias(s.follows, "outgoing_follows");
+  const incomingFollows = alias(s.follows, "incoming_follows");
 
-  const [[followers], [following], [totals], [kudos], week, subjects, badges, streak] =
+  const [[friends], [totals], [kudos], week, subjects, badges, streak, exams] =
     await Promise.all([
-      db.select({ n: count() }).from(s.follows).where(eq(s.follows.followeeId, userId)),
-      db.select({ n: count() }).from(s.follows).where(eq(s.follows.followerId, userId)),
+      db
+        .select({ n: count() })
+        .from(outgoingFollows)
+        .innerJoin(
+          incomingFollows,
+          and(
+            eq(outgoingFollows.followeeId, incomingFollows.followerId),
+            eq(outgoingFollows.followerId, incomingFollows.followeeId),
+          ),
+        )
+        .where(eq(outgoingFollows.followerId, userId)),
       db
         .select({
           minutes: sql<number>`coalesce(sum(${s.sessions.actualMinutes}), 0)::int`,
@@ -345,23 +371,57 @@ export async function getProfile(user: typeof s.users.$inferSelect): Promise<Pro
         )
         .orderBy(asc(s.badges.position)),
       getStreak(userId),
+      db
+        .select({
+          name: s.sessions.subject,
+          hoursRemaining: sql<number>`ceil(extract(epoch from (${s.sessions.scheduledAt} - now())) / 3600)::int`,
+        })
+        .from(s.sessions)
+        .where(
+          and(
+            mine,
+            eq(s.sessions.type, "exam"),
+            sql`${s.sessions.scheduledAt} >= now()`,
+          ),
+        )
+        .orderBy(asc(s.sessions.scheduledAt)),
     ]);
 
   const hours = (minutes: number) => Math.round((minutes / 60) * 4) / 4;
+  const subjectSummaries = new Map<string, Profile["subjects"][number]>();
+  for (const subject of subjects) {
+    const name = displaySubjectName(subject.name);
+    const existing = subjectSummaries.get(name);
+    subjectSummaries.set(name, {
+      name,
+      hours: (existing?.hours ?? 0) + Math.round(subject.minutes / 60),
+      examHoursRemaining: null,
+    });
+  }
+  for (const exam of exams) {
+    const name = displaySubjectName(exam.name);
+    const subject = subjectSummaries.get(name) ?? {
+      name,
+      hours: 0,
+      examHoursRemaining: null,
+    };
+    subject.examHoursRemaining ??= exam.hoursRemaining;
+    subjectSummaries.set(name, subject);
+  }
 
   return {
     name: user.name,
     initials: initials(user.name),
     hue: user.hue,
+    spiritAnimal: user.spiritAnimal,
     handle: `@${user.handle}`,
     program: user.program,
-    followers: followers.n,
-    following: following.n,
+    friends: friends.n,
     streak,
     totals: { hours: Math.round(totals.minutes / 60), sessions: totals.sessions, kudos: kudos.n },
     week: weekdays.map((_, i) => hours(week.find((w) => w.dow === i + 1)?.minutes ?? 0)),
     weeklyGoal: user.weeklyGoalHours,
-    subjects: subjects.map((r) => ({ name: r.name, hours: Math.round(r.minutes / 60) })),
+    subjects: [...subjectSummaries.values()],
     badges,
   };
 }

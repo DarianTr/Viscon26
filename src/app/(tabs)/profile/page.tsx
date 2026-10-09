@@ -7,12 +7,21 @@ import { subjectColors } from "@/lib/session-types";
 export const metadata: Metadata = { title: "Profile" };
 
 const days = ["M", "T", "W", "T", "F", "S", "S"];
+const spiritAnimalDetails: Record<string, { name: string; emoji: string }> = {
+  owl: { name: "Owl", emoji: "🦉" },
+  fox: { name: "Fox", emoji: "🦊" },
+  tortoise: { name: "Tortoise", emoji: "🐢" },
+  wolf: { name: "Wolf", emoji: "🐺" },
+  deer: { name: "Deer", emoji: "🦌" },
+};
 
 export default async function ProfilePage() {
   const profile = await getProfile(await getCurrentUser());
   const weekHours = profile.week.reduce((a, b) => a + b, 0);
   const maxDay = Math.max(...profile.week, 1);
   const maxSubject = Math.max(...profile.subjects.map((s) => s.hours), 1);
+  const spiritAnimal = spiritAnimalDetails[profile.spiritAnimal] ?? spiritAnimalDetails.owl;
+  const examSubjects = profile.subjects;
 
   return (
     <>
@@ -27,16 +36,23 @@ export default async function ProfilePage() {
 
       <Card>
         <div className="flex items-center gap-4">
-          <Avatar initials={profile.initials} hue={profile.hue} size="lg" />
+          <span className="relative shrink-0">
+            <Avatar initials={profile.initials} hue={profile.hue} size="lg" />
+            <span
+              aria-label={`${spiritAnimal.name} spirit animal`}
+              className="absolute -right-1 -bottom-1 grid size-7 place-items-center rounded-full bg-surface text-base shadow-sm ring-1 ring-border"
+            >
+              {spiritAnimal.emoji}
+            </span>
+          </span>
           <div className="min-w-0">
             <h2 className="text-xl font-bold">{profile.name}</h2>
             <p className="text-sm text-muted">{profile.handle}</p>
             {profile.program && <p className="mt-1 text-sm">{profile.program}</p>}
           </div>
         </div>
-        <div className="mt-5 grid grid-cols-3 divide-x divide-border text-center">
-          <Count label="Followers" value={profile.followers} />
-          <Count label="Following" value={profile.following} />
+        <div className="mt-5 grid grid-cols-2 divide-x divide-border border-t border-border pt-4 text-center">
+          <Count label="Friends" value={profile.friends} />
           <Count label="Day streak" value={profile.streak} icon />
         </div>
       </Card>
@@ -71,6 +87,24 @@ export default async function ProfilePage() {
         <Total label="Sessions" value={profile.totals.sessions} />
         <Total label="Kudos" value={profile.totals.kudos.toLocaleString("en-US")} />
       </div>
+
+      <SectionTitle>Exam countdowns</SectionTitle>
+      {examSubjects.length === 0 ? (
+        <Card className="text-sm text-muted">No subjects yet.</Card>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {examSubjects.map((subject) => (
+            <Card key={subject.name} className="p-4">
+              <p className="truncate text-sm font-medium" title={subject.name}>{subject.name}</p>
+              {subject.examHoursRemaining === null ? (
+                <p className="mt-2 text-sm text-muted">No exam date set</p>
+              ) : (
+                <ExamCountdown hours={subject.examHoursRemaining} />
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
 
       <SectionTitle>Subjects</SectionTitle>
       <Card className="flex flex-col gap-4">
@@ -123,5 +157,18 @@ function Total({ label, value }: { label: string; value: number | string }) {
       <p className="text-2xl font-bold tabular-nums">{value}</p>
       <p className="text-xs text-muted">{label}</p>
     </Card>
+  );
+}
+
+function ExamCountdown({ hours }: { hours: number }) {
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+
+  return (
+    <p className="mt-2 text-2xl font-bold tabular-nums">
+      {days > 0 && <>{days}d </>}
+      {remainingHours}h
+      <span className="sr-only"> left</span>
+    </p>
   );
 }
