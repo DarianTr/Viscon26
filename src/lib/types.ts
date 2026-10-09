@@ -19,7 +19,10 @@ export type Task = {
   subject: string;
   title: string;
   detail: string | null;
+  /** Planned duration in minutes. */
   minutes: number;
+  /** Actual minutes studied — null until the session is completed. */
+  actualMinutes: number | null;
   /** Start time, "HH:MM" in the users' time zone. */
   time: string;
   done: boolean;

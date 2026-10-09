@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { generateStudyPlan, type PlanConfig, type ScheduleResult } from "@/lib/scheduler";
 
 type StudyApproach = "foundation" | "balanced" | "exam" | "custom";
 
@@ -114,6 +115,11 @@ export default function NewPlanPage() {
     const [distribution, setDistribution] = useState<number[]>([]);
     const [recommendedDistribution, setRecommendedDistribution] =
         useState<number[]>([]);
+
+    // STEP 7 — generation state
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [scheduleResult, setScheduleResult] = useState<ScheduleResult | null>(null);
+    const [generationError, setGenerationError] = useState<string | null>(null);
 
 
     // Update a single subject without losing other subjects' answers.
@@ -284,10 +290,13 @@ export default function NewPlanPage() {
         });
     }
 
-    // Save the configured plan locally.
-    // Actual calendar generation will be added next.
-    function generatePlan() {
-        const configuredPlan = {
+    async function generatePlan() {
+        setIsGenerating(true);
+        setScheduleResult(null);
+        setGenerationError(null);
+        setStep(7);
+
+        const config: PlanConfig = {
             planName,
             weeklyHours,
             studyDays,
@@ -295,16 +304,41 @@ export default function NewPlanPage() {
             vacationRanges,
             subjects: subjects.map((subject, index) => ({
                 ...subject,
-                allocation: distribution[index],
+                allocation: distribution[index] ?? 0,
             })),
         };
 
-        localStorage.setItem(
-            "configuredStudyPlan",
-            JSON.stringify(configuredPlan)
-        );
+        try {
+            const result = generateStudyPlan(config);
 
-        setStep(7);
+            const response = await fetch("/api/tasks/batch", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    planTitle: planName,
+                    tasks: result.sessions.map((s) => ({
+                        type: s.type,
+                        subject: s.subject,
+                        title: s.title,
+                        detail: s.detail,
+                        scheduledAt: s.scheduledAt.toISOString(),
+                        plannedMinutes: s.plannedMinutes,
+                        shared: false,
+                    })),
+                }),
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text || `HTTP ${response.status}`);
+            }
+
+            setScheduleResult(result);
+        } catch (err) {
+            setGenerationError(err instanceof Error ? err.message : "Unknown error");
+        } finally {
+            setIsGenerating(false);
+        }
     }
 
 
@@ -1253,6 +1287,121 @@ export default function NewPlanPage() {
                             ← Previous
                         </button>
                     </div>
+                </div>
+            )}
+
+            {/* STEP 7 — GENERATING / RESULT */}
+            {step === 7 && (
+                <div className={cardClass}>
+                    {isGenerating ? (
+                        /* Loading */
+                        <div className="flex flex-col items-center gap-4 py-8 text-center">
+                            <div className="size-10 animate-spin rounded-full border-4 border-border border-t-foreground" />
+                            <p className="font-semibold">Building your schedule…</p>
+                            <p className="text-sm text-muted">
+                                Scheduling sessions with spacing, interleaving, and exam practice.
+                            </p>
+                        </div>
+                    ) : generationError ? (
+                        /* Error */
+                        <div className="space-y-4 py-4 text-center">
+                            <p className="text-lg font-bold text-red-600">Something went wrong</p>
+                            <p className="text-sm text-muted">{generationError}</p>
+                            <button
+                                type="button"
+                                onClick={() => setStep(6)}
+                                className={secondaryButton}
+                            >
+                                ← Go back
+                            </button>
+                        </div>
+                    ) : scheduleResult ? (
+                        /* Success */
+                        <div className="space-y-6">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-widest text-muted">
+                                    Plan ready
+                                </p>
+                                <h2 className="mt-2 text-2xl font-bold">
+                                    {planName}
+                                </h2>
+                                <p className="mt-1 text-sm text-muted">
+                                    {scheduleResult.sessions.length} sessions scheduled
+                                    {scheduleResult.firstDate && scheduleResult.lastDate && (
+                                        <> from{" "}
+                                            {scheduleResult.firstDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                                            {" "}to{" "}
+                                            {scheduleResult.lastDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                                        </>
+                                    )}
+                                </p>
+                            </div>
+
+                            {/* Per-subject breakdown */}
+                            <div className="space-y-2">
+                                <p className="text-sm font-semibold">Sessions per subject</p>
+                                {Object.entries(scheduleResult.breakdown).map(([name, count], i) => (
+                                    <div key={name} className="flex items-center gap-3">
+                                        <span
+                                            className="size-3 shrink-0 rounded-full"
+                                            style={{ backgroundColor: subjectColors[i % subjectColors.length] }}
+                                        />
+                                        <span className="flex-1 text-sm">{name}</span>
+                                        <span className="text-sm font-semibold tabular-nums">{count}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* How the scheduler works */}
+                            <div className="rounded-xl bg-surface-2 p-4 space-y-2">
+                                <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+                                    How this schedule was built
+                                </p>
+                                <ul className="space-y-1.5 text-xs text-muted">
+                                    <li>
+                                        <span className="font-medium text-foreground">Retrieval practice</span>
+                                        {" "}— every session opens with a recall warm-up and closes with an exit quiz.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Spacing</span>
+                                        {" "}— recovery sessions implement a 1 → 3 → 7 → 14 day recall cycle for each topic.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Interleaving</span>
+                                        {" "}— subjects are mixed across each day&apos;s slots; no two consecutive sessions cover the same subject.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Exam practice</span>
+                                        {" "}— mock exams are reserved in the final days before each exam date.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Sustainability</span>
+                                        {" "}— sessions are capped at 4 per day, run 09:00–19:00, and 1 in 10 study days is kept free as a buffer.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Hours formula</span>
+                                        {" "}— required_hours = est_hours × (1.25 − 0.5 × confidence), scaling between 0.75× (very confident) and 1.25× (not comfortable).
+                                    </li>
+                                </ul>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => router.push("/calendar")}
+                                className={`${primaryButton} w-full`}
+                            >
+                                View in calendar →
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => router.push("/plans")}
+                                className={`${secondaryButton} w-full`}
+                            >
+                                Back to plans
+                            </button>
+                        </div>
+                    ) : null}
                 </div>
             )}
 
