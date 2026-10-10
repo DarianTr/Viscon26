@@ -134,6 +134,13 @@
       "when": 1791720000005,
       "tag": "0017_cheatsheet_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791720000006,
+      "tag": "0018_challenges_and_push",
+      "breakpoints": true
     }
   ]
 }

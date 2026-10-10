@@ -198,3 +198,21 @@ export type TaskRecord = {
   shared: boolean;
   createdAt: string;
 };
+
+export type ChallengeStatus = "pending" | "accepted" | "declined" | "completed";
+
+/** A dare to match one of the challenger's sessions, from either side. */
+export type Challenge = {
+  id: string;
+  status: ChallengeStatus;
+  message: string | null;
+  sentAgo: string;
+  /** The other person: the challenger on received ones, the challengee on sent ones. */
+  other: UserSummary;
+  /** What has to be beaten. */
+  source: { title: string; type: SessionType; subject: string | null; minutes: number; focus: number | null };
+  /** How the challengee did, once completed. */
+  result: { minutes: number; focus: number | null } | null;
+};
+
+export type NudgeStyle = "savage" | "gentle" | "off";

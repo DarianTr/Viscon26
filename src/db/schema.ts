@@ -63,8 +63,12 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash"),
   /** Admins can open /admin and edit the database directly. */
   isAdmin: boolean("is_admin").notNull().default(false),
+  /** Tone of the daily "go study" push: savage, gentle, or off. */
+  nudgeStyle: text("nudge_style").$type<NudgeStyle>().notNull().default("savage"),
   createdAt: createdAt(),
 });
+
+export type NudgeStyle = "savage" | "gentle" | "off";
 
 /** Login sessions. The cookie holds a random token; only its SHA-256 is stored. */
 export const authSessions = pgTable(
@@ -326,6 +330,76 @@ export const examScores = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index().on(t.userId), index().on(t.userPlanId)],
+);
+
+export type ChallengeStatus = "pending" | "accepted" | "declined" | "completed";
+
+/**
+ * "Beat this": a user dares a friend to do one of their completed sessions.
+ * Accepting copies the session into the friend's day (`responseSessionId`);
+ * completing that copy completes the challenge.
+ */
+export const challenges = pgTable(
+  "challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    challengerId: uuid("challenger_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    challengeeId: uuid("challengee_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    /** The challenger's completed session the friend has to match. */
+    sourceSessionId: uuid("source_session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+    /** The challengee's copy, created on accept. */
+    responseSessionId: uuid("response_session_id").references(() => sessions.id, { onDelete: "set null" }),
+    message: text("message"),
+    status: text("status").$type<ChallengeStatus>().notNull().default("pending"),
+    createdAt: createdAt(),
+    respondedAt: timestamp("responded_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    index().on(t.challengeeId, t.status),
+    index().on(t.challengerId),
+    uniqueIndex("challenges_response_session_index").on(t.responseSessionId),
+    // One open dare per session per friend; once answered, it can be sent again.
+    uniqueIndex("challenges_open_index")
+      .on(t.sourceSessionId, t.challengeeId)
+      .where(sql`status in ('pending', 'accepted')`),
+    check("challenges_not_self", sql`${t.challengerId} <> ${t.challengeeId}`),
+    check("challenges_status", sql`${t.status} in ('pending', 'accepted', 'declined', 'completed')`),
+  ],
+);
+
+/** A browser's Web Push subscription. A user has one per device they enabled push on. */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    endpoint: text("endpoint").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId)],
+);
+
+/**
+ * Everything we've pushed (or tried to) to a user. Doubles as the in-app inbox
+ * and, through `dedupeKey`, keeps scheduled nudges to one per user per day.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    /** Where tapping it leads, e.g. /community?tab=challenges. */
+    url: text("url").notNull().default("/"),
+    dedupeKey: text("dedupe_key").unique(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId, t.createdAt)],
 );
 
 /** The original starter example, kept for /api/items. */

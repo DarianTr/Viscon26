@@ -91,3 +91,14 @@ export async function deleteAccount(_prev: SettingsState, form: FormData): Promi
   await db.delete(s.users).where(eq(s.users.id, user.id));
   redirect("/signup");
 }
+
+const nudgeStyleSchema = z.enum(["savage", "gentle", "off"]);
+
+/** How the daily study nudge talks to the user (see `src/lib/nudges.ts`). */
+export async function setNudgeStyle(style: string): Promise<void> {
+  const user = await requireUser();
+  await db
+    .update(s.users)
+    .set({ nudgeStyle: nudgeStyleSchema.parse(style) })
+    .where(eq(s.users.id, user.id));
+}

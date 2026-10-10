@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { BrainIcon, CameraIcon, CommentIcon, EditIcon, MapPinIcon, UsersIcon, XIcon } from "@/components/icons";
+import { BrainIcon, CameraIcon, CommentIcon, EditIcon, MapPinIcon, SwordsIcon, UsersIcon, XIcon } from "@/components/icons";
 import { WashiTape } from "@/components/mascot/doodles";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Avatar, Button, Card } from "@/components/ui/primitives";
@@ -10,6 +10,7 @@ import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
 import { MAX_PHOTOS } from "@/lib/photos";
 import { shrinkImage } from "@/lib/shrink-image";
 import type { Activity, Comment } from "@/lib/types";
+import { ChallengeFriends } from "./challenge-friends";
 import { CommentThread } from "./comment-thread";
 import { TagFriends } from "./tag-friends";
 
@@ -26,6 +27,8 @@ export function ActivityCard({ activity }: { activity: Activity }) {
   const [photos, setPhotos] = useState(activity.photos);
   const [tagged, setTagged] = useState(activity.tagged);
   const [showTags, setShowTags] = useState(false);
+  const [showChallenge, setShowChallenge] = useState(false);
+  const [challengeSent, setChallengeSent] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -308,6 +311,18 @@ export function ActivityCard({ activity }: { activity: Activity }) {
               </button>
             )}
             <button
+              onClick={() => {
+                setShowChallenge(!showChallenge);
+                setChallengeSent(null);
+              }}
+              aria-expanded={showChallenge}
+              aria-label="Challenge friends"
+              title="Challenge friends to beat this"
+              className={`rounded-full p-2 transition-colors ${showChallenge ? "text-foreground" : "text-muted hover:text-foreground"}`}
+            >
+              <SwordsIcon className="size-5" />
+            </button>
+            <button
               onClick={() => setShowTags(!showTags)}
               aria-expanded={showTags}
               aria-label="Tag friends"
@@ -330,6 +345,21 @@ export function ActivityCard({ activity }: { activity: Activity }) {
           }}
         />
       )}
+
+      {showChallenge && (
+        <ChallengeFriends
+          activityId={activity.id}
+          onSent={(sent) => {
+            setShowChallenge(false);
+            setChallengeSent(
+              sent === 0
+                ? "They already have this challenge waiting."
+                : `Challenge sent to ${sent} ${sent === 1 ? "friend" : "friends"}. ⚔️`,
+            );
+          }}
+        />
+      )}
+      {challengeSent && <p className="border-t border-border px-4 py-3 text-sm text-muted">{challengeSent}</p>}
 
       {showComments && (
         <CommentThread activityId={activity.id} comments={comments} onChange={setComments} />
