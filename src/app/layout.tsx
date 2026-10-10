@@ -1,38 +1,37 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Baloo_2, Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const baloo = Baloo_2({
+  variable: "--font-baloo",
   subsets: ["latin"],
+  weight: "variable",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const jakarta = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
   subsets: ["latin"],
+  weight: "variable",
 });
 
 export const metadata: Metadata = {
-  title: { default: "Stride", template: "%s · Stride" },
-  description: "Study like you train — plans, streaks and a feed for studying.",
-  appleWebApp: { capable: true, title: "Stride", statusBarStyle: "black-translucent" },
+  title: { default: "Braina", template: "%s · Braina" },
+  description: "Grow your brain by using it — study plans, a focus timer and a feed for studying.",
+  appleWebApp: { capable: true, title: "Braina", statusBarStyle: "black-translucent" },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f6f6f4" },
-    { media: "(prefers-color-scheme: dark)", color: "#0c0c0e" },
-  ],
+  themeColor: "#f7f5ec",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${baloo.variable} ${jakarta.variable} h-full antialiased`}
     >
       <body className="min-h-full">{children}</body>
     </html>

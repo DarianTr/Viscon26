@@ -75,7 +75,7 @@ export function TagFriends({
         <button
           onClick={save}
           disabled={saving}
-          className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          className="rounded-full border-2 border-foreground bg-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
         >
           Save
         </button>

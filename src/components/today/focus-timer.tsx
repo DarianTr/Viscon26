@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { PauseIcon, PlayIcon, XIcon } from "@/components/icons";
+import { Brain, type BrainExpression } from "@/components/mascot/brain";
 import { Ring } from "@/components/ui/primitives";
 import { sessionTypes, subjectColor } from "@/lib/session-types";
 import type { Task } from "@/lib/types";
@@ -34,29 +35,55 @@ export function FocusTimer({
   const mm = String(Math.floor(remaining / 60)).padStart(2, "0");
   const ss = String(remaining % 60).padStart(2, "0");
   const type = sessionTypes[task.type];
+  const mood: BrainExpression = paused ? "sleepy" : "focused";
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
+    <div
+      className="fixed inset-0 z-50 flex flex-col px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]"
+      style={{
+        background: "radial-gradient(ellipse 80% 60% at 50% 0%, var(--focus-bg-2), var(--focus-bg) 65%)",
+        color: "var(--focus-ink)",
+      }}
+    >
       <div className="flex items-center justify-between">
-        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${type.soft}`}>
+        <span
+          className="rounded-full border px-3 py-1 text-xs font-bold"
+          style={{ borderColor: "var(--focus-border)", color: "var(--focus-muted)" }}
+        >
           {type.label}
           {task.type === "intervals" && ` · Rep ${rep}`}
         </span>
-        <button onClick={onClose} aria-label="Close" className="grid size-10 place-items-center rounded-full bg-surface-2">
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="grid size-10 place-items-center rounded-full border transition-colors hover:bg-white/5"
+          style={{ borderColor: "var(--focus-border)" }}
+        >
           <XIcon className="size-5" />
         </button>
       </div>
 
       <div className="flex flex-1 flex-col items-center justify-center text-center">
-        <p className={`text-sm font-medium ${subjectColor(task.subject).text}`}>{task.subject}</p>
-        <h2 className="mt-1 max-w-sm text-xl font-bold">{task.title}</h2>
-        <div className="mt-10">
-          <Ring value={inBlock / blockSeconds} size={260} stroke={14}>
+        <Brain expression={mood} size={76} idle={!paused} />
+        <p className="mt-4 text-sm font-semibold" style={{ color: subjectColor(task.subject).value }}>
+          {task.subject}
+        </p>
+        <h2 className="mt-1 max-w-sm font-display text-xl font-bold">{task.title}</h2>
+        <div className="mt-8">
+          <Ring
+            value={inBlock / blockSeconds}
+            size={260}
+            stroke={3}
+            className="text-[var(--focus-accent)]"
+            trackClassName="stroke-[var(--focus-border)]"
+          >
             <div>
-              <p className="font-mono text-6xl font-semibold tabular-nums tracking-tight">
+              <p className="font-display text-6xl font-bold tabular-nums tracking-tight">
                 {mm}:{ss}
               </p>
-              <p className="mt-2 text-sm text-muted">{paused ? "Paused" : "Stay focused"}</p>
+              <p className="mt-2 text-sm" style={{ color: "var(--focus-muted)" }}>
+                {paused ? "Paused — the brain is resting" : "Stay focused"}
+              </p>
             </div>
           </Ring>
         </div>
@@ -66,13 +93,15 @@ export function FocusTimer({
         <button
           onClick={() => setPaused((p) => !p)}
           aria-label={paused ? "Resume" : "Pause"}
-          className="grid size-16 place-items-center rounded-full bg-surface-2 transition-transform active:scale-95"
+          className="grid size-16 place-items-center rounded-full border-2 transition-transform active:scale-95"
+          style={{ borderColor: "var(--focus-border)" }}
         >
           {paused ? <PlayIcon className="size-6" /> : <PauseIcon className="size-6" />}
         </button>
         <button
           onClick={() => onFinish(Math.max(1, Math.round(elapsed / 60)))}
-          className="h-16 rounded-full bg-accent px-8 text-base font-semibold text-white shadow-lg shadow-accent/30 transition-transform active:scale-95"
+          className="h-16 rounded-full border-2 px-8 font-display text-base font-bold transition-transform active:scale-95"
+          style={{ background: "var(--focus-accent)", borderColor: "var(--focus-accent)", color: "var(--focus-ink)" }}
         >
           Finish &amp; save
         </button>

@@ -62,7 +62,7 @@ export function CommentThread({
   }
 
   return (
-    <div className="border-t border-border px-4 py-3">
+    <div className="border-t-2 border-border px-4 py-3">
       {confirmDialog}
       {comments === null && <p className="py-2 text-sm text-muted">Loading comments…</p>}
 
@@ -101,11 +101,11 @@ export function CommentThread({
             onChange={(e) => setDraft(e.target.value)}
             placeholder={comments.length ? "Add a comment" : "Be the first to comment"}
             maxLength={1000}
-            className="min-w-0 flex-1 rounded-full bg-surface-2 px-4 py-2 text-sm outline-none ring-1 ring-border focus:ring-2 focus:ring-accent"
+            className="min-w-0 flex-1 rounded-full border-2 border-border bg-surface-2 px-4 py-2 text-sm outline-none focus:border-accent"
           />
           <button
             disabled={sending || !draft.trim()}
-            className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded-full border-2 border-foreground bg-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
           >
             Post
           </button>

@@ -104,7 +104,7 @@ export function ActivityCard({ activity }: { activity: Activity }) {
       </div>
 
       <div className="px-4 pt-3">
-        <h3 className="text-lg font-bold">{activity.title}</h3>
+        <h3 className="font-display text-lg font-bold">{activity.title}</h3>
         {activity.note && <p className="mt-1 text-sm">{activity.note}</p>}
         {tagged.length > 0 && (
           <p className="mt-2 flex items-center gap-2 text-sm text-muted">
@@ -139,21 +139,21 @@ export function ActivityCard({ activity }: { activity: Activity }) {
         <div className="h-4" />
       )}
 
-      <div className="flex items-center gap-1 border-t border-border px-2 py-1.5">
+      <div className="flex items-center gap-1 border-t-2 border-border px-2 py-1.5">
         <button
           onClick={toggleKudos}
           aria-pressed={liked}
-          className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+          className={`hover-wiggle flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-bold transition-colors ${
             liked ? "text-accent" : "text-muted hover:text-foreground"
           }`}
         >
-          <HeartIcon className={`size-5 transition-transform ${liked ? "scale-110 fill-current" : ""}`} />
+          <HeartIcon className={`size-5 transition-transform ${liked ? "mascot-pop scale-110 fill-current" : ""}`} />
           {others + (liked ? 1 : 0)} kudos
         </button>
         <button
           onClick={toggleComments}
           aria-expanded={showComments}
-          className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+          className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-bold transition-colors ${
             showComments ? "text-foreground" : "text-muted hover:text-foreground"
           }`}
         >
@@ -261,8 +261,8 @@ function PhotoGrid({
 function Metric({ label, value, className = "" }: { label: string; value: string; className?: string }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[11px] text-muted">{label}</dt>
-      <dd className={`truncate font-semibold ${className}`}>{value}</dd>
+      <dt className="text-[11px] text-muted uppercase tracking-wide">{label}</dt>
+      <dd className={`truncate font-display font-bold ${className}`}>{value}</dd>
     </div>
   );
 }
