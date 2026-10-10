@@ -66,6 +66,7 @@ services:
       DEV_USER_ID: ${DEV_USER_ID:-}
       DEV_USER_NAME: ${DEV_USER_NAME:-}
       CALENDAR_FEED_ORIGIN: ${CALENDAR_FEED_ORIGIN:-}
+      APP_ORIGIN: ${APP_ORIGIN:-}
     ports:
       - "${APP_PORT:-3000}:3000"
     depends_on:

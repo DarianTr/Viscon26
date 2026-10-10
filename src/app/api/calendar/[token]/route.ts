@@ -1,5 +1,5 @@
 import { TIME_ZONE } from "@/db";
-import { findFeedOwner, publicOrigin } from "@/lib/calendar-feed";
+import { appOrigin, findFeedOwner } from "@/lib/calendar-feed";
 import { calendarFeed } from "@/lib/ical";
 import { getCalendarEvents } from "@/lib/queries";
 
@@ -17,7 +17,7 @@ export async function GET(request: Request, ctx: RouteContext<"/api/calendar/[to
   const events = await getCalendarEvents(user.id);
   const body = calendarFeed(events, {
     name: `Braina — ${user.name}`,
-    appUrl: publicOrigin(request.headers),
+    appUrl: appOrigin(request.headers),
     timeZone: TIME_ZONE,
   });
   return new Response(body, {

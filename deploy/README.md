@@ -90,7 +90,15 @@ service (Caddy) — only `/api/calendar/*`; everything else there redirects to
 `APP_ORIGIN`. Add the calendar block from `viscon.env.example` to
 `/home/viscon/viscon.env`, make sure ports 80 and 443 on the VM are reachable
 from the internet (Caddy needs them for the Let's Encrypt certificate), and
-redeploy. Check it:
+redeploy. Opening the ports for Caddy is safe (unlike `APP_PORT`): it only
+passes `/api/calendar/*` through.
+
+```sh
+sudo ufw allow 80/tcp && sudo ufw allow 443/tcp
+```
+
+If the organizers' team page has a firewall / network configuration for the
+direct address, allow 80 and 443 there too. Check it (from outside the VM):
 
 ```sh
 docker compose -p viscon logs direct   # "certificate obtained successfully"
