@@ -262,6 +262,38 @@ class TimelineOut(Out):
     skipped: list[str | None]
 
 
+# --- Study focus / topic recommendations ------------------------------------
+
+
+class RecommendedTopicsIn(Body):
+    """Target levels per topic (fraction 0–1). Topics without an entry default to 0.75 (~grade 5)."""
+
+    targets: dict[str, Fraction] = {}
+
+
+class TopicRecommendation(Out):
+    topic_id: str
+    topic_name: str
+    #: Parent id (subject slug), or None for ungrouped topics.
+    subject_id: str | None
+    #: Share of the next session this topic should receive, 0–100.
+    allocation: float
+    current_mean: float
+    current_sd: float
+    #: max(0, target − current_mean): how far below target.
+    gap: float
+    days_to_exam: int | None
+    #: Short labels: "weakest", "least certain", "exam soon".
+    tags: list[str]
+
+
+class RecommendedTopicsOut(Out):
+    user_id: UUID
+    plan_id: str
+    as_of: datetime
+    topics: list[TopicRecommendation]
+
+
 # --- Fit ---------------------------------------------------------------------
 
 
