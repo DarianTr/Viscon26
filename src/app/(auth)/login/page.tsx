@@ -1,9 +1,6 @@
-import type { Metadata } from "next";
-import { AuthForm } from "@/components/auth-form";
-import { login } from "../actions";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Log in" };
-
+/** Login is done by the reverse proxy now; old /login links land in the app (or on /signup). */
 export default function LoginPage() {
-  return <AuthForm mode="login" action={login} />;
+  redirect("/");
 }
