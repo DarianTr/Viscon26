@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Card } from "@/components/ui/primitives";
-import { ForecastChart } from "@/components/knowledge/forecast-chart";
-import { TopicProfile } from "@/components/knowledge/topic-profile";
+import { CombinedChart } from "@/components/knowledge/combined-chart";
 import type { CustomPlan } from "@/lib/queries";
 import type { KnowledgeSubject, Timeline } from "@/lib/knowledge";
 
@@ -71,14 +70,10 @@ function continueHref(start: string) {
 }
 
 const PALETTE = [
-  "#6366f1",
-  "#f59e0b",
-  "#10b981",
-  "#ef4444",
-  "#8b5cf6",
-  "#3b82f6",
-  "#ec4899",
-  "#06b6d4",
+  "var(--accent)",
+  "var(--teal)",
+  "var(--slate)",
+  "var(--foreground)",
 ];
 
 function subjectColor(subjects: string[], subject: string) {
@@ -358,7 +353,6 @@ export function CustomPlanCard({
   const [savingReport, setSavingReport] = useState(false);
   const [caughtUp, setCaughtUp] = useState<{ subject: string; actual: number; planned: number; addedMinutes: number } | null>(null);
   const [strategyError, setStrategyError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"forecast" | "subjects">("forecast");
   const [knowledge, setKnowledge] = useState<{ timeline: Timeline; subjects: KnowledgeSubject[] } | null>(null);
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
@@ -655,34 +649,14 @@ export function CustomPlanCard({
             <p className="py-4 text-center text-sm text-muted">Failed to load plan details.</p>
           )}
 
-          {/* Tab bar */}
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => setTab("forecast")}
-              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${tab === "forecast" ? "bg-foreground text-background" : "bg-surface-2 text-foreground"}`}
-            >
-              Grade forecast
-            </button>
-            <button
-              onClick={() => setTab("subjects")}
-              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${tab === "subjects" ? "bg-foreground text-background" : "bg-surface-2 text-foreground"}`}
-            >
-              Subjects
-            </button>
-          </div>
-
-          {/* Tab content */}
           {knowledgeLoading && (
             <p className="py-4 text-center text-sm text-muted">Loading…</p>
           )}
           {!knowledgeLoading && knowledgeError && (
             <p className="text-xs text-red-500">{knowledgeError}</p>
           )}
-          {!knowledgeLoading && !knowledgeError && knowledge && tab === "forecast" && (
-            <ForecastChart timeline={knowledge.timeline} subjects={knowledge.subjects} />
-          )}
-          {!knowledgeLoading && !knowledgeError && knowledge && tab === "subjects" && (
-            <TopicProfile timeline={knowledge.timeline} subjects={knowledge.subjects} />
+          {!knowledgeLoading && !knowledgeError && knowledge && (
+            <CombinedChart timeline={knowledge.timeline} subjects={knowledge.subjects} />
           )}
 
           {/* AI Strategy */}
