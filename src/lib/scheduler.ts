@@ -135,6 +135,8 @@ const CHEATSHEET = {
   slot: 30, minSlot: 15,
   familiarize: { min: 60, max: 120 },
   finalize: { min: 30, max: 60 },
+  /** Where dedicated sessions go, as a share of the subject's study days before the exam. */
+  when: { familiarize: 0.1, creation: [0.6, 0.85] as const, finalize: 0.95 },
 };
 
 /** Default focused-block and short-break lengths per rhythm. Special blocks (mocks) keep their own length. */
@@ -651,23 +653,6 @@ export function cheatsheetMilestones(minutes: number[], from = 0): number[] {
   });
 }
 
-/** Index after which `share` of the queue's minutes have passed. */
-function queueIndexAt(queue: QueueItem[], share: number): number {
-  const total = queue.reduce((t, q) => t + q.plannedMinutes, 0);
-  let acc = 0;
-  for (let i = 0; i < queue.length; i++) {
-    acc += queue[i].plannedMinutes;
-    if (acc >= total * share) return i + 1;
-  }
-  return queue.length;
-}
-
-/** Where late cheatsheet sessions go in a queue: before final revision, else at 80% of the work. */
-function lateInsertIndex(queue: QueueItem[]): number {
-  const finalRevision = queue.findIndex((q) => q.phase === "Final revision");
-  return finalRevision > 0 ? finalRevision : queueIndexAt(queue, 0.8);
-}
-
 /** Minutes for selecting and getting to know an existing cheatsheet: 1–2 h, more for bigger subjects. */
 export function familiarizeMinutes(budget: number): number {
   const { min, max } = CHEATSHEET.familiarize;
@@ -703,11 +688,16 @@ const cheatsheetItem = (subject: string, title: string, minutes: number, kind: N
   cheat: { minutes, kind },
 });
 
+/** A dedicated cheatsheet session, and where in the subject's preparation (0–1) it belongs. */
+type DedicatedSheet = { item: QueueItem; at: number };
+
 /**
- * Adds the subject's cheatsheet work to its queue. Dedicated sessions were
- * already taken out of the study the queue was sized from, and combined
- * sessions only re-label time inside existing ones — so cheatsheet time is
- * never counted twice. `progress` is how far the cheatsheet actually is (0–100).
+ * Plans the subject's cheatsheet work. Combined sessions only re-label time
+ * inside theory sessions of the queue; dedicated sessions are returned
+ * separately and placed ahead of regular study (like mock exams), so a tight
+ * plan drops regular study before it drops the cheatsheet. Their time was
+ * already taken out of the study the queue was sized from — never counted
+ * twice. `progress` is how far the cheatsheet actually is (0–100).
  */
 function planCheatsheet(
   queue: QueueItem[],
@@ -718,32 +708,35 @@ function planCheatsheet(
   sessionLength: number,
   /** Study phases the subject's strategy has (before completed work came off the queue). */
   strategyPhases: Set<string | undefined>,
-): QueueItem[] {
-  if (mode === "none" || progress >= 100) return queue;
+): { queue: QueueItem[]; dedicated: DedicatedSheet[] } {
+  if (mode === "none" || progress >= 100) return { queue, dedicated: [] };
   const remaining = Math.round((budget * (100 - progress)) / 100);
+  /** `items` spread evenly between `from` and `to` of the preparation. */
+  const spread = (items: QueueItem[], from: number, to: number): DedicatedSheet[] =>
+    items.map((item, k) => ({ item, at: items.length === 1 ? to : from + ((to - from) * k) / (items.length - 1) }));
 
   // Existing: pick one and get to know it, early on — no creation work.
   if (mode === "existing") {
     const item = cheatsheetItem(subject, "Cheatsheet Selection & Familiarization", familiarizeMinutes(budget), "existing");
-    queue.splice(queueIndexAt(queue, 0.1), 0, item);
-    return queue;
+    return { queue, dedicated: [{ item, at: CHEATSHEET.when.familiarize }] };
   }
 
-  // End: dedicated creation sessions late in the preparation, then a finalization.
+  const { creation, finalize: finalAt } = CHEATSHEET.when;
+  const finalization = { item: cheatsheetItem(subject, "Cheatsheet Finalization", finalizeMinutes(remaining), "final"), at: finalAt };
+
+  // End: dedicated creation sessions spread over the later preparation, then a finalization.
   if (mode === "end") {
-    const finalize = finalizeMinutes(remaining);
     const blocks: number[] = [];
-    for (let left = remaining - finalize; left >= MIN_SESSION_MINUTES; left -= sessionLength) blocks.push(Math.min(sessionLength, left));
-    queue.splice(lateInsertIndex(queue), 0,
-      ...blocks.map((minutes, k) => cheatsheetItem(subject, `Cheatsheet Creation ${k + 1}`, minutes, "creation")),
-      cheatsheetItem(subject, "Cheatsheet Finalization", finalize, "final"));
-    return queue;
+    for (let left = remaining - finalization.item.plannedMinutes; left >= MIN_SESSION_MINUTES; left -= sessionLength) {
+      blocks.push(Math.min(sessionLength, left));
+    }
+    const items = blocks.map((minutes, k) => cheatsheetItem(subject, `Cheatsheet Creation ${k + 1}`, minutes, "creation"));
+    return { queue, dedicated: [...spread(items, creation[0], creation[1]), finalization] };
   }
 
   // Gradual: theory recap sessions reserve part of their time for the cheatsheet
   // (at most half), with a finalization before the exam.
-  const finalize = finalizeMinutes(remaining);
-  let combinedMinutes = remaining - finalize;
+  let combinedMinutes = remaining - finalization.item.plannedMinutes;
   // Strategies with theory build it there; others fall back to their review phases.
   // Once the theory phase is over, what's left becomes catch-up sessions instead.
   const hostPhase = ["Theory recap", "Spaced review", "Final revision"].find((p) => strategyPhases.has(p));
@@ -777,9 +770,7 @@ function planCheatsheet(
   for (let left = combinedMinutes; left >= MIN_SESSION_MINUTES; left -= sessionLength) {
     catchUps.push(cheatsheetItem(subject, `Cheatsheet Catch-up ${catchUps.length + 1}`, Math.min(sessionLength, left), "catchup"));
   }
-
-  queue.splice(lateInsertIndex(queue), 0, ...catchUps, cheatsheetItem(subject, "Cheatsheet Finalization", finalize, "final"));
-  return queue;
+  return { queue, dedicated: [...spread(catchUps, creation[0], creation[1]), finalization] };
 }
 
 /**
@@ -973,6 +964,10 @@ export function generateStudyPlan(
     allocation: number;
     multiplier: number;
     regularQueue: QueueItem[];
+    /** Dedicated cheatsheet sessions, placed ahead of regular study. */
+    cheatsheet: DedicatedSheet[];
+    /** Day index of the cheatsheet finalization: combined theory + cheatsheet sessions go before it. */
+    sheetDeadline: number;
     /** Remainders of sessions cut at a day's end; they fill later days' short last slot. */
     tailQueue: QueueItem[];
     /** Required work that was dropped (unplaced mocks/reviews, trimmed slivers). */
@@ -1004,6 +999,8 @@ export function generateStudyPlan(
       regularQueue: [],
       tailQueue: [],
       lostMinutes: 0,
+      cheatsheet: [],
+      sheetDeadline: Infinity,
     };
   });
 
@@ -1113,7 +1110,9 @@ export function generateStudyPlan(
         doneMinutes = 0;
       }
     }
-    s.regularQueue = planCheatsheet(queue, s.name, mode, budget, done?.cheatsheet ?? 0, sessionLength, strategyPhases);
+    const sheet = planCheatsheet(queue, s.name, mode, budget, done?.cheatsheet ?? 0, sessionLength, strategyPhases);
+    s.regularQueue = sheet.queue;
+    s.cheatsheet = sheet.dedicated;
   });
 
   const free = (day: DayPlan) => day.capacity - day.used;
@@ -1243,6 +1242,30 @@ export function generateStudyPlan(
     }
   });
 
+  // ── 5b. Dedicated cheatsheet sessions (also ahead of regular study) ──────
+  // Each goes to the study day nearest its spot in the preparation, in order,
+  // never after the exam; a tight plan gives up regular study first.
+
+  subjects.forEach((s, si) => {
+    const lastIdx = lastIdxOf[si];
+    let prevIdx = 0;
+    for (const { item, at } of s.cheatsheet) {
+      const target = Math.round(at * lastIdx);
+      const candidates: number[] = [];
+      for (let d = prevIdx; d <= lastIdx; d++) candidates.push(d);
+      candidates.sort((a, b) => Math.abs(a - target) - Math.abs(b - target) || b - a);
+      const d = candidates.find((c) => free(days[c]) >= item.plannedMinutes && canTake(days[c], si));
+      if (d === undefined) {
+        s.lostMinutes += item.plannedMinutes;
+        warnings.push(`${item.title} (${formatHours(item.plannedMinutes)}) doesn't fit before the exam.`);
+        continue;
+      }
+      place(days[d], item);
+      prevIdx = d;
+      if (item.cheat?.kind === "final") s.sheetDeadline = d;
+    }
+  });
+
   // ── 6. Weighted round-robin over at most two subjects a day ──────────────
   // Days are filled minute by minute: the last session of a full day is
   // shortened to fit and its remainder continues on a later day.
@@ -1255,13 +1278,19 @@ export function generateStudyPlan(
   const hasWork = (s: Subject) => s.regularQueue.length > 0 || s.tailQueue.length > 0;
 
   /** Takes up to `room` minutes of the subject's next work; null if nothing worth a session fits. */
-  function takeWork(s: Subject, room: number): QueueItem | null {
+  function takeWork(s: Subject, room: number, dayIdx: number): QueueItem | null {
+    // From the cheatsheet finalization's day on, theory + cheatsheet sessions wait
+    // (they belong before it); the subject's other work goes ahead.
+    const usable = (q: QueueItem) => !(q.cheat?.kind === "combined" && dayIdx >= s.sheetDeadline);
+    const tailAt = s.tailQueue.findIndex(usable);
+    const regularAt = s.regularQueue.findIndex(usable);
+    if (tailAt < 0 && regularAt < 0) return null;
     // Whole sessions fill the day's full blocks; leftovers from earlier cuts
     // fill the short slot at its end, so the next day still starts on the template.
-    const fromTail = s.tailQueue.length > 0
-      && (s.regularQueue.length === 0 || room < s.regularQueue[0].plannedMinutes);
+    const fromTail = tailAt >= 0 && (regularAt < 0 || room < s.regularQueue[regularAt].plannedMinutes);
     const queue = fromTail ? s.tailQueue : s.regularQueue;
-    const next = queue[0];
+    const at = fromTail ? tailAt : regularAt;
+    const next = queue[at];
     let minutes = Math.min(next.plannedMinutes, room);
     // Leave a continuation long enough to be its own session.
     if (minutes < next.plannedMinutes && next.plannedMinutes - minutes < MIN_SESSION_MINUTES) {
@@ -1269,7 +1298,7 @@ export function generateStudyPlan(
     }
     if (minutes < MIN_SESSION_MINUTES) return null;
     const rest = next.plannedMinutes - minutes;
-    queue.shift();
+    queue.splice(at, 1);
     // Split pieces share the cheatsheet part in proportion.
     const cheatNow = next.cheat && { ...next.cheat, minutes: Math.round((next.cheat.minutes * minutes) / next.plannedMinutes) };
     if (rest > 0) {
@@ -1303,9 +1332,11 @@ export function generateStudyPlan(
     let prevIdx = -1;
     let lastBlock: { block: DayBlock; subject: number } | null = null;
 
+    /** Subjects with nothing placeable today (e.g. only work that belongs before their finalization). */
+    const stuck = new Set<number>();
     while (room >= MIN_SESSION_MINUTES) {
       // Only subjects this day can still take: a third subject never joins.
-      const pickable = activeIdx.filter((i) => hasWork(subjects[i]) && canTake(day, i));
+      const pickable = activeIdx.filter((i) => hasWork(subjects[i]) && canTake(day, i) && !stuck.has(i));
       if (pickable.length === 0) break;
       // Accumulate credit per slot for all active subjects
       for (const i of activeIdx) credit[i] += subjects[i].allocation;
@@ -1319,8 +1350,11 @@ export function generateStudyPlan(
       if (bestIdx === -1) break;
 
       const s = subjects[bestIdx];
-      const item = takeWork(s, Math.min(room, free(day)));
-      if (!item) break;
+      const item = takeWork(s, Math.min(room, free(day)), di);
+      if (!item) {
+        stuck.add(bestIdx);
+        continue;
+      }
       place(day, item);
       room -= item.plannedMinutes;
       lastBlock = { block: day.blocks[day.blocks.length - 1], subject: bestIdx };
@@ -1349,7 +1383,7 @@ export function generateStudyPlan(
     for (let d = lastIdxOf[si]; d >= 0 && hasWork(s); d--) {
       const day = days[d];
       while (hasWork(s) && free(day) >= MIN_SESSION_MINUTES && canTake(day, si)) {
-        const item = takeWork(s, free(day));
+        const item = takeWork(s, free(day), d);
         if (!item) break;
         place(day, item);
       }

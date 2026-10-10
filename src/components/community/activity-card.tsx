@@ -1,9 +1,10 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { BrainIcon, CameraIcon, CommentIcon, MapPinIcon, UsersIcon, XIcon } from "@/components/icons";
+import { BrainIcon, CameraIcon, CommentIcon, EditIcon, MapPinIcon, UsersIcon, XIcon } from "@/components/icons";
+import { WashiTape } from "@/components/mascot/doodles";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { Avatar, Card } from "@/components/ui/primitives";
+import { Avatar, Button, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
 import { MAX_PHOTOS } from "@/lib/photos";
@@ -29,6 +30,48 @@ export function ActivityCard({ activity }: { activity: Activity }) {
   const [photoError, setPhotoError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [confirm, confirmDialog] = useConfirm();
+
+  const [title, setTitle] = useState(activity.title);
+  const [note, setNote] = useState(activity.note);
+  const [editing, setEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(title);
+  const [noteDraft, setNoteDraft] = useState(note ?? "");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  function startEdit() {
+    setTitleDraft(title);
+    setNoteDraft(note ?? "");
+    setEditError(null);
+    setEditing(true);
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+    setEditError(null);
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    const nextTitle = titleDraft.trim();
+    if (!nextTitle) {
+      setEditError("Give the session a title.");
+      return;
+    }
+    const nextNote = noteDraft.trim() || null;
+    setSavingEdit(true);
+    setEditError(null);
+    try {
+      await api.updateActivity(activity.id, { title: nextTitle, note: nextNote });
+      setTitle(nextTitle);
+      setNote(nextNote);
+      setEditing(false);
+    } catch (err) {
+      setEditError((err as Error).message);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
 
   function toggleKudos() {
     const next = !liked;
@@ -82,9 +125,29 @@ export function ActivityCard({ activity }: { activity: Activity }) {
     });
   }
 
+  // A tiny, stable (not re-randomized on re-render) scrapbook tilt per post.
+  const tilt = (activity.id.charCodeAt(0) + activity.id.charCodeAt(activity.id.length - 1)) % 2 === 0;
+
   return (
-    <Card className="p-0">
+    <Card className={`relative overflow-visible p-0 ${tilt ? "sm:-rotate-[0.5deg]" : "sm:rotate-[0.5deg]"}`}>
+      <WashiTape
+        color={tilt ? "var(--pink)" : "var(--gold)"}
+        className={`sticker-settle absolute -top-3 left-6 ${tilt ? "-rotate-3" : "rotate-3"}`}
+      />
       {confirmDialog}
+      {activity.mine && (
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/*"
+          multiple
+          hidden
+          onChange={(e) => {
+            if (e.target.files?.length) uploadPhotos(e.target.files);
+            e.target.value = "";
+          }}
+        />
+      )}
       <div className="flex items-center gap-3 px-4 pt-4">
         <Avatar initials={activity.user.initials} hue={activity.user.hue} />
         <div className="min-w-0 flex-1">
@@ -100,12 +163,68 @@ export function ActivityCard({ activity }: { activity: Activity }) {
             )}
           </p>
         </div>
-        <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${type.soft}`}>{type.label}</span>
+        <span className={`-rotate-1 rounded-full border-2 border-current px-2.5 py-0.5 text-[11px] font-bold ${type.soft}`}>
+          {type.label}
+        </span>
       </div>
 
       <div className="px-4 pt-3">
-        <h3 className="font-display text-lg font-bold">{activity.title}</h3>
-        {activity.note && <p className="mt-1 text-sm">{activity.note}</p>}
+        {editing ? (
+          <form onSubmit={saveEdit} className="flex flex-col gap-2">
+            <input
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              maxLength={200}
+              placeholder="Session title"
+              autoFocus
+              className="w-full rounded-xl border-2 border-border bg-surface-2 px-3 py-2 font-display text-lg font-bold outline-none focus:border-accent"
+            />
+            <textarea
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              maxLength={2000}
+              rows={2}
+              placeholder="Add a caption…"
+              className="w-full resize-none rounded-xl border-2 border-border bg-surface-2 px-3 py-2 text-sm outline-none focus:border-accent"
+            />
+            {editError && <p className="text-sm text-tempo">{editError}</p>}
+            <div className="flex gap-2">
+              <Button type="submit" size="sm" disabled={savingEdit}>
+                {savingEdit ? "Saving…" : "Save"}
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={cancelEdit} disabled={savingEdit}>
+                Cancel
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <>
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="font-display text-lg font-bold">{title}</h3>
+              {activity.mine && (
+                <button
+                  onClick={startEdit}
+                  aria-label="Edit title and caption"
+                  className="shrink-0 rounded-full p-1.5 text-muted transition-colors hover:text-foreground"
+                >
+                  <EditIcon className="size-4" />
+                </button>
+              )}
+            </div>
+            {note ? (
+              <p className="mt-1 text-sm">{note}</p>
+            ) : (
+              activity.mine && (
+                <button
+                  onClick={startEdit}
+                  className="mt-1 text-sm text-muted italic transition-colors hover:text-foreground"
+                >
+                  + Add a caption…
+                </button>
+              )
+            )}
+          </>
+        )}
         {tagged.length > 0 && (
           <p className="mt-2 flex items-center gap-2 text-sm text-muted">
             <span className="flex -space-x-2">
@@ -122,8 +241,22 @@ export function ActivityCard({ activity }: { activity: Activity }) {
         )}
       </div>
 
-      {photos.length > 0 && (
+      {photos.length > 0 ? (
         <PhotoGrid photos={photos} onRemove={activity.mine ? removePhoto : undefined} />
+      ) : (
+        activity.mine && (
+          <div className="px-4 pt-3">
+            <button
+              onClick={() => fileInput.current?.click()}
+              disabled={uploading}
+              className="flex w-full flex-col items-center gap-1.5 rounded-2xl border-2 border-dashed border-border py-6 text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+            >
+              <CameraIcon className={`size-6 ${uploading ? "animate-pulse" : ""}`} />
+              <span className="text-sm font-bold">{uploading ? "Uploading…" : "Add a photo"}</span>
+              <span className="text-xs">Posts with a photo get noticed more</span>
+            </button>
+          </div>
+        )
       )}
       {photoError && <p className="px-4 pt-2 text-sm text-tempo">{photoError}</p>}
 
@@ -134,9 +267,9 @@ export function ActivityCard({ activity }: { activity: Activity }) {
       </dl>
 
       {activity.trace && activity.trace.length > 1 ? (
-        <FocusTrace values={activity.trace} className={type.soft.split(" ")[1]} />
+        <FocusTrace values={activity.trace} />
       ) : (
-        <div className="h-4" />
+        <div className="h-2" />
       )}
 
       <div className="flex items-center gap-1 border-t-2 border-border px-2 py-1.5">
@@ -163,26 +296,17 @@ export function ActivityCard({ activity }: { activity: Activity }) {
 
         {activity.mine && (
           <div className="ml-auto flex items-center">
-            <input
-              ref={fileInput}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/*"
-              multiple
-              hidden
-              onChange={(e) => {
-                if (e.target.files?.length) uploadPhotos(e.target.files);
-                e.target.value = "";
-              }}
-            />
-            <button
-              onClick={() => fileInput.current?.click()}
-              disabled={uploading || photos.length >= MAX_PHOTOS}
-              aria-label="Add photos"
-              title={photos.length >= MAX_PHOTOS ? `At most ${MAX_PHOTOS} photos` : "Add photos"}
-              className="rounded-full p-2 text-muted transition-colors hover:text-foreground disabled:opacity-40"
-            >
-              <CameraIcon className={`size-5 ${uploading ? "animate-pulse" : ""}`} />
-            </button>
+            {photos.length > 0 && (
+              <button
+                onClick={() => fileInput.current?.click()}
+                disabled={uploading || photos.length >= MAX_PHOTOS}
+                aria-label="Add photos"
+                title={photos.length >= MAX_PHOTOS ? `At most ${MAX_PHOTOS} photos` : "Add photos"}
+                className="rounded-full p-2 text-muted transition-colors hover:text-foreground disabled:opacity-40"
+              >
+                <CameraIcon className={`size-5 ${uploading ? "animate-pulse" : ""}`} />
+              </button>
+            )}
             <button
               onClick={() => setShowTags(!showTags)}
               aria-expanded={showTags}
@@ -267,18 +391,18 @@ function Metric({ label, value, className = "" }: { label: string; value: string
   );
 }
 
-/** Focus-over-time area chart — stands in for the run map on a Strava post. */
-function FocusTrace({ values, className }: { values: number[]; className: string }) {
+/** Focus-over-time sparkline — a quiet footnote, not the headline of the post. */
+function FocusTrace({ values }: { values: number[] }) {
   const w = 300;
-  const h = 64;
+  const h = 24;
   const step = w / (values.length - 1);
-  const points = values.map((v, i) => `${i * step},${h - v * (h - 6)}`);
+  const points = values.map((v, i) => `${i * step},${h - v * (h - 4)}`);
   const line = `M${points.join(" L")}`;
   return (
-    <div className={`mx-4 mt-4 mb-3 rounded-2xl bg-surface-2 p-3 ${className}`}>
-      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-16 w-full" aria-label="Focus over the session">
-        <path d={`${line} L${w},${h} L0,${h} Z`} fill="currentColor" opacity={0.15} />
-        <path d={line} fill="none" stroke="currentColor" strokeWidth={2.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+    <div className="mx-4 mt-3 mb-2 text-muted" title="Focus over the session">
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-6 w-full opacity-60" aria-label="Focus over the session">
+        <path d={`${line} L${w},${h} L0,${h} Z`} fill="currentColor" opacity={0.08} />
+        <path d={line} fill="none" stroke="currentColor" strokeWidth={1.25} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
       </svg>
     </div>
   );

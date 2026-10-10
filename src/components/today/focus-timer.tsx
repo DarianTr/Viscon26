@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { PauseIcon, PlayIcon, XIcon } from "@/components/icons";
-import { Brain, type BrainExpression } from "@/components/mascot/brain";
+import { ExpressionMascot, type RealExpression } from "@/components/mascot/expression-mascot";
 import { Ring } from "@/components/ui/primitives";
 import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
 import type { Task } from "@/lib/types";
@@ -39,20 +39,48 @@ export function FocusTimer({
   const mm = String(Math.floor(remaining / 60)).padStart(2, "0");
   const ss = String(remaining % 60).padStart(2, "0");
   const type = sessionTypes[task.type];
-  const mood: BrainExpression = paused ? "sleepy" : "focused";
+  const mood: RealExpression = paused ? "sleepy" : "focused";
 
   const isResumed = initialElapsed > 0;
   const totalMinutes = Math.max(1, Math.round(elapsed / 60));
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]"
+      className="fixed inset-0 z-50 flex flex-col overflow-hidden px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]"
       style={{
-        background: "radial-gradient(ellipse 80% 60% at 50% 0%, var(--focus-bg-2), var(--focus-bg) 65%)",
+        background:
+          "radial-gradient(ellipse 85% 55% at 50% 100%, var(--focus-bg-2) 0%, transparent 60%)," +
+          "linear-gradient(180deg, var(--teal) 0%, var(--focus-bg) 48%, var(--focus-bg) 100%)",
         color: "var(--focus-ink)",
       }}
     >
-      <div className="flex items-center justify-between">
+      {/* Darkened edges, so the middle reads like a pool of light. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{ background: "radial-gradient(ellipse 75% 75% at 50% 42%, transparent 55%, rgba(0,0,0,0.4) 100%)" }}
+      />
+      {/* A tight warm halo right behind the mascot's head. */}
+      <div
+        aria-hidden
+        className="lamp-glow pointer-events-none absolute top-[16%] left-1/2 size-[230px] -translate-x-1/2 rounded-full"
+        style={{
+          background: "radial-gradient(circle, rgba(243,182,96,0.4), rgba(243,182,96,0) 70%)",
+          filter: "blur(8px)",
+        }}
+      />
+      {/* A quiet scatter of stars, like studying late at night. */}
+      <div aria-hidden className="pointer-events-none absolute inset-0">
+        <span className="mascot-sparkle absolute top-[10%] left-[14%] block size-1 rounded-full bg-[var(--focus-ink)] opacity-50" />
+        <span className="absolute top-[16%] left-[26%] block size-[3px] rounded-full bg-[var(--focus-ink)] opacity-30" />
+        <span className="mascot-sparkle absolute top-[12%] right-[16%] block size-1 rounded-full bg-[var(--gold)] opacity-40" />
+        <span className="absolute top-[22%] right-[27%] block size-[3px] rounded-full bg-[var(--focus-ink)] opacity-25" />
+        <span className="mascot-float-slow mascot-sparkle absolute top-[30%] left-[9%] block size-1.5 rounded-full bg-[var(--gold)] opacity-40" />
+        <span className="mascot-float mascot-sparkle absolute top-[34%] right-[11%] block size-1 rounded-full bg-[var(--focus-ink)] opacity-30" />
+        <span className="mascot-float-slow mascot-sparkle absolute bottom-[30%] left-[7%] block size-1 rounded-full bg-[var(--focus-ink)] opacity-20" />
+      </div>
+
+      <div className="relative flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span
             className="rounded-full border px-3 py-1 text-xs font-bold"
@@ -80,13 +108,16 @@ export function FocusTimer({
         </button>
       </div>
 
-      <div className="flex flex-1 flex-col items-center justify-center text-center">
-        <Brain expression={mood} size={76} idle={!paused} />
-        <p className="mt-4 text-sm font-semibold" style={{ color: subjectColor(task.subject).value }}>
+      <div className="relative flex flex-1 flex-col items-center justify-center text-center">
+        <div className={paused ? "" : "mascot-breathe"}>
+          <ExpressionMascot expression={mood} size={148} />
+        </div>
+
+        <p className="mt-3 text-sm font-semibold" style={{ color: subjectColor(task.subject).value }}>
           {task.subject}
         </p>
         <h2 className="mt-1 max-w-sm font-display text-xl font-bold">{task.title}</h2>
-        <div className="mt-8">
+        <div className="mt-8" style={{ filter: "drop-shadow(0 0 26px rgba(227,87,59,0.35))" }}>
           <Ring
             value={inBlock / blockSeconds}
             size={260}
@@ -106,15 +137,17 @@ export function FocusTimer({
         </div>
 
         {isResumed && (
-          <p className="mt-6 text-sm text-muted">
+          <p className="mt-6 text-sm" style={{ color: "var(--focus-muted)" }}>
             Total studied:{" "}
-            <span className="font-semibold text-foreground">{formatMinutes(totalMinutes)}</span>
-            {" "}(incl. earlier run)
+            <span className="font-semibold" style={{ color: "var(--focus-ink)" }}>
+              {formatMinutes(totalMinutes)}
+            </span>{" "}
+            (incl. earlier run)
           </p>
         )}
       </div>
 
-      <div className="flex items-center justify-center gap-4">
+      <div className="relative flex items-center justify-center gap-4">
         <button
           onClick={() => setPaused((p) => !p)}
           aria-label={paused ? "Resume" : "Pause"}

@@ -96,36 +96,43 @@
     {
       "idx": 13,
       "version": "7",
-      "when": 1791578330001,
-      "tag": "0012_buffer_session_type",
+      "when": 1791720000000,
+      "tag": "0012_course_profiles",
       "breakpoints": true
     },
     {
       "idx": 14,
       "version": "7",
-      "when": 1791578330002,
-      "tag": "0013_block_activity",
+      "when": 1791720000001,
+      "tag": "0013_buffer_session_type",
       "breakpoints": true
     },
     {
       "idx": 15,
       "version": "7",
-      "when": 1791578330003,
-      "tag": "0014_cheatsheet_and_subjectless_blocks",
+      "when": 1791720000002,
+      "tag": "0014_block_activity",
       "breakpoints": true
     },
     {
       "idx": 16,
       "version": "7",
-      "when": 1791578330004,
-      "tag": "0015_moved_manually",
+      "when": 1791720000003,
+      "tag": "0015_cheatsheet_and_subjectless_blocks",
       "breakpoints": true
     },
     {
       "idx": 17,
       "version": "7",
-      "when": 1791578330005,
-      "tag": "0016_cheatsheet_progress",
+      "when": 1791720000004,
+      "tag": "0016_moved_manually",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791720000005,
+      "tag": "0017_cheatsheet_progress",
       "breakpoints": true
     }
   ]

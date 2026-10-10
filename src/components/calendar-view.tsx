@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronLeftIcon, ChevronRightIcon, ClockIcon } from "@/components/icons";
 import { Card } from "@/components/ui/primitives";
-import { formatMinutes, sessionTypes } from "@/lib/session-types";
+import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
 import type { CalendarEvent } from "@/lib/types";
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -30,7 +30,14 @@ const activityLabels: Partial<Record<NonNullable<CalendarEvent["activity"]>, str
   dinner: "Dinner",
 };
 
-const labelOf = (e: CalendarEvent) => (e.activity && activityLabels[e.activity]) ?? eventStyles[e.type].label;
+const labelOf = (e: CalendarEvent) =>
+  (e.activity === "study" && e.cheatsheetMinutes ? "Theory + Cheatsheet" : undefined)
+  ?? (e.activity && activityLabels[e.activity])
+  ?? eventStyles[e.type].label;
+
+/** Study blocks carry their subject's colour on the left edge, cheatsheet work included. */
+const subjectEdge = (e: CalendarEvent) =>
+  e.subject && isStudy(e) ? { borderLeft: `3px solid ${subjectColor(e.subject).value}` } : undefined;
 /** Breaks, meals, buffers, lectures and exams aren't focused study. */
 const isStudy = (e: CalendarEvent) => !["lecture", "exam", "buffer", "break"].includes(e.type);
 
@@ -170,11 +177,13 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
       return;
     }
     const { study, buffer } = await response.json();
-    const toEvent = (t: { id: string; type: CalendarEvent["type"]; activity: CalendarEvent["activity"]; subject: string | null; title: string; scheduledAt: string; plannedMinutes: number; calendarOrder: number | null }): CalendarEvent => ({
+    const toEvent = (t: { id: string; type: CalendarEvent["type"]; activity: CalendarEvent["activity"]; subject: string | null; cheatsheetMinutes: number | null; cheatsheetTarget: number | null; title: string; scheduledAt: string; plannedMinutes: number; calendarOrder: number | null }): CalendarEvent => ({
       id: t.id,
       type: t.type,
       activity: t.activity,
       subject: t.subject,
+      cheatsheetMinutes: t.cheatsheetMinutes,
+      cheatsheetTarget: t.cheatsheetTarget,
       title: t.title,
       start: t.scheduledAt,
       end: new Date(new Date(t.scheduledAt).getTime() + t.plannedMinutes * 60_000).toISOString(),
@@ -303,7 +312,7 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
                       e.dataTransfer.setData("text/plain", event.id);
                     }} onDragEnd={() => setDraggedId(null)}
                       title={`${range} · ${labelOf(event)} · ${event.title} · drag to move`}
-                      style={{ top: `${(top / 60) * 4}rem`, height: `${(height / 60) * 4}rem` }}
+                      style={{ top: `${(top / 60) * 4}rem`, height: `${(height / 60) * 4}rem`, ...subjectEdge(event) }}
                       className={`absolute inset-x-0.5 overflow-hidden rounded-md border border-background px-1.5 py-1 text-[10px] leading-tight ${eventStyles[event.type].soft} ${draggedId === event.id ? "opacity-40" : "cursor-grab active:cursor-grabbing"}`}>
                       <span className="block font-semibold">{range}</span><span className="line-clamp-2">{event.title}</span>
                     </div>;
@@ -411,7 +420,7 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
                   className={`flex gap-4 ${savingOrder ? "opacity-60" : "cursor-grab active:cursor-grabbing"} ${draggedId === e.id ? "opacity-40" : ""}`}
                 >
                   <span className="w-12 shrink-0 pt-3.5 text-right font-mono text-xs text-muted tabular-nums">{timeFormat.format(new Date(e.start))}</span>
-                  <Card className="relative flex-1 p-4">
+                  <Card className="relative flex-1 p-4" style={subjectEdge(e)}>
                     <span className={`absolute top-5 -left-[0.8125rem] size-2.5 rounded-full ring-4 ring-background ${style.color}`} />
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${style.soft}`}>{labelOf(e)}</span>
                     <p className="mt-1.5 font-semibold">{e.title}</p>
@@ -419,6 +428,13 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
                       <ClockIcon className="size-3.5" />
                       {formatMinutes(e.minutes)} · until {timeFormat.format(new Date(e.end))}
                     </p>
+                    {e.cheatsheetMinutes !== null && e.cheatsheetMinutes > 0 && (
+                      <p className="mt-1 text-xs text-muted">
+                        {e.cheatsheetMinutes < e.minutes && `${formatMinutes(e.minutes - e.cheatsheetMinutes)} theory · `}
+                        {formatMinutes(e.cheatsheetMinutes)} cheatsheet
+                        {e.cheatsheetTarget !== null && ` · aim: ${e.cheatsheetTarget}%`}
+                      </p>
+                    )}
                     {e.type === "buffer" && subjects.length > 0 && (catchUp?.id === e.id ? (
                       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                         <select

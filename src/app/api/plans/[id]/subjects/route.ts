@@ -4,6 +4,7 @@ import { handle, isId, notFound } from "@/lib/http";
 import { getCurrentUser } from "@/lib/queries";
 import { regeneratePlan } from "@/lib/plans";
 import { db, schema as s } from "@/db";
+import { ensureCourseProfile } from "@/lib/course-profiles";
 
 type Ctx = RouteContext<"/api/plans/[id]/subjects">;
 
@@ -67,11 +68,15 @@ export async function POST(request: Request, ctx: Ctx) {
       ...existing.map((sub) => ({ ...sub, allocation: Math.round((sub.allocation * (100 - share)) / 100) })),
       { ...subject, allocation: share },
     ];
+    // Fetch the subject's VVZ course profile alongside — it must not block or
+    // break the response if VVZ is unreachable.
+    const profile = ensureCourseProfile(subject.name).catch(() => {});
     const outcome = await regeneratePlan(user.id, id, { ...scheduleConfig, subjects }, { apply: true });
     if (!outcome) return notFound("Plan");
     const { result } = outcome;
     const count = result.sessions.length;
 
+    await profile;
     return Response.json({ count, breakdown: result.breakdown, warnings: result.warnings }, { status: 201 });
   });
 }

@@ -47,14 +47,19 @@ describe("plan progress", () => {
     assert.deepEqual(progress, { Analysis: { studyMinutes: 45, mocksDone: 0, cheatsheet: 0 } });
   });
 
-  it("separates cheatsheet progress confirmed by completion from what was planned", () => {
+  it("separates planned cheatsheet milestones from actual progress", () => {
     const now = new Date(2026, 10, 1);
-    const p = cheatsheetProgress([
+    const rows = [
       { subject: "Analysis", cheatsheetTarget: 20, done: true, scheduledAt: new Date(2026, 9, 20) },
       { subject: "Analysis", cheatsheetTarget: 40, done: false, scheduledAt: new Date(2026, 9, 27) },
       { subject: "Analysis", cheatsheetTarget: 60, done: false, scheduledAt: new Date(2026, 10, 3) },
-    ], now);
-    // Time passing doesn't complete a cheatsheet.
-    assert.deepEqual(p, { Analysis: { done: 20, planned: 40 } });
+    ];
+    // Time passing doesn't complete a cheatsheet: only the completed 20% counts.
+    assert.deepEqual(cheatsheetProgress(rows, now), { Analysis: { planned: 40, actual: 20, reported: false } });
+    // What the student reports is the actual progress — the latest report wins, even if lower.
+    assert.deepEqual(
+      cheatsheetProgress(rows, now, [{ subject: "Analysis", percent: 35 }, { subject: "Analysis", percent: 15 }]),
+      { Analysis: { planned: 40, actual: 15, reported: true } },
+    );
   });
 });

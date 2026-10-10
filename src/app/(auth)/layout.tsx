@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Brain } from "@/components/mascot/brain";
+import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { getSessionUser } from "@/lib/auth";
 
 /** Centered card for /login and /signup. Logged-in users go straight to the app. */
@@ -10,7 +10,7 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
     <main className="grid min-h-dvh place-items-center px-4">
       <div className="w-full max-w-sm rounded-[1.75rem] border-2 border-border bg-surface p-6 shadow-[0_4px_0_0_var(--border)]">
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
-          <Brain size={56} expression="excited" />
+          <ExpressionMascot expression="excited" size={84} priority />
           <span className="font-display text-xl font-extrabold tracking-tight">Braina</span>
           <p className="text-xs text-muted">Grow your brain by using it.</p>
         </div>

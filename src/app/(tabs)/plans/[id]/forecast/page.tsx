@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Card } from "@/components/ui/primitives";
 import { ForecastChart } from "@/components/knowledge/forecast-chart";
+import { StudyFocusCard } from "@/components/knowledge/study-focus";
 import { Unavailable } from "@/components/knowledge/unavailable";
 import { loadKnowledge } from "../load";
 
@@ -9,7 +10,7 @@ export const metadata: Metadata = { title: "Grade forecast" };
 
 export default async function ForecastPage({ params }: PageProps<"/plans/[id]/forecast">) {
   const { id } = await params;
-  const { plan, timeline, observations, error } = await loadKnowledge(id);
+  const { plan, timeline, observations, focus, error } = await loadKnowledge(id);
   if (error !== null) return <Unavailable message={error} />;
 
   return (
@@ -29,6 +30,12 @@ export default async function ForecastPage({ params }: PageProps<"/plans/[id]/fo
           </Link>{" "}
           to make it yours.
         </p>
+      )}
+      {focus.topics.length > 0 && (
+        <Card>
+          <h2 className="mb-4 text-base font-semibold">Study focus</h2>
+          <StudyFocusCard focus={focus} subjects={plan.subjects} />
+        </Card>
       )}
     </div>
   );

@@ -554,6 +554,36 @@ describe("cheatsheets", () => {
     }
   });
 
+  it("keeps cheatsheet sessions when the plan is short of time — regular study gives way", () => {
+    // Four subjects, little time: about a fifth of the study doesn't fit.
+    const tight = config({
+      weeklyHours: 30,
+      rhythm: "balanced",
+      lernphaseStart: "mixed",
+      subjects: [
+        subject({ name: "A", examDate: "2026-12-14", cheatsheet: "end", confidence: "little", allocation: 25 }),
+        subject({ name: "B", examDate: "2026-12-15", cheatsheet: "gradual", confidence: "little", allocation: 25 }),
+        subject({ name: "C", examDate: "2026-12-16", cheatsheet: "existing", confidence: "little", allocation: 25 }),
+        subject({ name: "D", examDate: "2026-12-17", cheatsheet: "none", confidence: "little", allocation: 25 }),
+      ],
+    });
+    const { sessions, feasibility } = generateStudyPlan(tight, NOW);
+    assertWithinAvailability(tight, sessions);
+    assert.ok(feasibility.shortfallMinutes > 0, "the plan is short");
+    assert.ok(sessions.filter((s) => s.subject === "A" && /Cheatsheet Creation \d/.test(s.title)).length >= 2, "A keeps its creation sessions");
+    assert.ok(sessions.some((s) => s.title === "A — Cheatsheet Finalization"), "A keeps its finalization");
+    assert.ok(sessions.some((s) => s.title === "B — Cheatsheet Finalization"), "B keeps its finalization");
+    assert.ok(sessions.some((s) => s.title === "C — Cheatsheet Selection & Familiarization"), "C keeps its familiarization");
+    // Every theory + cheatsheet session comes before the finalization, which takes it to 100%.
+    for (const name of ["A", "B"]) {
+      const sheet = sessions.filter((s) => s.subject === name && s.cheatsheetTarget !== undefined);
+      const final = sheet[sheet.length - 1];
+      assert.match(final.title, /Cheatsheet Finalization/, `${name}: finalization is the last cheatsheet session`);
+      assert.equal(final.cheatsheetTarget, 100);
+    }
+    assert.ok(!feasibility.subjects.some((s) => s.shortfallMinutes > 0 && sessions.every((x) => x.subject !== s.name)));
+  });
+
   it("continues from actual progress, and catches up when behind", () => {
     const behind = generateStudyPlan(plan("gradual"), NOW, { progress: { Analysis: { studyMinutes: 0, mocksDone: 0, cheatsheet: 40 } } });
     const t = targets(behind.sessions);

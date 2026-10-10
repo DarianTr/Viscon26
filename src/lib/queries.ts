@@ -77,12 +77,6 @@ export async function getFriendStatus(userId: string, otherId: string): Promise<
   return status;
 }
 
-function displaySubjectName(name: string) {
-  if (name === "Physics") return "EProg";
-  if (name === "Analysis II") return "DiskMath";
-  return name;
-}
-
 /**
  * The signed-in user; redirects to /login if there is none. Also marks the
  * calling page as per-request, since it reads live data.
@@ -115,7 +109,7 @@ export async function getTodaysTasks(userId: string): Promise<Task[]> {
   return rows.map((r) => ({
     id: r.id,
     type: r.type as SessionType,
-    subject: displaySubjectName(r.subject ?? ""),
+    subject: r.subject ?? "",
     title: r.title,
     detail: r.detail,
     minutes: r.plannedMinutes,
@@ -313,6 +307,8 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
       type: s.sessions.type,
       activity: s.sessions.activity,
       subject: s.sessions.subject,
+      cheatsheetMinutes: s.sessions.cheatsheetMinutes,
+      cheatsheetTarget: s.sessions.cheatsheetTarget,
       title: s.sessions.title,
       start: s.sessions.scheduledAt,
       minutes: s.sessions.plannedMinutes,
@@ -402,7 +398,7 @@ export async function getFeed(
     location: session.location,
     title: session.title,
     type: session.type as SessionType,
-    subject: displaySubjectName(session.subject ?? ""),
+    subject: session.subject ?? "",
     minutes: session.actualMinutes ?? session.plannedMinutes,
     focus: session.focus,
     trace: session.trace,

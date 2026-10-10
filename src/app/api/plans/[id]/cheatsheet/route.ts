@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, isNull, lte, max, sum } from "drizzle-orm";
 import { handle, isId, notFound } from "@/lib/http";
+import { regeneratePlan } from "@/lib/plans";
 import { getCurrentUser } from "@/lib/queries";
 import { db, schema as s } from "@/db";
 
@@ -12,8 +13,10 @@ const bodySchema = z.object({
 });
 
 // POST /api/plans/:id/cheatsheet — report how far a subject's cheatsheet
-// actually is. The latest report is the actual progress; regenerating the
-// plan gives the rest the time it needs.
+// actually is. The latest report is the actual progress. When it is behind
+// what the plan expected by now, the remaining schedule is rebuilt right away
+// so the cheatsheet gets the time it still needs (completed sessions, logged
+// results and blocks moved by hand stay — see regeneratePlan).
 export async function POST(request: Request, ctx: Ctx) {
   return handle(async () => {
     const user = await getCurrentUser();
@@ -28,6 +31,30 @@ export async function POST(request: Request, ctx: Ctx) {
     const { subject, percent } = bodySchema.parse(await request.json());
     if (!plan.config?.subjects?.some((sub) => sub.name === subject)) return notFound("Subject");
     await db.insert(s.cheatsheetReports).values({ userId: user.id, userPlanId: id, subject, percent });
-    return Response.json({ subject, percent }, { status: 201 });
+
+    const now = new Date();
+    const ofSubject = and(eq(s.sessions.userPlanId, id), eq(s.sessions.subject, subject));
+    const [{ planned }] = await db
+      .select({ planned: max(s.sessions.cheatsheetTarget) })
+      .from(s.sessions)
+      .where(and(ofSubject, lte(s.sessions.scheduledAt, now)));
+    const behind = percent < (planned ?? 0);
+    if (!behind) return Response.json({ subject, percent, planned: planned ?? 0, caughtUp: false }, { status: 201 });
+
+    // Behind: catch up automatically.
+    const upcomingSheetMinutes = async () => {
+      const [{ minutes }] = await db
+        .select({ minutes: sum(s.sessions.cheatsheetMinutes).mapWith(Number) })
+        .from(s.sessions)
+        .where(and(ofSubject, isNull(s.sessions.completedAt), gt(s.sessions.scheduledAt, now)));
+      return minutes ?? 0;
+    };
+    const before = await upcomingSheetMinutes();
+    await regeneratePlan(user.id, id, {}, { apply: true, now });
+    const after = await upcomingSheetMinutes();
+    return Response.json(
+      { subject, percent, planned, caughtUp: true, addedMinutes: Math.max(0, after - before) },
+      { status: 201 },
+    );
   });
 }

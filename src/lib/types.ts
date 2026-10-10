@@ -75,6 +75,9 @@ export type CalendarEvent = {
   activity: BlockActivity | null;
   /** Null for breaks and buffers. */
   subject: string | null;
+  /** Minutes of the block reserved for the cheatsheet, and the milestone it aims for. */
+  cheatsheetMinutes: number | null;
+  cheatsheetTarget: number | null;
   title: string;
   /** ISO timestamp. */
   start: string;
