@@ -1,7 +1,8 @@
 import { STAGE_LABEL, type BrainStage } from "@/components/mascot/brain";
 import { LockBadge, Sparkle } from "@/components/mascot/doodles";
 import { EvolutionMascot } from "@/components/mascot/evolution-mascot";
-import { mascotStageFromHours } from "@/lib/mascot";
+import { MascotStatusBadge } from "@/components/mascot/status-badge";
+import { mascotStageFromHours, type MascotStatus } from "@/lib/mascot";
 
 const STAGES: BrainStage[] = [1, 2, 3, 4, 5];
 
@@ -21,7 +22,14 @@ const STAGE_FLAVOR: Record<BrainStage, string> = {
  * Uses the official illustrated mascot assets (public/mascots/evolutions/)
  * via `EvolutionMascot`, not the hand-drawn SVG `Brain`.
  */
-export function BrainEvolution({ hours }: { hours: number }) {
+export function BrainEvolution({
+  hours,
+  mascotHealth,
+}: {
+  hours: number;
+  /** The decaying half of mascot status — separate from the all-time stage below. */
+  mascotHealth: { health: number; status: MascotStatus };
+}) {
   const current = mascotStageFromHours(hours);
 
   return (
@@ -85,6 +93,8 @@ export function BrainEvolution({ hours }: { hours: number }) {
           );
         })}
       </div>
+
+      <MascotStatusBadge {...mascotHealth} />
     </div>
   );
 }

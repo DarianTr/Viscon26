@@ -155,6 +155,8 @@ export type Profile = {
   program: string | null;
   friends: number;
   streak: number;
+  /** Decays when the plan isn't followed (or there's no plan and no studying); vacations freeze it. */
+  mascotHealth: { health: number; status: "thriving" | "steady" | "slipping" | "neglected" };
   totals: { hours: number; sessions: number; kudos: number };
   /** Hours logged per day this week, Monday first. */
   week: number[];
