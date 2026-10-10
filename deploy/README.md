@@ -26,7 +26,22 @@ chmod 600 /home/viscon/viscon.env
 nano /home/viscon/viscon.env  # set POSTGRES_PASSWORD (openssl rand -hex 24) and APP_PORT
 ```
 
-Set `APP_PORT` to the port the organizers' reverse proxy forwards to.
+Set `APP_PORT` to the port the organizers' reverse proxy forwards to: `8080`
+by default (team page → Access Details → Edit Network Configuration). The
+template app already listens there, so stop it first:
+
+```sh
+cd ~/template && docker compose down
+```
+
+Set `DEMO_USER_EMAIL` to your own X-User-Id (e.g. `jdoe@ethz.ch`), and
+`DEMO_USER_HANDLE` / `DEMO_USER_NAME` to yours, to log in as the seeded admin.
+The seed only runs on an empty database, so this applies on the first deploy
+(or after wiping the volume). Everyone else gets the signup page on their first visit.
+
+Login comes from the proxy's `X-User-Id` header, which anyone could forge if
+they reached the app directly. So **don't** `ufw allow` the app port, keep
+access control on one of the login modes, and never set `DEV_USER_ID` here.
 
 > `POSTGRES_PASSWORD` only takes effect when the database is first created.
 > To change it later, either change it inside Postgres too or wipe the volume
@@ -65,6 +80,25 @@ Check it worked:
 docker compose -p viscon ps
 curl localhost:3000/api/health   # use your APP_PORT
 ```
+
+## 6. Calendar subscriptions
+
+The app's normal address is behind the organizers' login, and calendar apps
+(Apple, Google, Outlook) can't log in. So the feed is also served on the VM's
+direct address, `https://14-direct.viscon-hackathon.ch`, by the `direct`
+service (Caddy) — only `/api/calendar/*`; everything else there redirects to
+`APP_ORIGIN`. Add the calendar block from `viscon.env.example` to
+`/home/viscon/viscon.env`, make sure ports 80 and 443 on the VM are reachable
+from the internet (Caddy needs them for the Let's Encrypt certificate), and
+redeploy. Check it:
+
+```sh
+docker compose -p viscon logs direct   # "certificate obtained successfully"
+curl -I https://14-direct.viscon-hackathon.ch/api/calendar/x.ics   # 404 from the app
+```
+
+Links made before this change point at the login-protected address: open
+Settings → Calendar subscription again and subscribe with the new link.
 
 ## Day-to-day
 

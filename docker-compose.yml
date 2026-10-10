@@ -6,6 +6,8 @@
 #   knowledge  per-topic knowledge state (Python, services/knowledge); keeps its
 #              tables in its own `knowledge` schema and is reachable from `app`
 #              at http://knowledge:8000
+#   direct     optional (COMPOSE_PROFILES=direct): HTTPS on the VM's direct
+#              address for the calendar feed only — see deploy/Caddyfile
 #
 # For local development run only the database (`npm run db:up`) and use
 # `npm run dev` — see README.
@@ -38,7 +40,9 @@ services:
     environment:
       DATABASE_URL: *database-url
       DEMO_USER_HANDLE: ${DEMO_USER_HANDLE:-tprazak}
-      DEMO_PASSWORD: ${DEMO_PASSWORD:-stride}
+      # The demo user (an admin) belongs to whoever logs in with this email.
+      DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-}
+      DEMO_USER_NAME: ${DEMO_USER_NAME:-}
       # Set to false to start with an empty database.
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
     depends_on:
@@ -57,6 +61,11 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
       NUDGES: ${NUDGES:-on}
+      # Login comes from the reverse proxy's X-User-Id header. Without the proxy
+      # (local runs), these stand in for it. Never set them on the VM.
+      DEV_USER_ID: ${DEV_USER_ID:-}
+      DEV_USER_NAME: ${DEV_USER_NAME:-}
+      CALENDAR_FEED_ORIGIN: ${CALENDAR_FEED_ORIGIN:-}
     ports:
       - "${APP_PORT:-3000}:3000"
     depends_on:
@@ -77,5 +86,23 @@ services:
       db:
         condition: service_healthy
 
+  direct:
+    image: caddy:2.10-alpine
+    profiles: [direct]
+    restart: unless-stopped
+    environment:
+      CALENDAR_FEED_ORIGIN: ${CALENDAR_FEED_ORIGIN:-}
+      APP_ORIGIN: ${APP_ORIGIN:-}
+    ports:
+      - "${DIRECT_HTTP_PORT:-80}:80"
+      - "${DIRECT_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates: keep them, or Let's Encrypt rate-limits re-issuing.
+      - caddydata:/data
+    depends_on:
+      - app
+
 volumes:
   pgdata:
+  caddydata:

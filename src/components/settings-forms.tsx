@@ -2,7 +2,6 @@
 
 import { useActionState, useState } from "react";
 import {
-  changePassword,
   deleteAccount,
   updateProfile,
   type SettingsState,
@@ -22,14 +21,13 @@ type Me = {
   hue: number;
 };
 
-/** `notifications` goes between the profile and the password forms. */
+/** `notifications` goes between the profile and the delete forms. */
 export function SettingsForms({ me, notifications }: { me: Me; notifications?: React.ReactNode }) {
   return (
     <>
       <ProfileForm me={me} />
       {notifications}
-      <PasswordForm />
-      <DeleteForm />
+      <DeleteForm handle={me.handle} />
     </>
   );
 }
@@ -100,49 +98,7 @@ function ProfileForm({ me }: { me: Me }) {
   );
 }
 
-function PasswordForm() {
-  const [state, action, pending] = useActionState(changePassword, undefined);
-
-  return (
-    <>
-      <SectionTitle>Password</SectionTitle>
-      <Card>
-        <form action={action} className="flex flex-col gap-3">
-          <input
-            name="current"
-            type="password"
-            placeholder="Current password"
-            autoComplete="current-password"
-            required
-            className={input}
-          />
-          <input
-            name="next"
-            type="password"
-            placeholder="New password"
-            autoComplete="new-password"
-            required
-            className={input}
-          />
-          <input
-            name="confirm"
-            type="password"
-            placeholder="Repeat new password"
-            autoComplete="new-password"
-            required
-            className={input}
-          />
-          <Status state={state} />
-          <button disabled={pending} className={`${button} bg-accent self-start`}>
-            {pending ? "…" : "Change password"}
-          </button>
-        </form>
-      </Card>
-    </>
-  );
-}
-
-function DeleteForm() {
+function DeleteForm({ handle }: { handle: string }) {
   const [state, action, pending] = useActionState(deleteAccount, undefined);
 
   return (
@@ -162,10 +118,10 @@ function DeleteForm() {
             Deletes your account, sessions, kudos and friends for good.
           </p>
           <input
-            name="password"
-            type="password"
-            placeholder="Confirm with your password"
-            autoComplete="current-password"
+            name="handle"
+            placeholder={`Type @${handle} to confirm`}
+            autoCapitalize="none"
+            autoComplete="off"
             required
             className={input}
           />

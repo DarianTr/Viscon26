@@ -16,8 +16,8 @@
     "db:seed": "tsx --env-file-if-exists=.env.local src/db/seed.ts",
     "db:seed-knowledge": "tsx --env-file-if-exists=.env.local src/db/seed-knowledge.ts",
     "db:seed-courses": "tsx --env-file-if-exists=.env.local src/db/seed-courses.ts",
-    "db:set-password": "tsx --env-file-if-exists=.env.local src/db/set-password.ts",
     "db:setup": "npm run db:up && npm run db:migrate && npm run db:seed",
+    "db:reset": "tsx --env-file-if-exists=.env.local src/db/reset.ts && npm run db:migrate && npm run db:seed-courses && npm run db:seed && (npm run db:seed-knowledge || echo 'Skipped knowledge demo data: is the knowledge service running?')",
     "db:studio": "drizzle-kit studio",
     "docker:up": "docker compose up -d --build --wait",
     "docker:down": "docker compose down"

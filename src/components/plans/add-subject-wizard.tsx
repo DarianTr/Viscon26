@@ -17,6 +17,7 @@ type SubjectForm = {
   customPhases: string[];
   cheatsheet: string;
   comments: string;
+  files: File[];
 };
 
 type ScheduleConfig = {
@@ -62,7 +63,14 @@ function blank(): SubjectForm {
     customPhases: [],
     cheatsheet: "",
     comments: "",
+    files: [],
   };
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 const inputCls =
@@ -165,11 +173,17 @@ function StepLevel({
   s: SubjectForm;
   set: (k: keyof SubjectForm, v: SubjectForm[keyof SubjectForm]) => void;
 }) {
+  const [dragging, setDragging] = useState(false);
+
   function toggleMaterial(m: string) {
     const next = s.materials.includes(m)
       ? s.materials.filter((x) => x !== m)
       : [...s.materials, m];
     set("materials", next);
+  }
+
+  function addFiles(incoming: File[]) {
+    if (incoming.length) set("files", [...s.files, ...incoming]);
   }
 
   return (
@@ -223,6 +237,51 @@ function StepLevel({
           className={inputCls} type="number" min={0} step={1} placeholder="3"
           value={s.mockCount} onChange={(e) => set("mockCount", e.target.value)}
         />
+      </div>
+
+      <div>
+        <label className={labelCls}>Upload materials (optional)</label>
+        <label
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            addFiles(Array.from(e.dataTransfer.files));
+          }}
+          className={`flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
+            dragging ? "border-accent bg-surface-2" : "border-border hover:border-foreground/40"
+          }`}
+        >
+          <span className="text-2xl">📎</span>
+          <span className="text-sm font-medium">Drop files here, or click to browse</span>
+          <span className="text-xs text-muted">Slides, exercise sheets, past exams — any format</span>
+          <input
+            type="file" multiple className="sr-only"
+            onChange={(e) => {
+              addFiles(Array.from(e.target.files ?? []));
+              e.target.value = "";
+            }}
+          />
+        </label>
+        {s.files.length > 0 && (
+          <ul className="mt-3 space-y-2">
+            {s.files.map((file, i) => (
+              <li key={`${file.name}-${i}`} className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2 text-sm">
+                <span className="truncate">{file.name}</span>
+                <span className="flex shrink-0 items-center gap-3">
+                  <span className="text-xs text-muted">{formatFileSize(file.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => set("files", s.files.filter((_, j) => j !== i))}
+                    aria-label={`Remove ${file.name}`}
+                    className="text-muted hover:text-red-500"
+                  >✕</button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
@@ -460,7 +519,9 @@ export function AddSubjectWizard({
     startTransition(async () => {
       setError(null);
       try {
-        const body: Record<string, unknown> = { subject };
+        // Strip File objects — not JSON-serialisable.
+        const { files, ...subjectData } = subject;
+        const body: Record<string, unknown> = { subject: subjectData };
         if (needsSchedule) body.scheduleConfig = schedCfg;
 
         const res = await fetch(`/api/plans/${planId}/subjects`, {
@@ -473,7 +534,17 @@ export function AddSubjectWizard({
           setError(data.error ?? `Error ${res.status}`);
           return;
         }
-        setResult(await res.json());
+        const result = await res.json();
+
+        // Upload files after the subject is saved (fire-and-forget).
+        if (files.length > 0) {
+          const form = new FormData();
+          form.append("subject", subject.name);
+          for (const f of files) form.append("files", f);
+          fetch(`/api/plans/${planId}/subjects/files`, { method: "POST", body: form }).catch(() => {});
+        }
+
+        setResult(result);
       } catch {
         setError("Network error — please try again");
       }

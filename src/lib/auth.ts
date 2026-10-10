@@ -1,72 +1,60 @@
 import "server-only";
-import { createHash, randomBytes } from "node:crypto";
 import { cache } from "react";
-import { cookies } from "next/headers";
+import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { and, eq, gt, ne } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, schema as s } from "@/db";
 
 /*
- * Cookie sessions backed by the auth_sessions table. The cookie holds a random
- * token; the database only stores its SHA-256, so a leaked table can't be used
- * to log in. Logging out deletes the row, which ends the session everywhere.
+ * Login is done by the VIScon reverse proxy in front of the app: it signs the
+ * user in and adds two trusted headers to every request,
+ *
+ *   X-User-Id    the user's email (ETH addresses normalized to <user>@ethz.ch)
+ *   X-User-Name  their full name, non-ASCII characters percent-encoded
+ *
+ * We only map that email to a row in `users`. Someone the proxy let in but who
+ * has no row yet is sent to /signup to pick a handle.
+ *
+ * The headers are only trustworthy while the app is reachable through the
+ * proxy alone: never open the app's port in the VM firewall.
+ *
+ * Without the proxy (local development) there are no headers; DEV_USER_ID and
+ * DEV_USER_NAME stand in for them.
  */
 
-export const SESSION_COOKIE = "session";
-const SESSION_DAYS = 30;
+/** Who the proxy says is visiting. */
+export type Identity = { email: string; name: string };
 
-const sha256 = (token: string) => createHash("sha256").update(token).digest("hex");
+export type SessionUser = typeof s.users.$inferSelect;
 
-/** A user row without the password hash — safe to pass around. */
-export type SessionUser = Omit<typeof s.users.$inferSelect, "passwordHash">;
-
-export async function createSession(userId: string) {
-  const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
-  await db.insert(s.authSessions).values({ tokenHash: sha256(token), userId, expiresAt });
-  (await cookies()).set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    expires: expiresAt,
-  });
+function decodeName(raw: string) {
+  try {
+    return decodeURIComponent(raw).trim();
+  } catch {
+    return raw.trim();
+  }
 }
 
-export async function deleteSession() {
-  const jar = await cookies();
-  const token = jar.get(SESSION_COOKIE)?.value;
-  if (token) await db.delete(s.authSessions).where(eq(s.authSessions.tokenHash, sha256(token)));
-  jar.delete(SESSION_COOKIE);
-}
-
-/** Ends every session of the user except the current one, e.g. after a password change. */
-export async function deleteOtherSessions(userId: string) {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  await db
-    .delete(s.authSessions)
-    .where(
-      and(eq(s.authSessions.userId, userId), token ? ne(s.authSessions.tokenHash, sha256(token)) : undefined),
-    );
-}
-
-/** The logged-in user, or null. Cached for the rest of the request. */
-export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
-  const token = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-  const [row] = await db
-    .select({ user: s.users })
-    .from(s.authSessions)
-    .innerJoin(s.users, eq(s.users.id, s.authSessions.userId))
-    .where(and(eq(s.authSessions.tokenHash, sha256(token)), gt(s.authSessions.expiresAt, new Date())));
-  if (!row) return null;
-  const { passwordHash, ...user } = row.user;
-  return user;
+/** The proxy's identity for this request, or null if there is none. Cached for the request. */
+export const getIdentity = cache(async (): Promise<Identity | null> => {
+  const h = await headers();
+  const email = (h.get("x-user-id") ?? process.env.DEV_USER_ID ?? "").trim().toLowerCase();
+  if (!email) return null;
+  const name = decodeName(h.get("x-user-name") ?? process.env.DEV_USER_NAME ?? "");
+  return { email, name };
 });
 
-/** For pages and server actions: the logged-in user, or a redirect to /login. */
+/** The signed-up user behind this request, or null. Cached for the rest of the request. */
+export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
+  const identity = await getIdentity();
+  if (!identity) return null;
+  const user = await db.query.users.findFirst({ where: eq(s.users.email, identity.email) });
+  return user ?? null;
+});
+
+/** For pages and server actions: the signed-up user, or a redirect to /signup. */
 export async function requireUser(): Promise<SessionUser> {
-  return (await getSessionUser()) ?? redirect("/login");
+  return (await getSessionUser()) ?? redirect("/signup");
 }
 
 /** For admin pages and actions. Non-admins get a 404, so /admin isn't advertised. */
