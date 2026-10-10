@@ -237,6 +237,8 @@ export const sessions = pgTable(
     plannedMinutes: integer("planned_minutes").notNull(),
 
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    /** Set when the student chose to skip a planned session; it stays on the calendar, marked skipped. */
+    skippedAt: timestamp("skipped_at", { withTimezone: true }),
     actualMinutes: integer("actual_minutes"),
     /** Focus score 0–100, when the session was tracked. */
     focus: integer("focus"),

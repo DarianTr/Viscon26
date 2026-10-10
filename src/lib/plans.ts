@@ -111,6 +111,8 @@ export async function regeneratePlan(
     .where(and(
       eq(s.sessions.userPlanId, planId),
       isNull(s.sessions.completedAt),
+      // A skipped block is replaced: its work is scheduled again.
+      isNull(s.sessions.skippedAt),
       eq(s.sessions.movedManually, true),
       ne(s.sessions.type, "exam"),
       gt(s.sessions.scheduledAt, now),

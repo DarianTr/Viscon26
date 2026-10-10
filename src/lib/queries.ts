@@ -27,6 +27,7 @@ import type {
   Person,
   Profile,
   SessionType,
+  SubjectChoice,
   Task,
   WeeklyGoal,
 } from "./types";
@@ -155,6 +156,7 @@ export async function getTodaysTasks(userId: string): Promise<Task[]> {
     actualMinutes: r.actualMinutes,
     time: zurichTime.format(r.scheduledAt),
     done: r.completedAt !== null,
+    skipped: r.skippedAt !== null,
   }));
 }
 
@@ -346,6 +348,7 @@ export async function getUserCustomPlans(userId: string): Promise<CustomPlan[]> 
     .where(and(
       inArray(s.sessions.userPlanId, planIds),
       isNull(s.sessions.completedAt),
+      isNull(s.sessions.skippedAt),
       academic,
       notInArray(s.sessions.type, ["exam", "lecture"]),
       sql`${s.sessions.scheduledAt} + ${s.sessions.plannedMinutes} * interval '1 minute' > now()`,
@@ -385,6 +388,19 @@ export async function getUserCustomPlans(userId: string): Promise<CustomPlan[]> 
       archivedAt: p.archivedAt?.toISOString() ?? null,
     };
   });
+}
+
+/** Subjects of the user's unarchived plans, for adding a session by hand. */
+export async function getSubjectChoices(userId: string): Promise<SubjectChoice[]> {
+  const choices = new Map<string, SubjectChoice>();
+  // Newest plan first, so a subject in several plans counts toward the newest.
+  for (const plan of await getUserCustomPlans(userId)) {
+    if (plan.archivedAt) continue;
+    for (const name of plan.subjects) {
+      if (name && !choices.has(name)) choices.set(name, { name, planId: plan.id, planTitle: plan.title });
+    }
+  }
+  return [...choices.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export type PlanEnrollment = { planId: string; currentWeek: number; active: boolean };
@@ -461,6 +477,8 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
       start: s.sessions.scheduledAt,
       minutes: s.sessions.plannedMinutes,
       calendarOrder: s.sessions.calendarOrder,
+      completedAt: s.sessions.completedAt,
+      skippedAt: s.sessions.skippedAt,
     })
     .from(s.sessions)
     .where(
@@ -472,10 +490,12 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
       ),
     )
     .orderBy(asc(s.sessions.scheduledAt));
-  return rows.map((r) => ({
+  return rows.map(({ completedAt, skippedAt, ...r }) => ({
     ...r,
     start: r.start.toISOString(),
     end: new Date(r.start.getTime() + r.minutes * 60_000).toISOString(),
+    done: completedAt !== null,
+    skipped: skippedAt !== null,
   }));
 }
 

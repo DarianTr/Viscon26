@@ -17,6 +17,8 @@ const event = (over: Partial<CalendarEvent> = {}): CalendarEvent => ({
   end: "2026-10-12T08:30:00.000Z",
   minutes: 90,
   calendarOrder: null,
+  done: false,
+  skipped: false,
   ...over,
 });
 
