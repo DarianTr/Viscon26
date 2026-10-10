@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # The knowledge-state service. docker-compose.yml builds and runs it next to
 # the app and Postgres; it creates its own `knowledge` schema on startup.
 
