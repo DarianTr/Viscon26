@@ -51,14 +51,10 @@ type PlanDetails = {
 };
 
 const PALETTE = [
-  "#6366f1",
-  "#f59e0b",
-  "#10b981",
-  "#ef4444",
-  "#8b5cf6",
-  "#3b82f6",
-  "#ec4899",
-  "#06b6d4",
+  "var(--accent)",
+  "var(--teal)",
+  "var(--slate)",
+  "var(--foreground)",
 ];
 
 function subjectColor(subjects: string[], subject: string) {
@@ -120,19 +116,19 @@ function ScoreChart({ scores, subjects }: { scores: ExamScore[]; subjects: strin
             <text
               x={pad.left - 5} y={toY(v)}
               textAnchor="end" dominantBaseline="middle"
-              fontSize={10} fill="var(--muted)"
+              fontSize={10} fill="var(--slate)"
             >
               {v}
             </text>
           </g>
         ))}
         {/* y=1 tick */}
-        <text x={pad.left - 5} y={toY(1)} textAnchor="end" dominantBaseline="middle" fontSize={10} fill="var(--muted)">1</text>
+        <text x={pad.left - 5} y={toY(1)} textAnchor="end" dominantBaseline="middle" fontSize={10} fill="var(--slate)">1</text>
 
         {/* x-axis dates */}
-        <text x={pad.left} y={H - 4} fontSize={10} fill="var(--muted)">{fmtDate(minT)}</text>
+        <text x={pad.left} y={H - 4} fontSize={10} fill="var(--slate)">{fmtDate(minT)}</text>
         {maxT !== minT && (
-          <text x={pad.left + iW} y={H - 4} textAnchor="end" fontSize={10} fill="var(--muted)">
+          <text x={pad.left + iW} y={H - 4} textAnchor="end" fontSize={10} fill="var(--slate)">
             {fmtDate(maxT)}
           </text>
         )}
