@@ -138,8 +138,13 @@ def _routes(app: FastAPI) -> None:
         return {"topics": repo.list_topics(conn, plan_id)}
 
     @app.put("/plans/{plan_id}/topics", response_model=TopicsOut)
-    def put_topics(plan_id: str, body: TopicsIn, conn: Conn):
-        """Insert or update topics. Topics not in the body are kept.
+    def put_topics(
+        plan_id: str,
+        body: TopicsIn,
+        conn: Conn,
+        prune: Annotated[bool, Query(description="Delete the plan's other topics")] = False,
+    ):
+        """Insert or update topics. Topics not in the body are kept, unless `prune=true`.
 
         `parentId` groups topics: siblings are correlated and, in the timeline,
         forecast together. It may name another topic or just a group, such as a subject.
@@ -151,7 +156,7 @@ def _routes(app: FastAPI) -> None:
             {**t.model_dump(), "position": t.position if t.position is not None else i}
             for i, t in enumerate(body.topics)
         ]
-        repo.upsert_topics(conn, plan_id, rows)
+        repo.upsert_topics(conn, plan_id, rows, prune=prune)
         return {"topics": repo.list_topics(conn, plan_id)}
 
     # --- Plan params ---------------------------------------------------------

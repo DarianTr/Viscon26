@@ -3,9 +3,9 @@ import { cache } from "react";
 import { and, eq, ne } from "drizzle-orm";
 import { db, schema as s } from "@/db";
 import {
-  type CourseProfile,
   type KnowledgeSubject,
   parseGrade,
+  profileMap,
   type Subject,
   toKnowledgeSubjects,
   topicsPayload,
@@ -132,19 +132,18 @@ export const getOwnedPlan = cache(async (userId: string, planId: string): Promis
     .select({ slug: s.courseProfiles.slug, aliases: s.courseProfiles.aliases, topics: s.courseProfiles.topics })
     .from(s.courseProfiles);
 
-  const profileMap = new Map<string, CourseProfile>();
-  for (const row of profileRows) {
-    profileMap.set(row.slug, { topics: row.topics });
-    for (const alias of row.aliases) profileMap.set(alias, { topics: row.topics });
-  }
-
-  return { id: plan.id, title: plan.title, subjects: toKnowledgeSubjects(subjects, profileMap) };
+  return { id: plan.id, title: plan.title, subjects: toKnowledgeSubjects(subjects, profileMap(profileRows)) };
 });
 
 /** Make the service's topics match the plan's subjects (an idempotent upsert). */
 export async function syncTopics(plan: OwnedPlan) {
   if (plan.subjects.length === 0) return;
-  await call(`/plans/${plan.id}/topics`, { method: "PUT", body: JSON.stringify(topicsPayload(plan.subjects)) });
+  // Prune: when a subject switches to its real course topics, the old ones must go,
+  // or the subject's forecast would still average in empty placeholder topics.
+  await call(`/plans/${plan.id}/topics?prune=true`, {
+    method: "PUT",
+    body: JSON.stringify(topicsPayload(plan.subjects)),
+  });
 }
 
 

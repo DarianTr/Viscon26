@@ -31,6 +31,7 @@ export function TopicProfile({ timeline, subjects }: { timeline: Timeline; subje
   const cmpLabel = compare === "exam" ? "Exam-day forecast" : `A week ago (${formatDay(weekAgo)})`;
   const index = new Map(timeline.topics.map((t, i) => [t.id, i]));
 
+  // Per topic, for the list (and the chart when one subject is chosen).
   const axes: Axis[] = subjects.flatMap((subject, subjectIndex) =>
     focus !== ALL && focus !== subject.id
       ? []
@@ -48,6 +49,25 @@ export function TopicProfile({ timeline, subjects }: { timeline: Timeline; subje
           }];
         }),
   );
+
+  // With all subjects, real course topics would mean dozens of axes: one per subject instead.
+  const groupIndex = new Map(timeline.groups.map((g, i) => [g.id, i]));
+  const bySubject = focus === ALL && subjects.length > 1;
+  const radarAxes: Axis[] = !bySubject
+    ? axes
+    : subjects.flatMap((subject, subjectIndex) => {
+        const g = groupIndex.get(subject.id);
+        if (g === undefined) return [];
+        return [{
+          id: subject.id,
+          name: subject.name,
+          subject,
+          subjectIndex,
+          now: timeline.current.groupLevels[g],
+          compare: compare === "exam" ? timeline.current.groupForecasts[g] : earlier.groupLevels[g],
+          target: subject.targetGrade ? fromGrade(subject.targetGrade) : null,
+        }];
+      });
 
   return (
     <div className="space-y-4">
@@ -84,7 +104,14 @@ export function TopicProfile({ timeline, subjects }: { timeline: Timeline; subje
           </span>
         )}
       </div>
-      {axes.length >= 3 && <Radar axes={axes} compareAhead={compare === "exam"} grouped={focus === ALL && subjects.length > 1} />}
+      {radarAxes.length >= 3 ? (
+        <Radar axes={radarAxes} compareAhead={compare === "exam"} grouped={false} />
+      ) : (
+        <p className="text-sm text-muted">The spider chart needs at least three axes; pick a subject to see its topics.</p>
+      )}
+      {bySubject && (
+        <p className="text-xs text-muted">One axis per subject: the average of its topics. Pick a subject above to see each topic.</p>
+      )}
       <ProgressList axes={axes} timeline={timeline} compareAhead={compare === "exam"} />
     </div>
   );

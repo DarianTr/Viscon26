@@ -273,23 +273,42 @@ In the app, each custom plan has three knowledge pages, linked from the plan car
 | Page | What it shows |
 | ---- | ------------- |
 | `/plans/:id/forecast` | Predicted grade per subject (or the plan average) as a band: the estimated level so far, the projection to the exam date, the chance of reaching the target grade |
-| `/plans/:id/topics` | Spider chart with one axis per topic, plus a progress list grouped by subject (compared with a week ago or the exam-day forecast) |
+| `/plans/:id/topics` | Spider chart (one axis per subject, or per topic for one subject), plus a progress list of every topic grouped by subject (compared with a week ago or the exam-day forecast) |
 | `/plans/:id/log` | Log a practice sheet, quiz, mock or exam (points or a grade), tick which of the subject's topics it covered, and delete data points |
 
-For now, every subject gets three hardcoded topics: a fixed list for common
-subjects (Analysis, Linear Algebra, Physics, …), otherwise "Concepts /
-Methods / Applications". Each subject's exam covers its three topics equally,
-and the plan average weights subjects equally. Grades map linearly:
+A subject's topics are the real course topics when it matches a course
+profile (`course_profiles`, filled by `npm run db:seed-courses` from the
+ETH course catalogue (VVZ), by name or alias). Otherwise they're three
+hardcoded fallback topics. The service always holds exactly the plan's
+current topics (`syncTopics` prunes the rest), so switching to real topics
+leaves no empty placeholders in the forecast. Each subject's exam covers its
+topics equally, and the plan average weights subjects equally. Grades map linearly:
 grade = 1 + 5 × score. These choices live in `src/lib/knowledge-topics.ts`.
 The app talks to the service only from the server (`src/lib/knowledge.ts`),
 after checking that the plan belongs to the user.
 
-**Demo data:** with the database and the knowledge service running,
-`npm run db:seed-knowledge` creates the plan "Basisprüfung (demo)" for the
-demo user. It logs six weeks of practice sheets, quizzes and mocks across
-four subjects. Each topic has its own hidden learning curve: a weak one, a
-fast learner, a strong one, and a barely logged subject the model stays
-unsure about. Re-running it replaces the demo data points.
+**Demo data:** with the database and the knowledge service running, run
+`npm run db:seed-courses`, then `npm run db:seed-knowledge`. Docker deploys
+run `db:seed-courses` themselves. This creates the plan "Basisprüfung (demo)"
+for the demo user with four ETH CS courses and their real topics, and logs
+a learning phase. The app is built for that time: lectures are over, the
+exams are 2–5 weeks away, and for four weeks the student has been reviewing
+topic by topic:
+
+- topic exercises every few days;
+- short self-tests on topics reviewed earlier;
+- full old exams about every ten days;
+- one course reviewed only sporadically.
+
+Every topic follows a hidden curve: where the semester left it, a slow fade,
+and gains once reviewed. `--truth` prints the hidden levels for today, to
+compare with the model. Re-running replaces the demo
+data points. On the VM:
+
+```bash
+docker compose -p viscon --env-file /home/viscon/viscon.env run --rm \
+  -e KNOWLEDGE_URL=http://knowledge:8000 migrate npx tsx src/db/seed-knowledge.ts
+```
 
 The model, API and tests are described in
 [`services/knowledge/README.md`](services/knowledge/README.md).

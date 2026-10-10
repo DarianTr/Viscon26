@@ -68,6 +68,18 @@ export type CourseProfile = {
   topics: { id: string; name: string }[];
 };
 
+/** Profiles keyed by slug and by every alias, as `toKnowledgeSubjects` expects. */
+export function profileMap(
+  rows: { slug: string; aliases: string[]; topics: { id: string; name: string }[] }[],
+): Map<string, CourseProfile> {
+  const map = new Map<string, CourseProfile>();
+  for (const row of rows) {
+    map.set(row.slug, { topics: row.topics });
+    for (const alias of row.aliases) map.set(alias, { topics: row.topics });
+  }
+  return map;
+}
+
 /**
  * Subjects with unique ids and their topics, in plan order; nameless subjects
  * are dropped. When `profiles` is supplied (keyed by subject slug or alias),
