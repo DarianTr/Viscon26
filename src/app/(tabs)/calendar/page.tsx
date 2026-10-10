@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { CalendarView } from "@/components/calendar-view";
 import { PageHeader } from "@/components/ui/primitives";
 import { getCalendarEvents, getCurrentUser } from "@/lib/queries";
@@ -14,7 +15,15 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
 
   return (
     <>
-      <PageHeader eyebrow="Schedule" title="Calendar" />
+      <PageHeader
+        eyebrow="Schedule"
+        title="Calendar"
+        action={
+          <Link href="/profile/settings#calendar-feed" className="rounded-full bg-surface-2 px-4 py-2 text-sm font-medium">
+            Subscribe
+          </Link>
+        }
+      />
       <CalendarView events={events} initialDate={initialDate} />
     </>
   );

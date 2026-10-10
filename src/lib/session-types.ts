@@ -1,4 +1,4 @@
-import type { SessionType } from "./types";
+import type { CalendarEvent, EventType, SessionType } from "./types";
 
 /** Display config for each session type. Safe to import from client code. */
 export const sessionTypes: Record<
@@ -30,6 +30,36 @@ export const sessionTypes: Record<
     soft: "bg-recovery/12 text-recovery",
   },
 };
+
+const eventTypeLabels: Record<EventType, string> = {
+  deep: sessionTypes.deep.label,
+  intervals: sessionTypes.intervals.label,
+  tempo: sessionTypes.tempo.label,
+  recovery: sessionTypes.recovery.label,
+  exam: "Exam",
+  lecture: "Lecture",
+  buffer: "Buffer / Catch-up Time",
+  break: "Break",
+};
+
+/** Activities that need a more specific label than their session type. */
+const activityLabels: Partial<Record<NonNullable<CalendarEvent["activity"]>, string>> = {
+  mock_exam: "Mock exam",
+  mock_review: "Mock exam review",
+  cheatsheet: "Cheatsheet",
+  exam_eve: "Exam Eve — Final Review",
+  short_break: "Break",
+  lunch: "Lunch",
+  dinner: "Dinner",
+};
+
+/** The kind of block a calendar event is, as the calendar badges it. */
+export const eventLabel = (e: Pick<CalendarEvent, "type" | "activity" | "cheatsheetMinutes">) =>
+  (e.activity === "study" && e.cheatsheetMinutes ? "Theory + Cheatsheet" : undefined)
+  ?? (e.activity && activityLabels[e.activity])
+  ?? eventTypeLabels[e.type];
+
+export const phaseLabels = { foundation: "Foundation", build: "Build", peak: "Peak", taper: "Taper" } as const;
 
 const subjectPalette = [
   { text: "text-deep", value: "var(--deep)" },
