@@ -355,9 +355,11 @@ export async function listBusyIntervals(
       isNull(s.sessions.skippedAt),
       lt(s.sessions.scheduledAt, to),
       sql`${s.sessions.scheduledAt} + ${s.sessions.plannedMinutes} * interval '1 minute' > ${from.toISOString()}`,
-      // Blocks a regeneration replaces don't count — unless they're kept.
+      // Blocks a regeneration replaces don't count — unless they're kept. It only
+      // replaces blocks from `from` on, so earlier ones (e.g. one running now) stay.
       replacingPlan
         ? or(
+            sql`${s.sessions.scheduledAt} < ${from.toISOString()}`,
             isNull(s.sessions.userPlanId),
             ne(s.sessions.userPlanId, replacingPlan),
             isNotNull(s.sessions.completedAt),

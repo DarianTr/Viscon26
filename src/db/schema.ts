@@ -149,6 +149,8 @@ export type StoredPlanConfig = {
   focusDates?: Record<string, string>;
   /** Exam Eve days: "YYYY-MM-DD" → subject(s). Nothing else is moved onto them. */
   eveDates?: Record<string, string[]>;
+  /** Saved edits the schedule doesn't reflect yet; cleared by a recalibration (see lib/plan-changes.ts). */
+  pendingChanges?: string[];
 };
 
 /** A custom study plan created by the user via the plan wizard. */
