@@ -29,6 +29,7 @@ export const blockActivities = [
   "dinner",
   "buffer",
   "exam",
+  "quiz",
 ] as const;
 export type BlockActivity = (typeof blockActivities)[number];
 
@@ -79,6 +80,8 @@ export type CalendarEvent = {
   activity: BlockActivity | null;
   /** Null for breaks and buffers. */
   subject: string | null;
+  /** The plan this event belongs to, used for quiz navigation. */
+  planId: string | null;
   /** Minutes of the block reserved for the cheatsheet, and the milestone it aims for. */
   cheatsheetMinutes: number | null;
   cheatsheetTarget: number | null;

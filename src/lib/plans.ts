@@ -41,7 +41,7 @@ export async function regeneratePlan(
   userId: string,
   planId: string,
   changes: Partial<StoredPlanConfig> & { title?: string },
-  { apply, now = new Date() }: { apply: boolean; now?: Date },
+  { apply, now = new Date(), quizGaps }: { apply: boolean; now?: Date; quizGaps?: Record<string, number> },
 ): Promise<RegenerateOutcome | null> {
   const [plan] = await db
     .select({ title: s.userPlans.title, config: s.userPlans.config, createdAt: s.userPlans.createdAt })
@@ -147,7 +147,7 @@ export async function regeneratePlan(
       subjects: subjects.map((sub) => ({ ...sub })),
     },
     now,
-    { busy, progress },
+    { busy, progress, quizGaps },
   );
   const savedConfig: StoredPlanConfig = {
     ...config,

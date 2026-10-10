@@ -453,6 +453,7 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
       type: s.sessions.type,
       activity: s.sessions.activity,
       subject: s.sessions.subject,
+      planId: s.sessions.userPlanId,
       cheatsheetMinutes: s.sessions.cheatsheetMinutes,
       cheatsheetTarget: s.sessions.cheatsheetTarget,
       prepPhase: s.sessions.prepPhase,
