@@ -20,7 +20,7 @@ sudo usermod -aG docker viscon   # log out and back in afterwards
 ## 2. Server config
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Blazingwonders/Viscon26/main/deploy/viscon.env.example \
+curl -fsSL https://raw.githubusercontent.com/DarianTr/Viscon26/main/deploy/viscon.env.example \
   -o /home/viscon/viscon.env   # or copy it over by hand
 chmod 600 /home/viscon/viscon.env
 nano /home/viscon/viscon.env  # set POSTGRES_PASSWORD (openssl rand -hex 24) and APP_PORT
