@@ -137,6 +137,11 @@ Then five estimators are scored on fresh learners at days 10, 24 and 42:
 `tests/test_bench.py` runs a small version with loose thresholds as a
 regression guard.
 
+`uv run python -m bench.sweep` (options `--q-slope …`, `--q-level …`,
+`--pin-half-life N`, `--schedule`) tunes the process noise by held-out
+exam-forecast accuracy and coverage. The MAP fit can't do this itself,
+because its likelihood only scores one-step-ahead predictions.
+
 ## API
 
 JSON is camelCase. Errors are `{ error, details? }`: 400 for invalid input or

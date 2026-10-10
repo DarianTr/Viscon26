@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 
-from knowledge.fit import FitResult, TypePrior, fit_map
+from knowledge.fit import FitResult, Priors, TypePrior, fit_map
 from knowledge.model import AssessmentType, Model, Observation, PlanParams
 
 from .schedules import EXAM_DAY, LAST_DAY, N_POINTS, SCHEDULES
@@ -116,11 +116,11 @@ def default_model(params: PlanParams = DEFAULT_PARAMS) -> Model:
     return Model(TOPICS, types, params)
 
 
-def estimators(fit: FitResult) -> dict:
-    fitted = model_from_fit(fit)
+def estimators(fit: FitResult, params: PlanParams = DEFAULT_PARAMS) -> dict:
+    fitted = model_from_fit(fit, params)
     return {
         "fitted": KalmanEstimator(fitted),
-        "default": KalmanEstimator(default_model()),
+        "default": KalmanEstimator(default_model(params)),
         "linear": KalmanEstimator(
             Model(
                 TOPICS, list(fitted.types.values()), replace(fitted.params, half_life_days=math.inf)
@@ -188,6 +188,8 @@ def run_schedule(
     n_train: int,
     n_eval: int,
     seed: int,
+    params: PlanParams = DEFAULT_PARAMS,
+    priors: Priors | None = None,
 ) -> ScheduleResult:
     import time
 
@@ -195,9 +197,9 @@ def run_schedule(
     # A platform's training data: a mixed population of every archetype.
     train = [simulate(rng, archetypes[i % len(archetypes)], schedule) for i in range(n_train)]
     t0 = time.perf_counter()
-    fit = fit_map(TOPICS, TYPE_PRIORS, DEFAULT_PARAMS, [lr.obs for lr in train])
+    fit = fit_map(TOPICS, TYPE_PRIORS, params, [lr.obs for lr in train], priors)
     result = ScheduleResult(schedule, fit, seconds_fit=time.perf_counter() - t0)
-    methods = estimators(fit)
+    methods = estimators(fit, params)
 
     for archetype in archetypes:
         for _ in range(n_eval):
