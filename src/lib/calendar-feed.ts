@@ -28,3 +28,12 @@ export function publicOrigin(headers: Headers) {
   const proto = headers.get("x-forwarded-proto")?.split(",")[0] ?? (host.startsWith("localhost") ? "http" : "https");
   return `${proto}://${host}`;
 }
+
+/**
+ * Origin calendar clients fetch the feed from. They can't get past a login
+ * wall, so when the app sits behind one (the VisCon VM), CALENDAR_FEED_ORIGIN
+ * points at an address that reaches the server directly — see deploy/README.md.
+ */
+export function feedOrigin(headers: Headers) {
+  return process.env.CALENDAR_FEED_ORIGIN?.replace(/\/$/, "") || publicOrigin(headers);
+}
