@@ -266,7 +266,10 @@ class TimelineOut(Out):
 
 
 class RecommendedTopicsIn(Body):
-    """Target levels per topic (fraction 0–1). Topics without an entry default to 0.75 (~grade 5)."""
+    """Target levels per topic (fraction 0–1).
+
+    Topics without an entry default to 0.75 (~grade 5).
+    """
 
     targets: dict[str, Fraction] = {}
 

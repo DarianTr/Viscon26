@@ -198,7 +198,12 @@ def test_recommended_topics_ranks_by_gap_and_uncertainty(client, topics):
     )
     assert res.status_code == 200, res.text
     data = res.json()
-    assert {t["topicId"] for t in data["topics"]} == {"analysis.limits", "analysis.series", "analysis", "linalg"}
+    assert {t["topicId"] for t in data["topics"]} == {
+        "analysis.limits",
+        "analysis.series",
+        "analysis",
+        "linalg",
+    }
     assert abs(sum(t["allocation"] for t in data["topics"]) - 100) < 0.5
 
     # Log a strong linalg score so it rises close to the 0.75 default target.
@@ -208,7 +213,14 @@ def test_recommended_topics_ranks_by_gap_and_uncertainty(client, topics):
 
     res2 = client.post(
         f"/users/{user}/plans/{PLAN}/recommended-topics",
-        json={"targets": {"analysis.limits": 0.75, "analysis.series": 0.75, "analysis": 0.75, "linalg": 0.75}},
+        json={
+            "targets": {
+                "analysis.limits": 0.75,
+                "analysis.series": 0.75,
+                "analysis": 0.75,
+                "linalg": 0.75,
+            }
+        },
     )
     assert res2.status_code == 200, res2.text
     ranked = res2.json()["topics"]
@@ -230,10 +242,22 @@ def test_recommended_topics_exam_urgency(client):
     plan = "focus-plan"
     client.put(
         f"/plans/{plan}/topics",
-        json={"topics": [
-            {"id": "focus.near", "name": "Near topic", "parentId": "focus", "examDate": "2026-10-15"},
-            {"id": "focus.far",  "name": "Far topic",  "parentId": "focus", "examDate": "2027-06-01"},
-        ]},
+        json={
+            "topics": [
+                {
+                    "id": "focus.near",
+                    "name": "Near topic",
+                    "parentId": "focus",
+                    "examDate": "2026-10-15",
+                },
+                {
+                    "id": "focus.far",
+                    "name": "Far topic",
+                    "parentId": "focus",
+                    "examDate": "2027-06-01",
+                },
+            ]
+        },
     )
     user = uuid.uuid4()
     # Both topics equally weak — exam urgency should push the near one higher.
@@ -244,7 +268,7 @@ def test_recommended_topics_exam_urgency(client):
     assert res.status_code == 200, res.text
     ranked = res.json()["topics"]
     near_alloc = next(t["allocation"] for t in ranked if t["topicId"] == "focus.near")
-    far_alloc  = next(t["allocation"] for t in ranked if t["topicId"] == "focus.far")
+    far_alloc = next(t["allocation"] for t in ranked if t["topicId"] == "focus.far")
     assert near_alloc > far_alloc, "closer exam should rank higher when gap is equal"
     assert any("exam soon" in t["tags"] for t in ranked)
 
