@@ -2,14 +2,14 @@
  * Creates the admin account: `npm run db:seed`.
  *
  * The only seeded row. Everything else starts empty and is created by using
- * the app. Safe to run on every start: it never wipes anything, and does
- * nothing if a user with the admin's handle or email already exists.
+ * the app. Safe to run on every start: it never wipes anything. If someone
+ * already signed up with ADMIN_EMAIL, it makes that account the admin.
  *
  * The admin belongs to whoever logs in with ADMIN_EMAIL (their X-User-Id,
  * see `src/lib/auth.ts`); there is no password.
  */
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import postgres from "postgres";
 import * as s from "./schema";
 
@@ -21,11 +21,20 @@ const client = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} 
 const db = drizzle(client, { schema: s });
 
 async function main() {
-  const existing = await db.query.users.findFirst({
-    where: or(eq(s.users.handle, ADMIN_HANDLE), eq(s.users.email, ADMIN_EMAIL)),
-  });
-  if (existing) {
-    console.log(`@${existing.handle} (${existing.email}) already exists — nothing to seed.`);
+  // Someone who signed up with ADMIN_EMAIL before the seed ran keeps their account.
+  const [promoted] = await db
+    .update(s.users)
+    .set({ isAdmin: true })
+    .where(eq(s.users.email, ADMIN_EMAIL))
+    .returning({ handle: s.users.handle });
+  if (promoted) {
+    console.log(`@${promoted.handle} (${ADMIN_EMAIL}) is the admin.`);
+    return;
+  }
+
+  const taken = await db.query.users.findFirst({ where: eq(s.users.handle, ADMIN_HANDLE) });
+  if (taken) {
+    console.log(`@${ADMIN_HANDLE} is taken by ${taken.email ?? "an account without email"} — not creating the admin.`);
     return;
   }
 

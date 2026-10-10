@@ -34,11 +34,10 @@ template app already listens there, so stop it first:
 cd ~/template && docker compose down
 ```
 
-Every deploy creates the admin account `@admin` for `tprazak@ethz.ch` if it
-doesn't exist yet; set `ADMIN_EMAIL` (and `ADMIN_HANDLE` / `ADMIN_NAME`) to
-give it to someone else. It's never changed once it exists, so after the first
-deploy change it in `/admin/users` instead. Everyone else gets the signup page
-on their first visit.
+Every deploy makes `tprazak@ethz.ch` the admin: it promotes that account if
+it has signed up, and otherwise creates it as `@admin`. Set `ADMIN_EMAIL` (and
+`ADMIN_HANDLE` / `ADMIN_NAME`) to make someone else the admin. Everyone else
+gets the signup page on their first visit.
 
 Login comes from the proxy's `X-User-Id` header, which anyone could forge if
 they reached the app directly. So **don't** `ufw allow` the app port, keep
