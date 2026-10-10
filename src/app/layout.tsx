@@ -28,12 +28,19 @@ export const viewport: Viewport = {
   themeColor: "#f7f5ec",
 };
 
+/** Sets the dark class before paint, so there's no flash of the wrong theme on load. */
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("braina-theme");var d=t==="dark"||(t!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);}catch(e){}})();`;
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${baloo.variable} ${jakarta.variable} h-full antialiased`}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="min-h-full">
         <NumericInputWheelGuard />
         {children}

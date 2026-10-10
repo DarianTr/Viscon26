@@ -222,7 +222,7 @@ export function TodayBoard({
           return (
             <li key={task.id}>
               <Card className={`flex gap-4 p-4 transition-opacity ${tilt} ${task.done ? "opacity-60" : ""}`}>
-                <div className={`w-1.5 shrink-0 rounded-full ${isPaused ? "bg-amber-400" : type.color}`} />
+                <div className={`w-1.5 shrink-0 rounded-full ${isPaused ? "bg-gold" : type.color}`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-xs">
                     <span className={`rounded-full px-2 py-0.5 font-bold ${type.soft}`}>
@@ -233,7 +233,7 @@ export function TodayBoard({
                       {task.subject}
                     </span>
                     {isPaused && (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">
+                      <span className="rounded-full bg-gold-soft px-2 py-0.5 font-semibold text-foreground">
                         Paused · {formatMinutes(Math.round(savedSecs / 60))} done
                       </span>
                     )}
@@ -288,7 +288,7 @@ export function TodayBoard({
                       aria-label={isPaused ? `Resume ${task.title}` : `Start ${task.title}`}
                       className={`grid size-8 place-items-center rounded-full transition-colors ${
                         isPaused
-                          ? "bg-amber-100 text-amber-600"
+                          ? "bg-gold-soft text-foreground"
                           : "bg-accent-soft text-accent"
                       }`}
                     >

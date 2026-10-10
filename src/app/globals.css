@@ -34,6 +34,32 @@
   --focus-accent: #e3573b;
 }
 
+/* --- Braina palette, dark --------------------------------------------- */
+/* The same warm, hand-drawn world lit for the evening — an espresso-brown
+   ground instead of cream paper, with the brick accent and session colors
+   nudged brighter so they still read on dark cards. Toggled via the
+   DarkModeToggle bubble, which sets/removes this class on <html>. */
+:root.dark {
+  --background: #1c0803;
+  --surface: #280e07;
+  --surface-2: #38170c;
+  --foreground: #f7f0e6;
+  --muted: rgb(247 240 230 / 0.6);
+  --border: rgb(247 240 230 / 0.14);
+  --accent: #e3573b;
+  --accent-soft: rgb(227 87 59 / 0.2);
+  --beige: #4a2f1c;
+  --teal: #3a9094;
+  --slate: #9fb0c4;
+  --gold: #f0c04d;
+  --gold-soft: rgb(240 192 77 / 0.2);
+
+  --deep: #3a9094;
+  --intervals: #e3573b;
+  --tempo: #e0953a;
+  --recovery: #9fb0c4;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);
