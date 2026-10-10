@@ -192,7 +192,10 @@ final forecast error. It renders `bench/out/forecast.html` from
 - the exam-score distribution after each data point, with bell-curve
   snapshots;
 - the distribution before and after the selected data point;
-- each logged score drawn as its own measurement distribution.
+- each logged score drawn as its own measurement distribution;
+- a topic profile: a spider chart of every topic's distribution, plus a
+  per-topic progress list compared with 7 days earlier or the exam-day
+  projection, flagging the weakest, least certain and fastest-moving topic.
 
 ### Setup
 
