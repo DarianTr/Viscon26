@@ -152,7 +152,8 @@ async function main() {
   await db.execute(sql`
     truncate table
       session_photos, session_tags, comments, kudos, sessions, enrollments,
-      user_badges, badges, friendships, plans, auth_sessions, users, items
+      user_badges, badges, friendships, plans, auth_sessions, users, items,
+      challenges, notifications, push_subscriptions
     restart identity cascade
   `);
 
@@ -439,6 +440,18 @@ async function main() {
       })),
     );
   if (tagRows.length > 0) await db.insert(s.sessionTags).values(tagRows);
+
+  // A few open challenges, so Community → Challenges has something to answer.
+  const latestBy = (userId: string) => recent.find((p) => p.userId === userId);
+  const taunts = ["Bet you can't. 😏", "Your turn. Don't embarrass yourself.", null];
+  const challengeRows = [
+    ...friends.slice(0, 2).map((f, i) => ({ from: f, to: me, message: taunts[i] })),
+    { from: me, to: friends[2], message: taunts[2] },
+  ].flatMap(({ from, to, message }) => {
+    const post = latestBy(from.id);
+    return post ? [{ challengerId: from.id, challengeeId: to.id, sourceSessionId: post.id, message }] : [];
+  });
+  if (challengeRows.length > 0) await db.insert(s.challenges).values(challengeRows);
 
   // --- Badges ---------------------------------------------------------------------
   await db.insert(s.badges).values([

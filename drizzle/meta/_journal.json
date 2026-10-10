@@ -99,6 +99,13 @@
       "when": 1791720000000,
       "tag": "0012_course_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791720001000,
+      "tag": "0013_challenges_and_push",
+      "breakpoints": true
     }
   ]
 }

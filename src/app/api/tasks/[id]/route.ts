@@ -1,3 +1,4 @@
+import { syncChallengeCompletion } from "@/lib/challenges";
 import { handle, isId, notFound } from "@/lib/http";
 import { getCurrentUser } from "@/lib/queries";
 import { deleteTask, getTask, updateTask } from "@/lib/tasks";
@@ -17,7 +18,8 @@ export async function GET(_request: Request, ctx: Ctx) {
 
 // PATCH /api/tasks/:id — any task field, plus { done, actualMinutes, focus }, on your own task.
 // `done: true` marks it complete (actualMinutes defaults to plannedMinutes);
-// `done: false` clears the completion.
+// `done: false` clears the completion. Finishing an accepted challenge's
+// session completes the challenge.
 export async function PATCH(request: Request, ctx: Ctx) {
   return handle(async () => {
     const { id } = await ctx.params;
@@ -25,7 +27,9 @@ export async function PATCH(request: Request, ctx: Ctx) {
     const user = await getCurrentUser();
     const existing = await getTask(id);
     if (!existing || existing.userId !== user.id) return notFound("Task");
-    const task = await updateTask(id, updateTaskSchema.parse(await request.json()));
+    const patch = updateTaskSchema.parse(await request.json());
+    const task = await updateTask(id, patch);
+    if (task && patch.done !== undefined) await syncChallengeCompletion(user, id, patch.done);
     return task ? Response.json({ task }) : notFound("Task");
   });
 }

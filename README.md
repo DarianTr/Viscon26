@@ -183,6 +183,13 @@ src/
 | PUT    | `/api/tasks/:id/tags` | `{ userIds }`        | `204`             |
 | GET    | `/api/people?q=` | – (no `q`: friends and pending requests) | `{ people: [] }`  |
 | PUT / DELETE | `/api/users/:id/friend` | –            | `{ status }`      |
+| GET    | `/api/challenges` | –                        | `{ received: [], sent: [] }` |
+| POST   | `/api/challenges` | `{ sessionId, friendIds, message? }` | `201 { sent }` |
+| PATCH  | `/api/challenges/:id` | `{ accept }`         | `204`             |
+| DELETE | `/api/challenges/:id` | –                    | `204`             |
+| PUT    | `/api/push/subscription` | a `PushSubscription` | `204`          |
+| DELETE | `/api/push/subscription` | `{ endpoint }`    | `204`             |
+| POST   | `/api/push/test` | –                         | `204`             |
 
 Friendships are mutual: `PUT /api/users/:id/friend` sends a request (or
 accepts theirs, if they asked first) and the other person has to accept before
@@ -198,6 +205,30 @@ On your own completed sessions you can add up to 4 photos (JPEG, PNG or WebP,
 at most 5 MB each; the app shrinks them before uploading) and tag up to 10
 friends you studied with. Photos are stored in Postgres and served only to
 people who can see the activity.
+
+### Challenges and push notifications
+
+On your own completed session, ⚔️ challenges friends to match it (a hard mock
+exam, a long problem set…), with an optional taunt. They answer under
+Community → Challenges. Accepting adds a copy of the session to their Today
+list; finishing it completes the challenge, and the challenger hears who won:
+focus decides when both sessions were tracked, otherwise time. The challenger
+can withdraw a challenge until it's answered.
+
+Each step is pushed to the other person with Web Push, and stored in the
+`notifications` table. Users turn push on per device under Profile → Settings
+(`public/sw.js` is the service worker; on iPhone it needs the app on the home
+screen). Push needs a VAPID key pair in `VAPID_PUBLIC_KEY` /
+`VAPID_PRIVATE_KEY`, made with `npx web-push generate-vapid-keys`. Without the
+keys, push is off and the rest still works.
+
+**Daily nudges.** `src/instrumentation.ts` starts a timer on each server that
+runs at 18:00 and 21:00 Zurich time. Everyone with push on who hasn't finished
+a session that day gets one line, built from their friends' real numbers
+("Lena did 3 sessions today. Where are you at?") or their streak at 21:00. The
+tone is set in Settings: savage (default), gentle or off. Each nudge is
+deduplicated in the database, so several servers or restarts never send it
+twice. Set `NUDGES=off` to stop them on a server.
 
 ### Users and tasks
 
