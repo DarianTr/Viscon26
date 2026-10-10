@@ -61,6 +61,7 @@ function cssColor(variable: string): [number, number, number] {
 }
 
 export type Density = { m: number; s: number; peak: number } | null;
+const DENSITY_STEPS = 10;
 
 /**
  * Paint a distribution over time: each pixel's opacity is the normal density
@@ -99,7 +100,8 @@ export function paintDensity(
       img.data[k] = r;
       img.data[k + 1] = g;
       img.data[k + 2] = b;
-      img.data[k + 3] = Math.round(255 * c.peak * Math.exp(-0.5 * z * z));
+      const density = c.peak * Math.exp(-0.5 * z * z);
+      img.data[k + 3] = Math.round(255 * (Math.round(density * DENSITY_STEPS) / DENSITY_STEPS));
     }
   }
   ctx.putImageData(img, 0, 0);

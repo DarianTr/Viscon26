@@ -69,32 +69,38 @@ export async function PracticeSectionToday({
     );
   }
 
+  let focus: Awaited<ReturnType<typeof getRecommendedTopics>>;
   try {
     await syncTopics(plan);
-    const focus = await getRecommendedTopics(userId, plan);
-    return (
-      <>
-        <SectionTitle
-          action={
-            <Link href="/" scroll={false} className="text-sm font-medium text-muted hover:text-foreground">
-              Close
-            </Link>
-          }
-        >
-          Practice
-        </SectionTitle>
-        <div id="practice">
-          <PracticeSection planId={plan.id} focus={focus} />
-        </div>
-      </>
-    );
+    focus = await getRecommendedTopics(userId, plan);
   } catch (e) {
     const msg = e instanceof KnowledgeError ? e.message : "Something went wrong.";
-    return (
-      <>
-        <SectionTitle>Practice</SectionTitle>
-        <Card className="text-sm text-muted">{msg}</Card>
-      </>
-    );
+    return <PracticeError message={msg} />;
   }
+
+  return (
+    <>
+      <SectionTitle
+        action={
+          <Link href="/" scroll={false} className="text-sm font-medium text-muted hover:text-foreground">
+            Close
+          </Link>
+        }
+      >
+        Practice
+      </SectionTitle>
+      <div id="practice">
+        <PracticeSection planId={plan.id} focus={focus} />
+      </div>
+    </>
+  );
+}
+
+function PracticeError({ message }: { message: string }) {
+  return (
+    <>
+      <SectionTitle>Practice</SectionTitle>
+      <Card className="text-sm text-muted">{message}</Card>
+    </>
+  );
 }
