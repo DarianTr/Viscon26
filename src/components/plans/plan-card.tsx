@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Card } from "@/components/ui/primitives";
 import { AddSubjectWizard } from "@/components/plans/add-subject-wizard";
 import { ForecastChart } from "@/components/knowledge/forecast-chart";
@@ -354,7 +354,11 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
     setLoading(true);
     try {
       const res = await fetch(`/api/plans/${plan.id}`);
-      if (res.ok) setDetails(await res.json());
+      if (res.ok) {
+        const data: PlanDetails = await res.json();
+        setDetails(data);
+        if (data.scores.length > 0 && !strategy) fetchStrategy();
+      }
     } finally {
       setLoading(false);
     }
@@ -465,13 +469,6 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
       setStrategyLoading(false);
     }
   }
-
-  useEffect(() => {
-    if (details && details.scores.length > 0 && !strategy && !strategyLoading) {
-      fetchStrategy();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [details]);
 
   const subjectNames = details?.subjects.map((s) => s.subject) ?? plan.subjects;
 
