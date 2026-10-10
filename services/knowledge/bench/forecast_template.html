@@ -1,0 +1,612 @@
+<title>Exam Forecast Replay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; a control bar, then the forecast-distribution chart
+   beside a before/after distribution panel, then the ability chart (overall or by topic). */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --ink: #15181d;
+  --ink-2: #4f5561;
+  --ink-3: #828895;
+  --line: #e2e5ea;
+  --line-2: #c9ced6;
+  --density: #1d3f7a;
+  --practice: #2a78d6;
+  --quiz: #eb6834;
+  --mock: #1baf7a;
+  --truth: #a0522d;
+  --good: #1f7a4d;
+  --bad: #b3412e;
+  --font-display: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111317; --surface: #191c21; --ink: #eceef2; --ink-2: #b4bac5; --ink-3: #868d99;
+    --line: #2a2e35; --line-2: #3b414b; --density: #9fbcf0;
+    --practice: #3987e5; --quiz: #d95926; --mock: #199e70; --truth: #e0a46c;
+    --good: #4cc38a; --bad: #ec7a65; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111317; --surface: #191c21; --ink: #eceef2; --ink-2: #b4bac5; --ink-3: #868d99;
+  --line: #2a2e35; --line-2: #3b414b; --density: #9fbcf0;
+  --practice: #3987e5; --quiz: #d95926; --mock: #199e70; --truth: #e0a46c;
+  --good: #4cc38a; --bad: #ec7a65; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5; }
+.page { max-width: 1180px; margin: 0 auto; padding-inline: clamp(16px, 4vw, 40px); padding-block: 32px 56px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; }
+.page > * { min-width: 0; }
+header { display: grid; gap: 6px; max-width: 74ch; }
+.eyebrow { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
+h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(30px, 4.4vw, 44px); line-height: 1.08; margin: 0; text-wrap: balance; letter-spacing: -.01em; }
+.lede { color: var(--ink-2); margin: 4px 0 0; }
+
+.controls { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: end; }
+.control { display: grid; gap: 5px; }
+.control > span { font-size: 12px; color: var(--ink-3); letter-spacing: .04em; text-transform: uppercase; font-weight: 500; }
+.seg { display: inline-flex; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 3px; gap: 2px; }
+.seg button { font: inherit; font-size: 14px; border: 0; background: transparent; color: var(--ink-2); padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.seg button:hover:not([aria-pressed="true"]) { background: var(--line); color: var(--ink); }
+button:focus-visible, input:focus-visible, summary:focus-visible { outline: 2px solid var(--practice); outline-offset: 2px; }
+
+.story { margin: 0; color: var(--ink-2); max-width: 75ch; min-height: 3em; }
+.story b { color: var(--ink); font-weight: 600; }
+
+.player { display: flex; align-items: center; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.player button { font: inherit; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); width: 36px; height: 36px; border-radius: 8px; cursor: pointer; display: grid; place-items: center; flex: none; }
+.player button.play { background: var(--ink); color: var(--surface); border-color: var(--ink); width: 44px; }
+.player input[type=range] { flex: 1; min-width: 80px; accent-color: var(--ink); }
+.player .where { font-family: var(--font-mono); font-size: 13px; color: var(--ink-2); white-space: nowrap; min-width: 17ch; text-align: right; font-variant-numeric: tabular-nums; }
+
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+@media (max-width: 880px) { .main { grid-template-columns: minmax(0, 1fr); } .player .where { min-width: 0; } }
+
+.figure { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px 16px 10px; display: grid; gap: 8px; min-width: 0; }
+.figure h2 { font-family: var(--font-display); font-weight: 600; font-size: 21px; margin: 0; line-height: 1.2; }
+.figure .sub { font-size: 13.5px; color: var(--ink-2); margin: 0; max-width: 90ch; }
+.chart { position: relative; width: 100%; }
+.chart { min-width: 0; }
+.chart svg { display: block; width: 100%; max-width: 100%; height: auto; overflow: visible; }
+#dist svg { display: block; width: 100%; height: auto; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--ink-2); }
+.legend .key { display: inline-flex; align-items: center; gap: 6px; }
+
+.axis text { fill: var(--ink-3); font-family: var(--font-mono); font-size: 11px; }
+.grid line { stroke: var(--line); stroke-width: 1; }
+.exam-line { stroke: var(--line-2); stroke-width: 1; }
+.label-ink { fill: var(--ink-2); font-size: 11.5px; font-family: var(--font-body); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
+.panel h3 { margin: 0; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
+.obs-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px 2px 7px; border-radius: 999px; border: 1px solid var(--line-2); font-size: 13px; color: var(--ink); }
+.chip i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.obs-score { font-family: var(--font-mono); font-size: 13px; color: var(--ink-2); }
+.weights { display: grid; gap: 4px; }
+.wrow { display: grid; grid-template-columns: 78px 1fr 34px; gap: 8px; align-items: center; font-size: 12.5px; color: var(--ink-2); }
+.wbar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.wbar span { display: block; height: 100%; background: var(--ink-2); border-radius: 3px; }
+.wrow .pct { font-family: var(--font-mono); text-align: right; font-size: 12px; }
+.dist-title { font-size: 13px; color: var(--ink-2); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.dist-title b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; font-size: 13.5px; margin: 0; }
+.kv dt { color: var(--ink-2); } .kv dd { margin: 0; font-family: var(--font-mono); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+.delta-up { color: var(--good); } .delta-down { color: var(--bad); }
+.note { font-size: 12.5px; color: var(--ink-3); margin: 0; }
+
+.topic-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px 18px; }
+.topic-grid .tname { font-size: 13px; font-weight: 600; color: var(--ink); display: flex; justify-content: space-between; gap: 8px; }
+.topic-grid .tname span { font-family: var(--font-mono); font-weight: 400; color: var(--ink-2); font-size: 12px; }
+
+.tip { position: absolute; pointer-events: none; background: var(--ink); color: var(--surface); font-size: 12px; line-height: 1.45; padding: 7px 9px; border-radius: 6px; white-space: nowrap; transform: translate(-50%, calc(-100% - 12px)); z-index: 2; font-variant-numeric: tabular-nums; }
+.tip b { font-weight: 600; }
+
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; }
+summary { cursor: pointer; font-weight: 500; }
+.table-wrap { overflow-x: auto; margin-top: 10px; max-height: 420px; }
+table { border-collapse: collapse; font-size: 12.5px; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 5px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--ink-3); font-weight: 500; position: sticky; top: 0; background: var(--surface); }
+td:nth-child(2), th:nth-child(2), td:nth-child(5), th:nth-child(5) { text-align: left; }
+tr.current td { background: var(--line); }
+footer { font-size: 12.5px; color: var(--ink-3); max-width: 82ch; display: grid; gap: 6px; }
+footer p { margin: 0; }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">Knowledge service · Kalman filter</div>
+    <h1>Exam forecast replay</h1>
+    <p class="lede">The model never holds a single number for a learner. It holds a probability distribution over their ability. Each logged score reshapes that distribution, shifting it and making it narrower. The shading shows where the expected exam score is likely to lie, darker for more likely. Step through the data points to see the distribution change.</p>
+  </header>
+
+  <div class="controls">
+    <div class="control"><span>Learner</span><div class="seg" id="learners" role="group" aria-label="Learner"></div></div>
+    <div class="control"><span>Ability chart</span><div class="seg" id="views" role="group" aria-label="Ability chart"></div></div>
+    <div class="control"><span>Scale</span><div class="seg" id="scales" role="group" aria-label="Scale"></div></div>
+  </div>
+  <p class="story" id="story"></p>
+
+  <div class="player">
+    <button class="play" id="play" aria-label="Play">▶</button>
+    <button id="prev" aria-label="Previous data point">‹</button>
+    <button id="next" aria-label="Next data point">›</button>
+    <input type="range" id="step" min="0" max="1" value="0" aria-label="Data point">
+    <div class="where" id="where"></div>
+  </div>
+
+  <div class="main">
+    <section class="figure" aria-labelledby="f1-title">
+      <h2 id="f1-title">Exam-score distribution, as known on each day</h2>
+      <p class="sub">The forecast for exam day (day <span class="examday"></span>) after every data point. The bell curves are the full distribution at the start, after each mock and now. They grow taller as the distribution concentrates.</p>
+      <div class="legend" id="legend1"></div>
+      <div class="chart" id="chart1"></div>
+    </section>
+    <aside class="panel" id="panel" aria-live="polite"></aside>
+  </div>
+
+  <section class="figure" aria-labelledby="f2-title">
+    <h2 id="f2-title">Ability distribution over time</h2>
+    <p class="sub" id="f2-sub"></p>
+    <div class="legend" id="legend2"></div>
+    <div id="chart2"></div>
+  </section>
+
+  <details>
+    <summary>Data table for this learner</summary>
+    <div class="table-wrap"><table id="table"></table></div>
+  </details>
+
+  <footer>
+    <p id="model-note"></p>
+    <p>All learners are simulated, and none of them follow the model's own assumptions (see the testbench in <code>services/knowledge/bench</code>). Each one shown is the median of <span id="cands"></span> random learners of its type, ranked by final forecast error, so none is cherry-picked. Distributions are Gaussian, as in the filter. The grade scale maps scores linearly: grade = 1 + 5 × score.</p>
+  </footer>
+</div>
+
+<script>const DATA = /*__DATA__*/null;</script>
+<script>
+(() => {
+  const NS = "http://www.w3.org/2000/svg";
+  const TYPES = { practice: "Practice sheet", quiz: "Quiz", mock: "Mock exam" };
+  const NAMES = { catch_up: "Catch-up", notes_heavy: "Notes-heavy", specialist: "Specialist", crammer: "Crammer" };
+  const TOPIC_NAMES = { limits: "Limits", series: "Series", integrals: "Integrals", matrices: "Matrices", eigen: "Eigenvalues" };
+  const Z90 = 1.645, ZMAX = 3;
+  const SQRT2PI = Math.sqrt(2 * Math.PI);
+  const pdf = (v, m, s) => Math.exp(-0.5 * ((v - m) / s) ** 2) / (s * SQRT2PI);
+  const state = { learner: 0, view: "overall", scale: "points", step: 0, playing: false, timer: null };
+  let uid = 0;
+
+  // ---------- formatting ----------
+  const isGrade = () => state.scale === "grade";
+  const fmt = v => isGrade() ? (1 + 5 * v).toFixed(2) : (100 * v).toFixed(1);
+  const fmtSd = s => isGrade() ? (5 * s).toFixed(2) : (100 * s).toFixed(1);
+  const unit = () => isGrade() ? "" : " pts";
+  const fmtRange = (m, s) => `${fmt(Math.max(0, m - Z90 * s))}–${fmt(Math.min(1, m + Z90 * s))}`;
+  const tickLabel = v => isGrade() ? String(Math.round((1 + 5 * v) * 10) / 10) : String(Math.round(100 * v));
+  const signed = (x, d) => (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(d);
+  const delta = d => isGrade() ? signed(5 * d, 2) : signed(100 * d, 1);
+  const learner = () => DATA.learners[state.learner];
+  const forecastAt = step => step.forecastAfter || step.fan[step.fan.length - 1].exam;
+
+  // ---------- svg helpers ----------
+  function el(name, attrs = {}, parent) {
+    const node = document.createElementNS(NS, name);
+    for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+  function frame(container, height, yDomain, margins = {}) {
+    container.innerHTML = "";
+    const width = Math.max(300, container.clientWidth || 600);
+    const m = { l: 40, r: 70, t: 12, b: 30, ...margins };
+    const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, role: "img" }, container);
+    const id = `c${++uid}`;
+    const defs = el("defs", {}, svg);
+    const clip = el("clipPath", { id: `${id}-clip` }, defs);
+    el("rect", { x: m.l, y: m.t, width: width - m.l - m.r, height: height - m.t - m.b }, clip);
+    const x = t => m.l + (t / DATA.examDay) * (width - m.l - m.r);
+    const y = v => m.t + (1 - (v - yDomain[0]) / (yDomain[1] - yDomain[0])) * (height - m.t - m.b);
+    const clampV = v => Math.min(yDomain[1], Math.max(yDomain[0], v));
+    const grid = el("g", { class: "grid" }, svg);
+    const axis = el("g", { class: "axis" }, svg);
+    for (let v = yDomain[0]; v <= yDomain[1] + 1e-9; v += 0.2) {
+      const vv = Math.round(v * 10) / 10;
+      el("line", { x1: m.l, x2: width - m.r, y1: y(vv), y2: y(vv) }, grid);
+      el("text", { x: m.l - 8, y: y(vv) + 4, "text-anchor": "end" }, axis).textContent = tickLabel(vv);
+    }
+    for (let d = 0; d <= DATA.examDay; d += 7) {
+      el("text", { x: x(d), y: height - 8, "text-anchor": "middle" }, axis).textContent = d === 0 ? "day 0" : String(d);
+    }
+    el("line", { class: "exam-line", x1: x(DATA.examDay), x2: x(DATA.examDay), y1: m.t, y2: height - m.b }, svg);
+    el("text", { class: "label-ink", x: x(DATA.examDay) + 6, y: m.t + 10 }, svg).textContent = "exam";
+    const plot = el("g", { "clip-path": `url(#${id}-clip)` }, svg);
+    return { svg, plot, x, y, m, width, height, clampV, id, yDomain };
+  }
+  // Paint a density over time: lookup(t) → {m, s, peak} or null. Each pixel's
+  // opacity is the normal density at that value, relative to the column's peak.
+  const DENSITY_RGB = () => {
+    const hex = getComputedStyle(document.documentElement).getPropertyValue("--density").trim();
+    const n = parseInt(hex.replace("#", ""), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+  function paintDensity(f, lookup) {
+    const pw = f.width - f.m.l - f.m.r, ph = f.height - f.m.t - f.m.b;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const W = Math.max(1, Math.round(pw * dpr)), H = Math.max(1, Math.round(ph * dpr));
+    const canvas = document.createElement("canvas");
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext("2d");
+    const img = ctx.createImageData(W, H);
+    const [r, g, b] = DENSITY_RGB();
+    const [lo, hi] = f.yDomain;
+    for (let i = 0; i < W; i++) {
+      const c = lookup(((i + 0.5) / W) * DATA.examDay);
+      if (!c) continue;
+      for (let j = 0; j < H; j++) {
+        const v = hi - ((j + 0.5) / H) * (hi - lo);
+        const z = (v - c.m) / c.s;
+        if (z > 3.3 || z < -3.3) continue;
+        const k = 4 * (j * W + i);
+        img.data[k] = r; img.data[k + 1] = g; img.data[k + 2] = b;
+        img.data[k + 3] = Math.round(255 * c.peak * Math.exp(-0.5 * z * z));
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    el("image", { x: f.m.l, y: f.m.t, width: pw, height: ph, preserveAspectRatio: "none", href: canvas.toDataURL() }, f.plot);
+  }
+  // Value of a piecewise-linear series at t; at a jump (two points at one t) the later wins.
+  function at(pts, t) {
+    if (!pts.length || t < pts[0].t - 1e-9 || t > pts[pts.length - 1].t + 1e-9) return null;
+    let lo = 0, hi = pts.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (pts[mid].t <= t + 1e-9) lo = mid; else hi = mid - 1; }
+    const a = pts[lo], b = pts[lo + 1];
+    if (!b || b.t - a.t < 1e-9) return a;
+    const w = (t - a.t) / (b.t - a.t);
+    return { t, m: a.m + w * (b.m - a.m), s: a.s + w * (b.s - a.s) };
+  }
+  function line(g, f, pts, attrs) {
+    if (pts.length < 2) return;
+    el("path", { d: "M" + pts.map(p => `${f.x(p.t).toFixed(1)},${f.y(f.clampV(p.v)).toFixed(1)}`).join("L"), fill: "none", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round", ...attrs }, g);
+  }
+  // A bell curve lying on its side at time t: width ∝ density, so narrower = taller.
+  function bell(g, f, t, m, s, widthPerDensity, emphasis) {
+    const pts = [];
+    for (let i = 0; i <= 60; i++) {
+      const v = m - ZMAX * s + (2 * ZMAX * s * i) / 60;
+      pts.push([f.x(t) + pdf(v, m, s) * widthPerDensity, f.y(f.clampV(v))]);
+    }
+    const d = `M${f.x(t)},${f.y(f.clampV(m - ZMAX * s))}L` + pts.map(p => p.map(n => n.toFixed(1)).join(",")).join("L") + `L${f.x(t)},${f.y(f.clampV(m + ZMAX * s))}Z`;
+    el("path", { d, fill: "var(--surface)", "fill-opacity": emphasis ? 0.55 : 0.35, stroke: "var(--ink)", "stroke-width": emphasis ? 1.75 : 1, "stroke-opacity": emphasis ? 1 : 0.55 }, g);
+    el("line", { x1: f.x(t), x2: f.x(t) + pdf(m, m, s) * widthPerDensity, y1: f.y(m), y2: f.y(m), stroke: "var(--ink)", "stroke-width": 1, "stroke-opacity": emphasis ? 0.9 : 0.5 }, g);
+  }
+  // A logged score as its own small distribution: the measurement noise around the score.
+  function measurement(g, f, t, score, sd, type, opacity, current) {
+    const top = f.y(f.clampV(score + 1.96 * sd)), bot = f.y(f.clampV(score - 1.96 * sd));
+    const gid = `${f.id}-m-${type}`;
+    if (!document.getElementById(gid)) {
+      const defs = f.svg.querySelector("defs");
+      const gr = el("linearGradient", { id: gid, x1: 0, x2: 0, y1: 0, y2: 1 }, defs);
+      for (let i = 0; i <= 12; i++) {
+        const o = i / 12, z = 1.96 - 3.92 * o;
+        el("stop", { offset: o, "stop-color": `var(--${type})`, "stop-opacity": Math.exp(-0.5 * z * z).toFixed(3) }, gr);
+      }
+    }
+    const w = type === "mock" ? 7 : type === "quiz" ? 5 : 4;
+    const node = el("rect", { x: f.x(t) - w / 2, y: top, width: w, height: Math.max(2, bot - top), rx: w / 2, fill: `url(#${gid})`, "fill-opacity": opacity }, g);
+    if (current) el("rect", { x: f.x(t) - w / 2 - 2, y: top - 2, width: w + 4, height: Math.max(2, bot - top) + 4, rx: w / 2 + 2, fill: "none", stroke: "var(--ink)", "stroke-width": 1.5 }, g);
+    return node;
+  }
+  const tipFor = container => {
+    let tip = container.querySelector(".tip");
+    if (!tip) { tip = document.createElement("div"); tip.className = "tip"; tip.hidden = true; container.appendChild(tip); }
+    return tip;
+  };
+  function showTip(container, f, px, py, html) {
+    const tip = tipFor(container);
+    const rect = f.svg.getBoundingClientRect();
+    const scale = rect.width / f.width;
+    tip.innerHTML = html;
+    tip.hidden = false;
+    tip.style.left = Math.min(Math.max(px * scale, 100), rect.width - 100) + "px";
+    tip.style.top = (py * scale) + "px";
+  }
+  function hoverLayer(container, f, lookup) {
+    const hover = el("g", {}, f.svg);
+    const overlay = el("rect", { x: f.m.l, y: f.m.t, width: f.width - f.m.l - f.m.r, height: f.height - f.m.t - f.m.b, fill: "transparent" }, f.svg);
+    overlay.addEventListener("mousemove", ev => {
+      const rect = f.svg.getBoundingClientRect();
+      const px = (ev.clientX - rect.left) * (f.width / rect.width);
+      const t = Math.max(0, Math.min(DATA.examDay, (px - f.m.l) / (f.width - f.m.l - f.m.r) * DATA.examDay));
+      const hit = lookup(t);
+      hover.innerHTML = "";
+      if (!hit) { tipFor(container).hidden = true; return; }
+      el("line", { x1: f.x(t), x2: f.x(t), y1: f.m.t, y2: f.height - f.m.b, stroke: "var(--line-2)" }, hover);
+      showTip(container, f, f.x(t), f.y(f.clampV(hit.m + Z90 * hit.s)), hit.html);
+    });
+    overlay.addEventListener("mouseleave", () => { hover.innerHTML = ""; tipFor(container).hidden = true; });
+    return overlay;
+  }
+
+  // ---------- chart 1: exam-score distribution as known over time ----------
+  function drawChart1() {
+    const L = learner(), k = state.step, steps = L.steps;
+    const container = document.getElementById("chart1");
+    const f = frame(container, 340, [0.2, 1.0]);
+    const truthExam = L.truth[L.truth.length - 1].exam;
+    const isLast = k === steps.length - 1;
+
+    const segs = [];
+    for (let j = 0; j <= k; j++) {
+      const [m, s] = forecastAt(steps[j]);
+      const tEnd = j < k ? steps[j + 1].t : (isLast ? DATA.examDay : Math.min(DATA.examDay, steps[j].t + 0.75));
+      segs.push({ t0: steps[j].t, t1: tEnd, m, s, j });
+    }
+    paintDensity(f, t => {
+      const seg = segs.filter(q => q.t0 <= t + 1e-9 && t <= q.t1 + 1e-9).pop();
+      return seg ? { m: seg.m, s: seg.s, peak: 0.85 } : null;
+    });
+
+    // Bell curves: the prior, after each mock, and now. Width scale fixed per chart.
+    const perDensity = (f.width - f.m.l - f.m.r) * 0.012;
+    const bells = el("g", {}, f.svg);
+    const shown = new Set([0, k]);
+    steps.forEach((s, j) => { if (j <= k && s.obs && s.obs.type === "mock") shown.add(j); });
+    [...shown].sort((a, b) => a - b).forEach(j => {
+      const [m, s] = forecastAt(steps[j]);
+      bell(bells, f, steps[j].t, m, s, perDensity, j === k);
+    });
+
+    el("line", { x1: f.x(0), x2: f.x(DATA.examDay), y1: f.y(truthExam), y2: f.y(truthExam), stroke: "var(--truth)", "stroke-width": 1.5, "stroke-dasharray": "5 4" }, f.svg);
+    el("text", { class: "label-ink", x: f.x(DATA.examDay) + 6, y: f.y(truthExam) + 4 }, f.svg).textContent = `true ${fmt(truthExam)}`;
+
+    // rug of data points by type along the bottom
+    const rows = { practice: 0, quiz: 1, mock: 2 };
+    const base = f.height - f.m.b - 4;
+    steps.forEach((s, j) => {
+      if (!s.obs) return;
+      const node = el("rect", { x: f.x(s.t) - 1.5, y: base - rows[s.obs.type] * 7 - 5, width: 3, height: 5, rx: 1, fill: j <= k ? `var(--${s.obs.type})` : "var(--line-2)" }, f.svg);
+      node.style.cursor = "pointer";
+      node.addEventListener("click", () => setStep(j));
+    });
+
+    const overlay = hoverLayer(container, f, t => {
+      const seg = segs.filter(s => s.t0 <= t + 1e-9 && t <= s.t1 + 1e-9).pop();
+      if (!seg) return null;
+      return { m: seg.m, s: seg.s, html: `Day ${t.toFixed(0)} · after ${seg.j} data point${seg.j === 1 ? "" : "s"}<br><b>Most likely ${fmt(seg.m)}${unit()}</b><br>90% within ${fmtRange(seg.m, seg.s)}` };
+    });
+    overlay.addEventListener("click", ev => {
+      const rect = f.svg.getBoundingClientRect();
+      const t = ((ev.clientX - rect.left) * (f.width / rect.width) - f.m.l) / (f.width - f.m.l - f.m.r) * DATA.examDay;
+      let j = 0;
+      steps.forEach((s, i) => { if (s.t <= t) j = i; });
+      setStep(j);
+    });
+  }
+
+  // ---------- chart 2: ability distribution over time ----------
+  function abilityChart(container, height, pick, truthPick, weightOf) {
+    const L = learner(), k = state.step, steps = L.steps;
+    const domain = state.view === "overall" ? [0.2, 1.0] : [0, 1.0];
+    const f = frame(container, height, domain);
+    const hist = L.history.filter(h => h.step <= k).map(h => ({ t: h.t, m: pick(h)[0], s: pick(h)[1] }));
+    const fan = steps[k].fan.map(p => ({ t: p.t, m: pick(p)[0], s: pick(p)[1] }));
+    const tNow = steps[k].t;
+    paintDensity(f, t => {
+      const p = t <= tNow ? at(hist, t) : at(fan, t);
+      return p ? { m: p.m, s: p.s, peak: t <= tNow ? 0.85 : 0.35 } : null;
+    });
+    line(f.svg, f, L.truth.map(p => ({ t: p.t, v: truthPick(p) })), { stroke: "var(--truth)", "stroke-width": 1.5, "stroke-dasharray": "5 4" });
+
+    const marks = el("g", {}, f.svg);
+    steps.forEach((s, j) => {
+      if (!s.obs || j > k) return;
+      const w = weightOf(s.obs);
+      if (w <= 0) return;
+      const precision = 0.25 + 0.75 * Math.min(1, (0.05 / s.obs.noiseSd) ** 1.5);
+      const node = measurement(marks, f, s.t, s.obs.score, s.obs.noiseSd, s.obs.type, precision * Math.max(0.3, Math.min(1, w)), j === k);
+      node.style.cursor = "pointer";
+      node.addEventListener("mouseenter", () => showTip(container, f, f.x(s.t), f.y(f.clampV(s.obs.score + 1.96 * s.obs.noiseSd)), `${TYPES[s.obs.type]} · day ${s.t}<br><b>${fmt(s.obs.score)}${unit()}</b> on ${s.obs.points} points<br>measurement ± ${fmtSd(1.96 * s.obs.noiseSd)} (95%)`));
+      node.addEventListener("mouseleave", () => { tipFor(container).hidden = true; });
+      node.addEventListener("click", () => setStep(j));
+    });
+    const end = fan[fan.length - 1];
+    el("text", { class: "label-ink", x: f.x(DATA.examDay) + 6, y: f.y(f.clampV(end.m)) + 4 }, f.svg).textContent = fmt(end.m);
+    const all = [...hist, ...fan.slice(1)];
+    hoverLayer(container, f, t => {
+      let best = null;
+      for (const p of all) if (!best || Math.abs(p.t - t) < Math.abs(best.t - t)) best = p;
+      if (!best) return null;
+      const ahead = best.t > steps[k].t + 1e-9;
+      return { m: best.m, s: best.s, html: `Day ${best.t.toFixed(1)}${ahead ? " · projected" : ""}<br><b>Most likely ${fmt(best.m)}${unit()}</b><br>90% within ${fmtRange(best.m, best.s)}` };
+    });
+  }
+  function drawChart2() {
+    const wrap = document.getElementById("chart2");
+    wrap.innerHTML = "";
+    const sub = document.getElementById("f2-sub");
+    if (state.view === "overall") {
+      sub.textContent = "Exam-weighted ability, darker where more likely. To the left of now it is the filtered estimate; to the right, the lighter projection to exam day. Each score is drawn as its own small distribution, the noise of that one measurement: few points give a long, faint bar. Practice scores include the learner's practice bias.";
+      const c = document.createElement("div"); c.className = "chart"; wrap.appendChild(c);
+      abilityChart(c, 310, p => p.exam, p => p.exam, () => 1);
+    } else {
+      sub.textContent = "One panel per topic. A score appears in every topic it covered, more opaque the larger that topic's share. A surprising mixed score is split between its topics by share and uncertainty.";
+      const grid = document.createElement("div"); grid.className = "topic-grid"; wrap.appendChild(grid);
+      const now = learner().steps[state.step].post || learner().steps[state.step].fan[0];
+      DATA.topics.forEach((tp, i) => {
+        const cell = document.createElement("div");
+        const [m, s] = now.topics[i];
+        cell.innerHTML = `<div class="tname">${TOPIC_NAMES[tp.id] || tp.id}<span>${fmt(m)} ± ${fmtSd(Z90 * s)}</span></div>`;
+        const c = document.createElement("div"); c.className = "chart"; cell.appendChild(c);
+        grid.appendChild(cell);
+        abilityChart(c, 190, p => p.topics[i], p => p.topics[i], o => o.weights[tp.id] || 0);
+      });
+    }
+  }
+
+  // ---------- panel: the distribution before and after this data point ----------
+  function distributionPlot(host, before, after, truth) {
+    const width = Math.max(260, host.clientWidth || 288), height = 150;
+    const m = { l: 14, r: 16, t: 10, b: 24 };
+    const lo = 0.2, hi = 1.0;
+    const svg = el("svg", { viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Exam score distribution before and after this data point" }, host);
+    const x = v => m.l + (v - lo) / (hi - lo) * (width - m.l - m.r);
+    const curves = [after, before].filter(Boolean);
+    const peak = Math.max(...curves.map(([mu, s]) => pdf(mu, mu, s)));
+    const y = d => height - m.b - d / peak * (height - m.t - m.b);
+    const axis = el("g", { class: "axis" }, svg);
+    for (let v = 0.2; v <= 1.0001; v += 0.2) {
+      el("text", { x: x(v), y: height - 6, "text-anchor": "middle" }, axis).textContent = tickLabel(Math.round(v * 10) / 10);
+    }
+    el("line", { x1: m.l, x2: width - m.r, y1: height - m.b, y2: height - m.b, stroke: "var(--line-2)" }, svg);
+    const path = ([mu, s]) => {
+      const pts = [];
+      for (let i = 0; i <= 120; i++) {
+        const v = lo + (hi - lo) * i / 120;
+        pts.push(`${x(v).toFixed(1)},${y(pdf(v, mu, s)).toFixed(1)}`);
+      }
+      return pts;
+    };
+    if (after) {
+      const pts = path(after);
+      const [mu, s] = after;
+      el("path", { d: `M${x(Math.max(lo, mu - Z90 * s))},${height - m.b}` + pts.filter((_, i) => { const v = lo + (hi - lo) * i / 120; return v >= mu - Z90 * s && v <= mu + Z90 * s; }).map(p => "L" + p).join("") + `L${x(Math.min(hi, mu + Z90 * s))},${height - m.b}Z`, fill: "var(--density)", "fill-opacity": 0.22 }, svg);
+      el("path", { d: "M" + pts.join("L"), fill: "none", stroke: "var(--density)", "stroke-width": 2 }, svg);
+    }
+    if (before) el("path", { d: "M" + path(before).join("L"), fill: "none", stroke: "var(--ink-3)", "stroke-width": 1.5, "stroke-dasharray": "4 3" }, svg);
+    el("line", { x1: x(truth), x2: x(truth), y1: m.t, y2: height - m.b, stroke: "var(--truth)", "stroke-width": 1.5, "stroke-dasharray": "5 4" }, svg);
+  }
+  function drawPanel() {
+    const L = learner(), k = state.step, s = L.steps[k];
+    const truthExam = L.truth[L.truth.length - 1].exam;
+    const [m, sd] = forecastAt(s);
+    const p = document.getElementById("panel");
+    let head;
+    if (!s.obs) {
+      head = `<h3>Before any data</h3><p class="note">The distribution is the prior: an average learner, spread wide.</p>`;
+    } else {
+      const o = s.obs;
+      const ws = Object.entries(o.weights).sort((a, b) => b[1] - a[1]).map(([id, w]) =>
+        `<div class="wrow"><span>${TOPIC_NAMES[id] || id}</span><div class="wbar"><span style="width:${(100 * w).toFixed(0)}%"></span></div><span class="pct">${(100 * w).toFixed(0)}%</span></div>`).join("");
+      const surprise = Math.abs(o.z) < 1 ? "as expected" : Math.abs(o.z) < 2 ? (o.z > 0 ? "a bit high" : "a bit low") : (o.z > 0 ? "surprisingly high" : "surprisingly low");
+      head = `<h3>Data point ${k} of ${L.steps.length - 1} · day ${s.t}</h3>
+        <div class="obs-head"><span class="chip"><i style="background:var(--${o.type})"></i>${TYPES[o.type]}</span>
+        <span class="obs-score">${fmt(o.score)}${unit()} · ${o.points} pts</span></div>
+        <div class="weights">${ws}</div>
+        <dl class="kv"><dt>Expected for this sheet</dt><dd>${fmt(o.predicted)} ± ${fmtSd(Z90 * o.predictedSd)}</dd>
+        <dt>Result</dt><dd>${surprise} (z ${signed(o.z, 1)})</dd></dl>`;
+    }
+    const before = s.obs ? s.forecastBefore : null;
+    const shift = before ? m - before[0] : 0;
+    p.innerHTML = `${head}
+      <div class="dist-title"><span>Exam-score distribution</span><b>${fmt(m)}${unit()} · 90% ${fmtRange(m, sd)}</b></div>
+      <div id="dist"></div>
+      <div class="legend">
+        <span class="key"><svg width="22" height="10" aria-hidden="true"><line x1="0" x2="22" y1="5" y2="5" stroke="var(--density)" stroke-width="2"/></svg>${s.obs ? "After" : "Prior"} (shaded: 90%)</span>
+        ${s.obs ? `<span class="key"><svg width="22" height="10" aria-hidden="true"><line x1="0" x2="22" y1="5" y2="5" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 3"/></svg>Before</span>` : ""}
+        <span class="key"><svg width="22" height="10" aria-hidden="true"><line x1="0" x2="22" y1="5" y2="5" stroke="var(--truth)" stroke-width="1.5" stroke-dasharray="5 4"/></svg>True</span>
+      </div>
+      ${before ? `<dl class="kv"><dt>Centre moved</dt><dd class="${shift >= 0 ? "delta-up" : "delta-down"}">${delta(shift)}${unit()}</dd>
+        <dt>90% width</dt><dd>${fmtSd(2 * Z90 * before[1])} → ${fmtSd(2 * Z90 * sd)}</dd></dl>` : ""}
+      <dl class="kv"><dt>True exam-day ability</dt><dd>${fmt(truthExam)}</dd>
+        <dt>Inside the 90% range?</dt><dd>${Math.abs(m - truthExam) <= Z90 * sd ? "yes" : "no"}</dd></dl>`;
+    distributionPlot(document.getElementById("dist"), before, [m, sd], truthExam);
+  }
+
+  // ---------- table ----------
+  function drawTable() {
+    const L = learner();
+    const rows = L.steps.map((s, j) => {
+      const [m, sd] = forecastAt(s);
+      const o = s.obs;
+      const topics = o ? Object.entries(o.weights).map(([id, w]) => `${TOPIC_NAMES[id] || id} ${(100 * w).toFixed(0)}%`).join(", ") : "–";
+      return `<tr${j === state.step ? ' class="current"' : ""}><td>${s.t}</td><td>${o ? TYPES[o.type] : "Prior"}</td><td>${o ? fmt(o.score) : "–"}</td><td>${o ? o.points : "–"}</td><td>${topics}</td><td>${fmt(m)}</td><td>${fmtSd(sd)}</td><td>${fmtRange(m, sd)}</td></tr>`;
+    }).join("");
+    document.getElementById("table").innerHTML = `<thead><tr><th>Day</th><th>Data point</th><th>Score</th><th>Points</th><th>Topics</th><th>Forecast mean</th><th>Forecast sd</th><th>90% range</th></tr></thead><tbody>${rows}</tbody>`;
+  }
+
+  // ---------- legends ----------
+  const swatchDensity = opacity => `<svg width="14" height="22" aria-hidden="true"><defs><linearGradient id="sw${opacity}" x1="0" x2="0" y1="0" y2="1">${[0, .25, .5, .75, 1].map(o => `<stop offset="${o}" stop-color="var(--density)" stop-opacity="${(opacity * Math.exp(-0.5 * (3 - 6 * o) ** 2)).toFixed(3)}"/>`).join("")}</linearGradient></defs><rect width="14" height="22" fill="url(#sw${opacity})"/></svg>`;
+  const swatchBell = `<svg width="16" height="22" aria-hidden="true"><path d="M1,1 C1,8 14,9 14,11 C14,13 1,14 1,21 Z" fill="none" stroke="var(--ink)" stroke-width="1.3"/></svg>`;
+  const swatchTruth = `<svg width="24" height="10" aria-hidden="true"><line x1="0" x2="24" y1="5" y2="5" stroke="var(--truth)" stroke-width="1.5" stroke-dasharray="5 4"/></svg>`;
+  const swatchType = t => `<span class="key"><svg width="8" height="18" aria-hidden="true"><rect x="1" y="1" width="6" height="16" rx="3" fill="var(--${t})"/></svg>${TYPES[t]}</span>`;
+  function drawLegends() {
+    document.getElementById("legend1").innerHTML =
+      `<span class="key">${swatchDensity(0.9)}Forecast distribution</span><span class="key">${swatchBell}Distribution snapshot</span><span class="key">${swatchTruth}True exam-day ability</span><span class="key">Ticks: data points by type</span>`;
+    document.getElementById("legend2").innerHTML =
+      `<span class="key">${swatchDensity(0.9)}Estimate</span><span class="key">${swatchDensity(0.38)}Projection</span><span class="key">${swatchTruth}True ability</span>` +
+      ["practice", "quiz", "mock"].map(swatchType).join("");
+  }
+
+  // ---------- controls ----------
+  function seg(id, options, key, onChange) {
+    const host = document.getElementById(id);
+    host.innerHTML = "";
+    options.forEach(([value, label]) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.id = `${id}-${value}`; b.textContent = label;
+      b.setAttribute("aria-pressed", String(state[key] === value));
+      b.addEventListener("click", () => { state[key] = value; onChange(); });
+      host.appendChild(b);
+    });
+  }
+  function drawControls() {
+    seg("learners", DATA.learners.map((l, i) => [i, NAMES[l.archetype] || l.archetype]), "learner", () => { stop(); state.step = Math.min(state.step, learner().steps.length - 1); renderAll(); });
+    seg("views", [["overall", "Overall"], ["topics", "By topic"]], "view", renderAll);
+    seg("scales", [["points", "Points (0–100)"], ["grade", "Grade (1–6)"]], "scale", renderAll);
+    const L = learner();
+    document.getElementById("story").innerHTML = `<b>${NAMES[L.archetype]}.</b> ${L.story}`;
+  }
+  function drawPlayer() {
+    const L = learner(), s = L.steps[state.step];
+    const r = document.getElementById("step");
+    r.max = L.steps.length - 1; r.value = state.step;
+    document.getElementById("where").textContent = state.step === 0 ? "Prior · no data yet" : `Day ${s.t} · point ${state.step}/${L.steps.length - 1}`;
+    const play = document.getElementById("play");
+    play.textContent = state.playing ? "❚❚" : "▶";
+    play.setAttribute("aria-label", state.playing ? "Pause" : "Play");
+  }
+  function renderAll() { drawControls(); drawLegends(); renderStep(); }
+  function renderStep() { drawPlayer(); drawChart1(); drawChart2(); drawPanel(); drawTable(); }
+  function setStep(k) {
+    state.step = Math.max(0, Math.min(learner().steps.length - 1, k));
+    renderStep();
+  }
+  function stop() { state.playing = false; clearInterval(state.timer); state.timer = null; drawPlayer(); }
+  function play() {
+    if (state.step >= learner().steps.length - 1) state.step = 0;
+    state.playing = true; drawPlayer();
+    state.timer = setInterval(() => {
+      if (state.step >= learner().steps.length - 1) { stop(); return; }
+      setStep(state.step + 1);
+    }, 280);
+  }
+
+  document.getElementById("play").addEventListener("click", () => state.playing ? stop() : play());
+  document.getElementById("prev").addEventListener("click", () => { stop(); setStep(state.step - 1); });
+  document.getElementById("next").addEventListener("click", () => { stop(); setStep(state.step + 1); });
+  document.getElementById("step").addEventListener("input", e => { stop(); setStep(+e.target.value); });
+  document.querySelectorAll(".examday").forEach(n => { n.textContent = DATA.examDay; });
+  document.getElementById("cands").textContent = DATA.candidates;
+  const mdl = DATA.model;
+  document.getElementById("model-note").textContent =
+    `Model: the knowledge service's damped-trend filter (half-life ${mdl.halfLifeDays} days, q_slope ${mdl.qSlope}), MAP-fitted on 60 simulated learners: ` +
+    `noise c practice ${mdl.c.practice.toFixed(2)}, quiz ${mdl.c.quiz.toFixed(2)}, mock ${mdl.c.mock.toFixed(2)}; practice bias ${signed(100 * mdl.bias.practice, 1)} pts.`;
+
+  // Open on a meaningful frame: just after the first mock.
+  const firstMock = learner().steps.findIndex(s => s.obs && s.obs.type === "mock");
+  state.step = firstMock > 0 ? firstMock : 0;
+  renderAll();
+  let lastWidth = 0;
+  new ResizeObserver(entries => {
+    const w = Math.round(entries[0].contentRect.width);
+    if (w !== lastWidth) { lastWidth = w; renderStep(); }
+  }).observe(document.querySelector(".page"));
+})();
+</script>

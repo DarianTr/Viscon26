@@ -1,101 +1,208 @@
 # Knowledge service
 
-Estimates each learner's level on every topic of a plan from logged scores,
-with uncertainty, so that a scheduler can later target weak or uncertain
-topics. Python 3.12, FastAPI, NumPy and SciPy, with storage in the app's
-Postgres (schema `knowledge`).
+## Overview
+
+The service estimates **how good each learner is at each topic of a plan**,
+and how sure it is, from scores they log. Scores can come from practice
+sheets, quizzes, mocks or exams, and a single score can cover several topics
+in any mix.
+
+It is meant to feed a study scheduler that focuses on topics that are weak,
+uncertain or heavily weighted in the exam. It also forecasts the exam score
+with an honest 90% interval.
+
+- **Model:** a multivariate Kalman filter. Every topic has a level and a
+  learning rate, and the learning rate fades over time. Each learner also has
+  their own bias per assessment type. A score's noise depends on how many
+  points it was out of.
+- **Fitting:** MAP estimates of each assessment type's noise and bias, pooled
+  over all learners of a plan.
+- **Storage:** the log of scores is the only stored data. A learner's state is
+  recomputed from it on every request.
+- **Stack:** Python 3.12, FastAPI, NumPy and SciPy. Data lives in the app's
+  Postgres, in its own `knowledge` schema, and `docker compose up` runs the
+  service next to the app.
+- **Validation:** a testbench with 10 kinds of simulated learner and 4
+  logging schedules, compared against 4 baselines. The defaults were tuned on
+  it.
 
 ```bash
 uv sync
 DATABASE_URL=postgres://stride:stride@localhost:5432/stride uv run uvicorn knowledge.api:app --reload
-uv run pytest            # API tests also run if DATABASE_URL is set (throwaway schema)
+# → http://localhost:8000/docs
+uv run pytest                     # API tests run too if DATABASE_URL is set (throwaway schema)
+uv run python -m bench            # testbench, ~10 s → bench/out/report.md
 uv run ruff check && uv run ruff format --check
 ```
 
-## The model
+**Key takeaways**
 
-Scores and levels are fractions correct (0–1), and time is in days. Each
-learner has the state
+1. **Damping the trend matters most.** A straight-line trend extrapolates the
+   fast early gains and misses the day-10 exam forecast by about 22 points,
+   against 12 for the damped trend.
+2. **Log points and topic weights.** A 5-point quiz should count far less
+   than a 60-point mock. A mixed sheet should say which topics it covered.
+   The filter splits the blame for a surprising score by weight and
+   uncertainty.
+3. **Do a mock early.** Mocks and exams are the anchors that tell practice
+   bias apart from ability. Without them, biases rest on their priors.
+4. **The fit only judges next-day predictions.** It recovers measurement
+   noise and bias well. The settings that shape long-range forecasts
+   (process noise, half-life) are tuned on the testbench instead.
+5. **Topic-level estimates are reasonably calibrated; picking the single
+   weakest topic is hard.** Exam intervals cover about 90% on average, but
+   only 68–72% for crammers and forgetters. The weakest topic is found
+   reliably only when the gap is large: 95% for specialists, 33–51% overall.
+
+## How the model works
+
+Scores and levels are fractions correct (0–1). Time is measured in days.
+
+### State per learner
 
 | Part | Meaning |
 | ---- | ------- |
-| level ℓₖ per topic | current ability on topic k |
-| slope sₖ per topic | current learning rate. It decays with a half-life, so fast early gains level off instead of being extrapolated |
-| bias bⱼ per non-anchor assessment type | this learner's offset, e.g. practice done with notes |
+| level ℓₖ, per topic | current ability on topic k |
+| slope sₖ, per topic | current learning rate. It fades with a half-life, so fast early gains level off instead of being extrapolated |
+| bias bⱼ, per non-anchor assessment type | this learner's offset, e.g. practice done with notes |
 
-**Between observations** (dt days, τ = half-life / ln 2):
-ℓ ← ℓ + s·τ(1 − e^(−dt/τ)), s ← s·e^(−dt/τ). Process noise is correlated
-across related topics.
+### Between scores
 
-**An observation** has topic weights h, normalised to sum 1. A sheet that is
-10% limits and 90% series is simply `{"limits": 10, "series": 90}`. The
-observation measures y = hᵀℓ + bⱼ + ε, with noise c·p(1−p)/n + τ². This means:
+For a gap of dt days, with τ = half-life / ln 2:
 
-- a score from 5 points counts much less than one from 60;
-- c, the overdispersion, says how much noisier a type is than pure
-  binomial sampling;
-- blame for a surprising score is split by weight × uncertainty. After a
-  mixed sheet, the topics involved become anti-correlated ("one of them is
-  weak"), and a single-topic quiz later resolves which one.
+- ℓ ← ℓ + s·τ·(1 − e^(−dt/τ))
+- s ← s·e^(−dt/τ)
 
-**Priors.** Topic levels start at the topic's `priorMean ± priorSd`.
-Siblings and parent/child topics are correlated (`rhoSibling`), and all
-other topics weakly so (`rhoGlobal`).
+Process noise lets both the levels (`qLevel`) and the slopes (`qSlope`)
+wander, correlated across related topics. The wandering slope is what lets
+the model follow late surges or declines.
 
-**Anchors.** Types with `biasFixed` (mock, exam) define the scale. Every
-other type has a population bias plus a per-learner deviation, which is
-learned only because anchors exist. One early mock is worth more than any
-modelling detail.
+### A score
 
-The observation log is the source of truth: a learner's state is recomputed
-by replaying their observations on each request, so there is no cache to go
-stale.
+A score has topic weights h, normalised to sum 1. A sheet that is 10% limits
+and 90% series is `{"limits": 10, "series": 90}`. It measures
 
-### Fitting (`POST /plans/:id/fit`)
+  y = hᵀℓ + bⱼ + ε,  with noise variance c·p(1−p)/n + τ²
 
-MAP over all learners of the plan, using the filter's exact likelihood plus
-priors:
+- **n** is the number of points, so few points means a noisy score.
+- **c** is the type's overdispersion: how much noisier it is than pure
+  binomial sampling, e.g. because of copying, time pressure or open notes.
+- **Blame for a surprise** is split by weight × uncertainty. After a mixed
+  sheet, its topics become anti-correlated ("one of them is weak"). A later
+  single-topic quiz settles which one.
 
-- per type: log c ~ N(log c_prior, 0.5), and bias ~ N(bias_prior, 0.05) for
-  non-anchor types;
-- half-life: fixed at the configured value by default; optionally
-  log ~ N(log configured, 0.7) via `Priors(fit_half_life=True)`;
-- mean starting slope: ~ N(configured, slope_prior_sd).
+### Priors and anchors
 
-Process noise and, by default, the half-life are not fitted: the likelihood
-only scores one-step-ahead predictions, so it can't judge long-range
-forecasts (see the sweep below).
-Optimisation is L-BFGS-B from three starts, in prior-standardised units. sds
-come from the Laplace approximation. Types (or the trend) with fewer than 5
-observations keep their prior and are reported as `priorOnly`. A fit is used
-by later state requests; a refit replaces it.
+- **Topic priors:** each topic starts at its `priorMean ± priorSd`. Siblings
+  and parent/child topics are correlated (`rhoSibling`); all other topics
+  weakly (`rhoGlobal`).
+- **Anchors:** types with `biasFixed` (mock, exam) set the scale. Every other
+  type has a population bias plus a per-learner deviation. These biases can
+  only be learned because the anchors exist.
 
-Known limitations:
+## Fitting (`POST /plans/:planId/fit`)
 
-- **Censoring is ignored.** Real scores are clipped at 0 and 1. With very
-  noisy types near the ceiling, the fitted c and half-life come out low (see
-  the clipping note in `tests/sim.py`).
-- **Model-family tests.** The recovery tests simulate from the same model
-  family. On real data, check `diagnostics.calibration` in the state
-  response: per type, `zMean` should be near 0 and `zSd` near 1.
-- **No learner types or forgetting yet.** Learner-type mixtures and
-  forgetting toward a baseline are not modelled.
+**What it optimises.** MAP over the shared parameters, pooling every learner
+in the plan. The filter replays each learner's scores in order. Before each
+score yₜ, it predicts a mean ŷₜ and a variance Sₜ (state uncertainty plus
+measurement noise) from earlier scores only. The fit maximises
+
+```
+Σ_learners Σ_scores  −½ [ log(2π·Sₜ) + (yₜ − ŷₜ)² / Sₜ ]   +   log prior(θ)
+```
+
+This is the exact marginal likelihood. Each learner's levels and slopes are
+integrated out by the filter rather than point-estimated, so they act as
+random effects. The objective scores the whole predictive distribution, not
+just the mean:
+
+- the squared-error term rewards a good ŷ, which is what pins down biases
+  and the starting slope;
+- the log Sₜ term penalises over-wide predictions. That is the only thing
+  that pins down c, which never moves the mean.
+
+**What gets fitted:**
+
+| Parameter | Prior | Fitted? |
+| --------- | ----- | ------- |
+| c, per type | log c ~ N(log cPrior, 0.5) | yes |
+| bias, per non-anchor type | N(biasPrior, 0.05) | yes |
+| mean starting slope | N(slopePriorMean, slopePriorSd) | yes |
+| half-life | log ~ N(log configured, 0.7) | **no by default** (`Priors(fit_half_life=True)` to enable) |
+| qLevel, qSlope | – | **no**: tuned with `bench.sweep` |
+
+**Why the half-life and process noise are not fitted.** The likelihood only
+scores one-step-ahead predictions, usually the next day. A wrong long-range
+curve costs little there, because the filter keeps correcting itself. When
+the slope is allowed to wander, fitting the half-life shrinks it to about 2
+days. The model then loses the long-range trend, and early exam forecasts
+degrade. The same blind spot means the per-score calibration check can look
+perfect while exam intervals are too narrow.
+
+**How the optimisation runs:**
+- L-BFGS-B from three starts, in prior-standardised units, so parameter
+  scales from about 1 (log c) down to about 0.003 (slope) don't hurt the
+  finite differences.
+- sds come from the Laplace approximation.
+- A type with fewer than 5 scores keeps its prior and is reported as
+  `priorOnly`.
+- Later state requests use the stored fit; a refit replaces it.
+- It takes 1–5 s for 60 learners × ~50 scores, thanks to a filter batched
+  across learners.
+
+## Defaults and where they come from
+
+| Setting | Default | Source |
+| ------- | ------- | ------ |
+| `halfLifeDays` | 20 | testbench sweep |
+| `qSlope` | 3e-6 | testbench sweep: covers surges and declines without wrecking early forecasts |
+| `qLevel` | 1e-4 | judgement; barely matters |
+| `slopePriorMean` / `slopePriorSd` | 0.005 / 0.005 per day | prior belief: about +3.5 ± 3.5 points per week |
+| `learnerBiasSd` | 0.04 | the original analysis: practice bias about ±4 points per learner |
+| `rhoSibling` / `rhoGlobal` | 0.5 / 0.15 | judgement |
+| Seeded types | practice c 3, bias +5 pts · quiz c 1.5 · mock c 1, anchor · exam c 1, anchor | prior belief, replaced by the fit once there is data |
+
+The process-noise sweep on the rich schedule:
+
+| qSlope | half-life | exam RMSE, days 10 / 24 / 42 | 90% coverage, days 10 / 24 / 42 |
+| ------ | --------- | ---------------------------- | ------------------------------- |
+| 1e-7 | fitted (→ 10 days) | 10.8 / 9.8 / 6.5 | 66% / 65% / 72% |
+| 1e-4 | fitted (→ 2 days) | 15.4 / 11.9 / 5.6 | 51% / 62% / 89% |
+| **3e-6** | **20 days, fixed** | 11.7 / 10.8 / 5.2 | 88% / 83% / 92% |
 
 ## Testbench
 
-`tests/` checks the math against the model's own assumptions. `bench/`
-checks it against learners who **don't** follow them.
+`tests/` checks the math against the model's own assumptions, which is the
+best case. `bench/` checks it against learners who **don't** follow them.
 
 ```bash
-uv run python -m bench            # ~10 s; writes bench/out/report.md and results.json
-uv run python -m bench --quick    # smaller run
-uv run python -m bench --schedules rich sparse --archetypes crammer forgetter --learners 100
+uv run python -m bench                 # all schedules → bench/out/report.md, results.json
+uv run python -m bench --quick
+uv run python -m bench --schedules rich --archetypes crammer forgetter --learners 100
+uv run python -m bench.sweep --q-slope 1e-6 3e-6 1e-5 [--half-life 10] [--fit-half-life] [--schedule sparse]
+uv run python -m bench.trace           # interactive replay → bench/out/forecast.html
 ```
 
-**Archetypes** (`bench/truth.py`, each with per-learner variation):
+`bench.trace` records how the filter's distributions move with every data
+point for four showcase learners: catch-up, notes-heavy, specialist and
+crammer. Each is the median of 15 random learners of its type, ranked by
+final forecast error. It renders `bench/out/forecast.html` from
+`bench/forecast_template.html`, a self-contained page for presenting:
 
-| Archetype | Learning curve |
-| --------- | -------------- |
+- the exam-score distribution after each data point, with bell-curve
+  snapshots;
+- the distribution before and after the selected data point;
+- each logged score drawn as its own measurement distribution.
+
+### Setup
+
+**Ground truth** (`bench/truth.py`) has 10 archetypes, each with variation
+between learners. Scores are beta-binomial with the true overdispersion
+(practice 2.5, quiz 1.5, mock 1.2), so they are capped at 0–100% like real
+scores.
+
+| Archetype | Curve |
+| --------- | ----- |
 | steady | slow, near-linear gains |
 | fast_plateau | prior knowledge, flat after week one |
 | catch_up | starts low, levels off after ~3 weeks |
@@ -107,25 +214,23 @@ uv run python -m bench --schedules rich sparse --archetypes crammer forgetter --
 | notes_heavy | practice ~15 points above ability |
 | ceiling | scores near 100% |
 
-Scores are beta-binomial with the true overdispersion, so they are bounded
-to 0–1 like real ones.
-
-**Schedules** (`bench/schedules.py`):
+**Schedules** (`bench/schedules.py`) cover 42 days, with the exam on day 45:
 
 | Schedule | What gets logged |
 | -------- | ---------------- |
-| rich | daily practice, weekly quizzes, 3 mocks |
+| rich | daily 2-topic practice, weekly 1-topic quiz, mocks on days 10, 24 and 38 |
 | sparse | practice every 3 days, 1 mock |
 | no_mocks | like rich, without mocks |
 | mixed_only | every assessment covers 3 topics |
 
-**How a run works.** Per schedule, MAP is fitted on a mixed training cohort.
-Then five estimators are scored on fresh learners at days 10, 24 and 42:
+**How a run works.** For each schedule, MAP is fitted on 60 training
+learners mixed across archetypes. Then 40 new learners per archetype are
+scored at days 10, 24 and 42 with five estimators:
 
 | Estimator | What it is |
 | --------- | ---------- |
 | fitted | the model with fitted parameters |
-| default | seeded priors, no fit |
+| default | the model with seeded priors, no fit |
 | linear | no slope decay |
 | no_trend | slope fixed at 0 |
 | naive | recency-weighted mean score per topic |
@@ -133,34 +238,70 @@ Then five estimators are scored on fresh learners at days 10, 24 and 42:
 **Metrics:**
 - exam-forecast RMSE and 90% interval coverage;
 - per-topic level RMSE and coverage;
-- how often the estimated weakest topic is the true weakest one;
-- fit-vs-truth for the noise parameters;
+- whether the estimated weakest topic is the true weakest one;
+- fit vs truth for the noise parameters;
 - innovation calibration.
 
-`tests/test_bench.py` runs a small version with loose thresholds as a
-regression guard.
+`tests/test_bench.py` runs a small version as a regression guard in CI.
 
-`uv run python -m bench.sweep` (options `--q-slope …`, `--q-level …`,
-`--half-life N`, `--fit-half-life`, `--schedule`) tunes the process noise
-and half-life by held-out exam-forecast accuracy and coverage. The MAP fit
-can't do this itself, because its likelihood only scores one-step-ahead
-predictions. The defaults come from this sweep (rich schedule):
+### Results (current defaults, seed 0)
 
-| q_slope | half-life | exam RMSE, days 10 / 24 / 42 | 90% coverage, days 10 / 24 / 42 |
-| ------- | --------- | ---------------------------- | ------------------------------- |
-| 1e-7 | fitted (→ 10 days) | 10.8 / 9.8 / 6.5 | 66% / 65% / 72% |
-| 1e-4 | fitted (→ 2 days) | 15.4 / 11.9 / 5.6 | 51% / 62% / 89% |
-| **3e-6** | **20 days, fixed** | 11.7 / 10.8 / 5.2 | 88% / 83% / 92% |
+Exam-forecast RMSE in points at days 10 / 24 / 42, with 90% coverage at day
+42:
 
-A wandering learning rate covers surges and declines (crammers,
-forgetters). If the half-life is fitted, the fit shortens it to a few days
-and loses the long-range trend.
+| Schedule | fitted | default | linear | no_trend | naive |
+| -------- | ------ | ------- | ------ | -------- | ----- |
+| rich | **11.7 / 10.8 / 5.2** (92%) | 12.3 / 11.1 / 5.3 | 22.2 / 15.6 / 5.6 | 16.0 / 11.7 / 5.3 | 14.9 / 10.9 / 6.9 |
+| sparse | **10.7 / 10.4 / 8.4** (90%) | 11.6 / 11.1 / 8.8 | 19.5 / 16.3 / 10.4 | 19.6 / 12.1 / 9.4 | 17.4 / 11.9 / 9.7 |
+| no_mocks | 11.2 / 11.4 / 6.9 (89%) | 11.1 / 10.8 / 6.3 | 14.4 / 15.0 / 7.2 | 19.2 / 14.3 / 7.6 | 14.7 / 11.0 / 7.0 |
+| mixed_only | **11.7 / 11.2 / 5.5** (90%) | 12.4 / 11.4 / 5.6 | 23.0 / 16.4 / 6.1 | 16.6 / 11.9 / 5.6 | 15.0 / 10.7 / 6.8 |
+
+Per archetype (rich schedule, fitted model, day 42):
+
+| Archetype | exam RMSE | exam bias | exam cov90 | topic cov90 | weakest found |
+| --------- | --------- | --------- | ---------- | ----------- | ------------- |
+| steady | 4.4 | −2.0 | 98% | 98% | 42% |
+| fast_plateau | 3.8 | +1.4 | 98% | 95% | 28% |
+| catch_up | 3.9 | +0.7 | 98% | 96% | 52% |
+| crammer | 8.2 | −7.0 | **68%** | 92% | 18% |
+| forgetter | 7.9 | +6.6 | **72%** | 92% | 45% |
+| specialist | 3.2 | +0.8 | 100% | 98% | **95%** |
+| stalled | 5.0 | +1.7 | 95% | 98% | 35% |
+| erratic | 5.8 | −1.4 | 92% | 90% | 40% |
+| notes_heavy | 4.2 | +0.6 | 98% | 95% | 45% |
+| ceiling | 2.5 | +0.3 | 100% | 97% | 32% |
+
+Fit vs truth for the noise parameters:
+
+| Schedule | c practice (2.5) | c quiz (1.5) | c mock (1.2) | practice bias (+5 pts) |
+| -------- | ---------------- | ------------ | ------------ | ---------------------- |
+| rich | 2.58 ± 0.08 | 1.51 ± 0.15 | 1.16 ± 0.17 | +4.8 ± 0.8 |
+| sparse | 2.25 ± 0.13 | (no quizzes) | 1.68 ± 0.43 | +6.7 ± 1.2 |
+| no_mocks | 2.43 ± 0.07 | 1.53 ± 0.15 | (no mocks) | +7.9 ± 1.8 |
+| mixed_only | 2.45 ± 0.07 | 1.69 ± 0.15 | 1.10 ± 0.16 | +6.1 ± 0.7 |
+
+**What the results say:**
+
+- **The damped trend is the big win.** The straight-line trend is up to 2×
+  worse early on. No trend at all and the naive average are clearly worse
+  until the final days.
+- **The fitted and default models are close.** The seeded priors happen to be
+  near the simulated truth. On real data, where they won't be, fitting
+  matters more.
+- **Noise parameters are recovered well wherever they are measured.** Without
+  mocks, practice bias drifts to +7.9 with a wide sd: there is no anchor.
+- **Late surges and forgetting remain the weak spot.** The model assumes
+  gains fade smoothly, so crammers are under-forecast and forgetters
+  over-forecast, with about 70% coverage.
+- **Finding the weakest topic is unreliable when topics are close.** A
+  scheduler should therefore rank by expected gain and uncertainty together,
+  not just by argmin.
 
 ## API
 
 JSON is camelCase. Errors are `{ error, details? }`: 400 for invalid input or
-unknown references, 404 for a missing resource, 409 for duplicates.
-Interactive docs are at `/docs`.
+unknown references, 404 for a missing resource, 409 for duplicates. The
+interactive docs are at `/docs`.
 
 | Method | Path | Body / query | Response |
 | ------ | ---- | ------------ | -------- |
@@ -181,8 +322,13 @@ Notes on the fields:
 - `score` is a fraction (0–1).
 - `nPoints` is what the score is out of, and defaults to the type's
   `nDefault`.
-- `sourceRef` (e.g. a session id) is unique per plan and user, so logging
-  the same item twice returns 409.
+- `weights` can be in any units and are normalised.
+- `sourceRef` (e.g. the app's session id) is unique per plan and user, so
+  logging the same item twice returns 409.
+- `state?at=` replays only scores up to `at` and projects forward to it, so
+  `at` = exam day gives the exam forecast.
+- `diagnostics.calibration` reports, per type, the mean and sd of the
+  normalised innovations. On real data they should be about 0 and 1.
 
 ```bash
 curl -X PUT localhost:8000/plans/analysis-exam/topics -H 'content-type: application/json' \
@@ -190,17 +336,45 @@ curl -X PUT localhost:8000/plans/analysis-exam/topics -H 'content-type: applicat
 curl -X POST localhost:8000/observations -H 'content-type: application/json' \
   -d '{"userId":"<uuid>","planId":"analysis-exam","type":"practice","observedAt":"2026-10-12T09:00:00+02:00","score":0.6,"nPoints":12,"weights":{"series":70,"linalg":30}}'
 curl localhost:8000/users/<uuid>/plans/analysis-exam/state
+curl -X POST localhost:8000/plans/analysis-exam/fit
 ```
+
+## Limitations and next steps
+
+**Limitations:**
+- **Ceiling and floor are ignored.** Scores are capped at 0 and 1, which the
+  Gaussian model doesn't account for. Very noisy types near the ceiling bias
+  c low.
+- **Evidence is synthetic.** All the numbers above are from simulations. The
+  first real check is calibration: do 90% intervals contain 90% of later
+  mock scores, and are the innovations per type about N(0, 1)?
+- **Long-range blind spot.** The fit can't see long-range forecast error. A
+  multi-step term, such as scoring each mock from the state 14 days earlier,
+  would let the data tune the half-life and qSlope directly.
+- **Not modelled yet:** learner-type mixtures (needs about 150 learners and
+  many restarts) and forgetting of untouched topics toward a baseline.
+
+**Next steps:**
+- A scheduler endpoint that ranks topics by exam weight × expected gain plus
+  β × variance reduction (closed form from the filter), with spacing
+  constraints, or Thompson sampling.
+- Hook the app's session logging up to `POST /observations` via
+  `KNOWLEDGE_URL`.
 
 ## Layout
 
 ```
 knowledge/
-  model.py     the filter (pure NumPy): prior, predict, update, batched likelihood
-  fit.py       MAP fitting over many learners
-  api.py       FastAPI routes; schemas.py holds request/response models
-  repo.py      SQL; db.py holds the pool and migration runner (migrations/*.sql, applied on startup)
+  model.py      the filter (pure NumPy): prior, predict, update, batched likelihood
+  fit.py        MAP fitting over many learners
+  api.py        FastAPI routes; schemas.py holds request/response models
+  repo.py       SQL; db.py holds the pool and migration runner (migrations/*.sql, applied on startup)
+bench/
+  truth.py      learner archetypes and beta-binomial scoring
+  schedules.py  logging schedules
+  evaluate.py   estimators, baselines, metrics
+  __main__.py   report;  sweep.py: process-noise / half-life sweep
 tests/
-  sim.py       simulates learners from a "true" model
-  test_model.py, test_fit.py, test_api.py
+  sim.py        learners simulated from the model itself (best case)
+  test_model.py, test_fit.py, test_api.py, test_bench.py
 ```
