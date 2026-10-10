@@ -19,6 +19,7 @@ import { isActiveInWeek, planSpan, plannedMinutes, weekBounds } from "./weekly-g
 import type {
   ActivePlan,
   Activity,
+  BlockActivity,
   CalendarEvent,
   Comment,
   FriendStatus,
@@ -149,6 +150,8 @@ export async function getTodaysTasks(userId: string): Promise<Task[]> {
   return rows.map((r) => ({
     id: r.id,
     type: r.type as SessionType,
+    activity: r.activity as BlockActivity | null,
+    userPlanId: r.userPlanId,
     subject: r.subject ?? "",
     title: r.title,
     detail: r.detail,

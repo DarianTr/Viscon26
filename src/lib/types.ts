@@ -39,6 +39,8 @@ export type PrepPhaseName = "foundation" | "build" | "peak" | "taper";
 export type Task = {
   id: string;
   type: SessionType;
+  activity: BlockActivity | null;
+  userPlanId: string | null;
   subject: string;
   title: string;
   detail: string | null;

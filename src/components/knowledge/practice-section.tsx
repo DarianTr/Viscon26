@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { Card, Button } from "@/components/ui/primitives";
 import { formatGrade } from "@/lib/grades";
@@ -280,6 +281,12 @@ export function PracticeSection({
           </p>
         </Card>
 
+        <Link
+          href={`/?log=${planId}#log-data`}
+          className="flex w-full items-center justify-center rounded-full bg-foreground px-5 py-2.5 text-sm font-semibold text-background"
+        >
+          Upload results
+        </Link>
         <Button variant="ghost" className="w-full" onClick={resetToPick}>
           Try another topic
         </Button>
