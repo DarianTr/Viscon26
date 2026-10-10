@@ -6,6 +6,14 @@ import { alias } from "drizzle-orm/pg-core";
 import { db, schema as s, TIME_ZONE } from "@/db";
 import { latestExamDate } from "./plan-status";
 import { requireUser, type SessionUser } from "./auth";
+import {
+  classifyDay,
+  decayMascotHealth,
+  mascotStatusFromHealth,
+  vacationDaySet,
+  type DayOutcome,
+  type MascotStatus,
+} from "./mascot";
 import { initials } from "./session-types";
 import { isActiveInWeek, planSpan, plannedMinutes, weekBounds } from "./weekly-goal";
 import type {
@@ -19,6 +27,7 @@ import type {
   Person,
   Profile,
   SessionType,
+  SubjectChoice,
   Task,
   WeeklyGoal,
 } from "./types";
@@ -119,6 +128,11 @@ export async function getTodaysLogContext(userId: string): Promise<{ planId: str
   return row ? { planId: row.planId!, subject: row.subject! } : null;
 }
 
+const zurichDate = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE });
+
+/** A Date's Zurich-local calendar day, as "YYYY-MM-DD". */
+const localDayKey = (at: Date) => zurichDate.format(at);
+
 export async function getTodaysTasks(userId: string): Promise<Task[]> {
   const rows = await db
     .select()
@@ -142,6 +156,7 @@ export async function getTodaysTasks(userId: string): Promise<Task[]> {
     actualMinutes: r.actualMinutes,
     time: zurichTime.format(r.scheduledAt),
     done: r.completedAt !== null,
+    skipped: r.skippedAt !== null,
   }));
 }
 
@@ -165,6 +180,87 @@ export async function getStreak(userId: string): Promise<number> {
     cursor.setUTCDate(cursor.getUTCDate() - 1);
   }
   return streak;
+}
+
+const MASCOT_LOOKBACK_DAYS = 21;
+
+export type MascotHealth = { health: number; status: MascotStatus };
+
+/**
+ * The mascot's current health: recomputed from the last few weeks of
+ * sessions every time, never stored. Decays on days the student's plan
+ * scheduled study and none happened, or (with no plan at all) on days
+ * nothing was studied; a logged vacation, or a plan day with nothing
+ * scheduled, leaves it untouched. See lib/mascot.ts for the day-by-day rules.
+ */
+export async function getMascotHealth(userId: string): Promise<MascotHealth> {
+  const [[user], plans, [earliest]] = await Promise.all([
+    db.select({ createdAt: s.users.createdAt }).from(s.users).where(eq(s.users.id, userId)),
+    db
+      .select({ createdAt: s.userPlans.createdAt, config: s.userPlans.config })
+      .from(s.userPlans)
+      .where(eq(s.userPlans.userId, userId)),
+    // Drizzle can't attach a type parser to a raw aggregate expression, so this
+    // comes back as a string (e.g. "2026-08-26 06:30:00+00") — parsed below.
+    db
+      .select({ scheduledAt: sql<string | null>`min(${s.sessions.scheduledAt})` })
+      .from(s.sessions)
+      .where(and(eq(s.sessions.userId, userId), inArray(s.sessions.type, studyTypes))),
+  ]);
+
+  const vacationDays = vacationDaySet(plans.flatMap((p) => p.config?.vacationRanges ?? []));
+  const earliestPlan = plans.length
+    ? plans.reduce((min, p) => (p.createdAt < min ? p.createdAt : min), plans[0].createdAt)
+    : null;
+  const planStartKey = earliestPlan ? localDayKey(earliestPlan) : null;
+  const earliestSession = earliest?.scheduledAt ? new Date(earliest.scheduledAt) : null;
+
+  const todayKey = localDayKey(new Date());
+  const windowStart = new Date();
+  windowStart.setUTCDate(windowStart.getUTCDate() - MASCOT_LOOKBACK_DAYS);
+  // Never look further back than the earliest trace of the account (its creation, its
+  // first plan or its first scheduled session) — a brand-new user starts at full health.
+  const accountFloor = [user.createdAt, earliestPlan, earliestSession]
+    .filter((d): d is Date => d != null)
+    .reduce((min, d) => (d < min ? d : min), user.createdAt);
+  const startKey = [localDayKey(windowStart), localDayKey(accountFloor)].sort().pop()!;
+
+  const rows = await db
+    .select({
+      day: sql<string>`${localDate(s.sessions.scheduledAt)}::text`,
+      scheduled: sql<number>`count(*) filter (where ${inArray(s.sessions.type, studyTypes)})::int`,
+      completed: sql<number>`count(*) filter (where ${inArray(s.sessions.type, studyTypes)} and ${s.sessions.completedAt} is not null)::int`,
+    })
+    .from(s.sessions)
+    .where(
+      and(
+        eq(s.sessions.userId, userId),
+        sql`${localDate(s.sessions.scheduledAt)} >= ${startKey}::date`,
+        sql`${localDate(s.sessions.scheduledAt)} < ${todayKey}::date`,
+      ),
+    )
+    .groupBy(sql`1`);
+  const byDay = new Map(rows.map((r) => [r.day, r]));
+
+  const days: DayOutcome[] = [];
+  const cursor = new Date(`${startKey}T00:00:00Z`);
+  const end = new Date(`${todayKey}T00:00:00Z`);
+  while (cursor < end) {
+    const key = cursor.toISOString().slice(0, 10);
+    const row = byDay.get(key);
+    days.push(
+      classifyDay({
+        vacation: vacationDays.has(key),
+        hasPlan: planStartKey !== null && key >= planStartKey,
+        scheduledStudyBlocks: row?.scheduled ?? 0,
+        completedStudyBlocks: row?.completed ?? 0,
+      }),
+    );
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  const health = decayMascotHealth(days);
+  return { health, status: mascotStatusFromHealth(health) };
 }
 
 function enrolledCount() {
@@ -252,6 +348,7 @@ export async function getUserCustomPlans(userId: string): Promise<CustomPlan[]> 
     .where(and(
       inArray(s.sessions.userPlanId, planIds),
       isNull(s.sessions.completedAt),
+      isNull(s.sessions.skippedAt),
       academic,
       notInArray(s.sessions.type, ["exam", "lecture"]),
       sql`${s.sessions.scheduledAt} + ${s.sessions.plannedMinutes} * interval '1 minute' > now()`,
@@ -291,6 +388,19 @@ export async function getUserCustomPlans(userId: string): Promise<CustomPlan[]> 
       archivedAt: p.archivedAt?.toISOString() ?? null,
     };
   });
+}
+
+/** Subjects of the user's unarchived plans, for adding a session by hand. */
+export async function getSubjectChoices(userId: string): Promise<SubjectChoice[]> {
+  const choices = new Map<string, SubjectChoice>();
+  // Newest plan first, so a subject in several plans counts toward the newest.
+  for (const plan of await getUserCustomPlans(userId)) {
+    if (plan.archivedAt) continue;
+    for (const name of plan.subjects) {
+      if (name && !choices.has(name)) choices.set(name, { name, planId: plan.id, planTitle: plan.title });
+    }
+  }
+  return [...choices.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export type PlanEnrollment = { planId: string; currentWeek: number; active: boolean };
@@ -359,6 +469,7 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
       type: s.sessions.type,
       activity: s.sessions.activity,
       subject: s.sessions.subject,
+      planId: s.sessions.userPlanId,
       cheatsheetMinutes: s.sessions.cheatsheetMinutes,
       cheatsheetTarget: s.sessions.cheatsheetTarget,
       prepPhase: s.sessions.prepPhase,
@@ -366,6 +477,8 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
       start: s.sessions.scheduledAt,
       minutes: s.sessions.plannedMinutes,
       calendarOrder: s.sessions.calendarOrder,
+      completedAt: s.sessions.completedAt,
+      skippedAt: s.sessions.skippedAt,
     })
     .from(s.sessions)
     .where(
@@ -377,10 +490,12 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
       ),
     )
     .orderBy(asc(s.sessions.scheduledAt));
-  return rows.map((r) => ({
+  return rows.map(({ completedAt, skippedAt, ...r }) => ({
     ...r,
     start: r.start.toISOString(),
     end: new Date(r.start.getTime() + r.minutes * 60_000).toISOString(),
+    done: completedAt !== null,
+    skipped: skippedAt !== null,
   }));
 }
 
@@ -576,7 +691,7 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
   const mine = eq(s.sessions.userId, userId);
   const done = and(mine, isNotNull(s.sessions.completedAt), academic);
 
-  const [[friends], [totals], [kudos], week, subjects, badges, streak, exams, plannedSubjects, weeklyGoal] =
+  const [[friends], [totals], [kudos], week, subjects, badges, streak, exams, plannedSubjects, weeklyGoal, mascotHealth] =
     await Promise.all([
       db
         .select({ n: count() })
@@ -648,6 +763,7 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
         .from(s.sessions)
         .where(and(mine, isNull(s.sessions.completedAt), academic)),
       getWeeklyGoal(userId),
+      getMascotHealth(userId),
     ]);
 
   const hours = (minutes: number) => Math.round((minutes / 60) * 4) / 4;
@@ -690,6 +806,7 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
     program: user.program,
     friends: friends.n,
     streak,
+    mascotHealth,
     totals: { hours: Math.round(totals.minutes / 60), sessions: totals.sessions, kudos: kudos.n },
     week: weekdays.map((_, i) => hours(week.find((w) => w.dow === i + 1)?.minutes ?? 0)),
     weeklyGoal,

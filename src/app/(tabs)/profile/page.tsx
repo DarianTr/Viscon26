@@ -147,7 +147,7 @@ export default async function ProfilePage() {
       </div>
 
       <SectionTitle>Your brain, right now</SectionTitle>
-      <BrainEvolution hours={profile.totals.hours} />
+      <BrainEvolution hours={profile.totals.hours} mascotHealth={profile.mascotHealth} />
 
       <SectionTitle>Exam countdowns</SectionTitle>
       {examSubjects.length === 0 ? (

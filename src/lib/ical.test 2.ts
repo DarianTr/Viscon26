@@ -8,6 +8,7 @@ const event = (over: Partial<CalendarEvent> = {}): CalendarEvent => ({
   type: "deep",
   activity: "study",
   subject: "Linear Algebra",
+  planId: null,
   cheatsheetMinutes: null,
   cheatsheetTarget: null,
   prepPhase: "build",
@@ -16,6 +17,8 @@ const event = (over: Partial<CalendarEvent> = {}): CalendarEvent => ({
   end: "2026-10-12T08:30:00.000Z",
   minutes: 90,
   calendarOrder: null,
+  done: false,
+  skipped: false,
   ...over,
 });
 

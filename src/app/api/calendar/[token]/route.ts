@@ -14,7 +14,8 @@ export async function GET(request: Request, ctx: RouteContext<"/api/calendar/[to
   const user = await findFeedOwner((await ctx.params).token);
   if (!user) return new Response("Not found", { status: 404 });
 
-  const events = await getCalendarEvents(user.id);
+  // Skipped sessions stay in the app, but a calendar client has no way to show them as such.
+  const events = (await getCalendarEvents(user.id)).filter((e) => !e.skipped);
   const body = calendarFeed(events, {
     name: `Braina — ${user.name}`,
     appUrl: appOrigin(request.headers),

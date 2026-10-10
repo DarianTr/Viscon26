@@ -6,6 +6,7 @@ import { regeneratePlan } from "@/lib/plans";
 import { CONFIDENCE_SCORE } from "@/lib/scheduler";
 import { db, schema as s } from "@/db";
 import type { StoredSubjectConfig } from "@/db/schema";
+import { getOwnedPlan, getRecommendedTopics } from "@/lib/knowledge";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -119,12 +120,36 @@ export async function POST(request: Request, ctx: Ctx) {
         : {}),
     };
 
+    // Fetch per-subject knowledge gaps from the Kalman filter to drive quiz scheduling.
+    let quizGaps: Record<string, number> = {};
+    try {
+      const ownedPlan = await getOwnedPlan(user.id, id);
+      if (ownedPlan) {
+        const focus = await getRecommendedTopics(user.id, ownedPlan);
+        // Map subjectId → subject name using the plan's subject list.
+        const subjectById = new Map(ownedPlan.subjects.map((sub) => [sub.id, sub.name]));
+        const gapsByName: Record<string, { sum: number; count: number }> = {};
+        for (const topic of focus.topics) {
+          const name = topic.subjectId ? subjectById.get(topic.subjectId) : undefined;
+          if (!name) continue;
+          if (!gapsByName[name]) gapsByName[name] = { sum: 0, count: 0 };
+          gapsByName[name].sum += topic.gap;
+          gapsByName[name].count += 1;
+        }
+        quizGaps = Object.fromEntries(
+          Object.entries(gapsByName).map(([name, { sum, count }]) => [name, sum / count]),
+        );
+      }
+    } catch {
+      // Knowledge service unavailable — schedule without quiz blocks.
+    }
+
     // Allocations are re-normalised to sum to 100; completed work stays and isn't scheduled again.
     const totalAlloc = updatedSubjects.reduce((sum, sub) => sum + sub.allocation, 0) || 100;
     const outcome = await regeneratePlan(user.id, id, {
       ...updatedConfig,
       subjects: updatedSubjects.map((sub) => ({ ...sub, allocation: Math.round((sub.allocation / totalAlloc) * 100) })),
-    }, { apply: true });
+    }, { apply: true, quizGaps });
     if (!outcome) return notFound("Plan");
     const { result } = outcome;
 

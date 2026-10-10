@@ -1,10 +1,13 @@
 "use client";
 
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, ClockIcon } from "@/components/icons";
+import { useRouter } from "next/navigation";
+import { AddSessionDialog, type AddSessionMode } from "@/components/add-session-dialog";
+import { ChevronLeftIcon, ChevronRightIcon, ClockIcon, PlusIcon, SkipIcon, UndoIcon } from "@/components/icons";
 import { Card } from "@/components/ui/primitives";
+import { api } from "@/lib/api-client";
 import { eventLabel, formatMinutes, phaseLabels, sessionTypes, subjectColor } from "@/lib/session-types";
-import type { CalendarEvent } from "@/lib/types";
+import type { CalendarEvent, SubjectChoice, TaskRecord } from "@/lib/types";
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const firstCalendarHour = 5;
@@ -39,6 +42,25 @@ async function saveTimes(changes: { id: string; scheduledAt: string; calendarOrd
   }
 }
 
+/** A block the server just created or changed, as the calendar shows it. */
+const toEvent = (t: TaskRecord): CalendarEvent => ({
+  id: t.id,
+  type: t.type,
+  activity: t.activity,
+  subject: t.subject,
+  planId: t.userPlanId,
+  cheatsheetMinutes: t.cheatsheetMinutes,
+  cheatsheetTarget: t.cheatsheetTarget,
+  prepPhase: t.prepPhase,
+  title: t.title,
+  start: t.scheduledAt,
+  end: new Date(new Date(t.scheduledAt).getTime() + t.plannedMinutes * 60_000).toISOString(),
+  minutes: t.plannedMinutes,
+  calendarOrder: t.calendarOrder,
+  done: t.done,
+  skipped: t.skipped,
+});
+
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
@@ -48,7 +70,16 @@ const noop = () => () => {};
  * "Today" is only known in the browser — the page itself is prerendered at
  * build time — so render a placeholder on the server and fill in on hydrate.
  */
-export function CalendarView({ events, initialDate }: { events: CalendarEvent[]; initialDate?: string }) {
+export function CalendarView({
+  events,
+  subjects,
+  initialDate,
+}: {
+  events: CalendarEvent[];
+  /** Subjects to pick from when adding a session by hand. */
+  subjects: SubjectChoice[];
+  initialDate?: string;
+}) {
   const todayIso = useSyncExternalStore(
     noop,
     () => startOfDay(new Date()).toISOString(),
@@ -58,16 +89,36 @@ export function CalendarView({ events, initialDate }: { events: CalendarEvent[];
   const today = new Date(todayIso);
   // "YYYY-MM-DD" in local time, e.g. from "Continue plan".
   const initial = initialDate ? new Date(`${initialDate}T00:00:00`) : today;
-  return <Calendar key={todayIso} today={today} initial={Number.isNaN(initial.getTime()) ? today : initial} events={events} />;
+  return (
+    <Calendar
+      key={todayIso}
+      today={today}
+      initial={Number.isNaN(initial.getTime()) ? today : initial}
+      events={events}
+      subjectChoices={subjects}
+    />
+  );
 }
 
 const timeFormat = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
 
-function Calendar({ today, initial, events: list }: { today: Date; initial: Date; events: CalendarEvent[] }) {
+function Calendar({
+  today,
+  initial,
+  events: list,
+  subjectChoices,
+}: {
+  today: Date;
+  initial: Date;
+  events: CalendarEvent[];
+  subjectChoices: SubjectChoice[];
+}) {
+  const router = useRouter();
   const [calendarEvents, setCalendarEvents] = useState(list);
   const [month, setMonth] = useState(() => new Date(initial.getFullYear(), initial.getMonth(), 1));
   const [selected, setSelected] = useState(initial);
   const [catchUp, setCatchUp] = useState<{ id: string; subject: string; minutes: number } | null>(null);
+  const [adding, setAdding] = useState<AddSessionMode | null>(null);
   const subjects = useMemo(
     () => [...new Set(calendarEvents.filter((e) => e.subject && isStudy(e)).map((e) => e.subject!))].sort(),
     [calendarEvents],
@@ -104,7 +155,7 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
 
   const dayEvents = events.get(dayKey(selected)) ?? [];
   const totalMinutes = dayEvents
-    .filter(isStudy)
+    .filter((e) => isStudy(e) && !e.skipped)
     .reduce((s, e) => s + e.minutes, 0);
 
   function shiftMonth(delta: number) {
@@ -162,26 +213,23 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
       return;
     }
     const { study, buffer } = await response.json();
-    const toEvent = (t: { id: string; type: CalendarEvent["type"]; activity: CalendarEvent["activity"]; subject: string | null; cheatsheetMinutes: number | null; cheatsheetTarget: number | null; prepPhase: CalendarEvent["prepPhase"]; title: string; scheduledAt: string; plannedMinutes: number; calendarOrder: number | null }): CalendarEvent => ({
-      id: t.id,
-      type: t.type,
-      activity: t.activity,
-      subject: t.subject,
-      cheatsheetMinutes: t.cheatsheetMinutes,
-      cheatsheetTarget: t.cheatsheetTarget,
-      prepPhase: t.prepPhase,
-      title: t.title,
-      start: t.scheduledAt,
-      end: new Date(new Date(t.scheduledAt).getTime() + t.plannedMinutes * 60_000).toISOString(),
-      minutes: t.plannedMinutes,
-      calendarOrder: t.calendarOrder,
-    });
     setCalendarEvents((events) => [
       ...events.filter((e) => e.id !== catchUp.id),
       toEvent(study),
       ...(buffer ? [toEvent(buffer)] : []),
     ]);
     setCatchUp(null);
+  }
+
+  /** Skip a planned block (it stays here, dimmed, and frees its slot) or take it back. */
+  async function setSkipped(id: string, skipped: boolean) {
+    setOrderMessage("");
+    try {
+      const task = await api.setTaskSkipped(id, skipped);
+      setCalendarEvents((events) => events.map((e) => (e.id === id ? toEvent(task) : e)));
+    } catch (error) {
+      setOrderMessage(error instanceof Error ? error.message : "Could not save.");
+    }
   }
 
   async function moveEvent(dragId: string, targetId: string, afterTarget = false) {
@@ -244,6 +292,15 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
           ))}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            // Days ahead get a plan; days gone by get a log of what was done.
+            onClick={() => setAdding(selected < today ? "log" : "plan")}
+            className="inline-flex items-center gap-1.5 rounded-full border-2 border-foreground/70 bg-surface px-3 py-1.5 text-sm font-bold hover:bg-surface-2"
+          >
+            <PlusIcon className="size-4" />
+            Add
+          </button>
           <button onClick={() => view === "month" ? shiftMonth(-1) : setSelected((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() - 7))}
             aria-label={view === "month" ? "Previous month" : "Previous week"} className="grid size-9 place-items-center rounded-full hover:bg-surface-2"><ChevronLeftIcon className="size-5" /></button>
           <button onClick={() => view === "month" ? shiftMonth(1) : setSelected((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7))}
@@ -299,8 +356,8 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
                     }} onDragEnd={() => setDraggedId(null)}
                       title={`${range} · ${eventLabel(event)} · ${event.title} · drag to move`}
                       style={{ top: `${(top / 60) * 4}rem`, height: `${(height / 60) * 4}rem`, ...subjectEdge(event) }}
-                      className={`absolute inset-x-0.5 overflow-hidden rounded-md border border-background px-1.5 py-1 text-[10px] leading-tight ${eventStyles[event.type].soft} ${draggedId === event.id ? "opacity-40" : "cursor-grab active:cursor-grabbing"}`}>
-                      <span className="block font-semibold">{range}</span><span className="line-clamp-2">{event.title}</span>
+                      className={`absolute inset-x-0.5 overflow-hidden rounded-md border border-background px-1.5 py-1 text-[10px] leading-tight ${eventStyles[event.type].soft} ${draggedId === event.id ? "opacity-40" : "cursor-grab active:cursor-grabbing"} ${event.skipped ? "opacity-45" : ""}`}>
+                      <span className="block font-semibold">{range}</span><span className={`line-clamp-2 ${event.skipped ? "line-through" : ""}`}>{event.title}</span>
                     </div>;
                   })}
                 </div>)}
@@ -329,7 +386,7 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
             const key = dayKey(date);
             const isToday = key === dayKey(today);
             const isSelected = key === dayKey(selected);
-            const dots = (events.get(key) ?? []).filter((e) => e.type !== "break");
+            const dots = (events.get(key) ?? []).filter((e) => e.type !== "break" && !e.skipped);
             return (
               <button
                 key={key}
@@ -406,23 +463,50 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
                   className={`flex gap-4 ${savingOrder ? "opacity-60" : "cursor-grab active:cursor-grabbing"} ${draggedId === e.id ? "opacity-40" : ""}`}
                 >
                   <span className="w-12 shrink-0 pt-3.5 text-right font-mono text-xs text-muted tabular-nums">{timeFormat.format(new Date(e.start))}</span>
-                  <Card className="relative flex-1 p-4" style={subjectEdge(e)}>
+                  <Card className={`relative flex-1 p-4 ${e.skipped ? "border-dashed bg-surface-2/50 shadow-none" : ""}`} style={subjectEdge(e)}>
                     <span className={`absolute top-5 -left-[0.8125rem] size-2.5 rounded-full ring-4 ring-background ${style.color}`} />
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${style.soft}`}>{eventLabel(e)}</span>
                     {e.prepPhase && (
                       <span className="ml-2 text-[11px] font-medium text-muted">{phaseLabels[e.prepPhase]} phase</span>
                     )}
-                    <p className="mt-1.5 font-semibold">{e.title}</p>
+                    {e.skipped && (
+                      <span className="ml-2 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-semibold text-muted">Skipped</span>
+                    )}
+                    <p className={`mt-1.5 font-semibold ${e.skipped ? "text-muted line-through" : ""}`}>{e.title}</p>
                     <p className="mt-1 flex items-center gap-1.5 text-xs text-muted">
                       <ClockIcon className="size-3.5" />
                       {formatMinutes(e.minutes)} · until {timeFormat.format(new Date(e.end))}
                     </p>
+                    {isStudy(e) && !e.done && (
+                      <button
+                        type="button"
+                        onClick={() => void setSkipped(e.id, !e.skipped)}
+                        aria-label={e.skipped ? `Undo skipping ${e.title}` : `Skip ${e.title}`}
+                        className={`mt-3 inline-flex items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-bold transition-colors ${
+                          e.skipped
+                            ? "border-foreground/70 bg-surface text-foreground hover:bg-surface-2"
+                            : "border-border bg-surface-2 text-muted hover:border-muted hover:text-foreground"
+                        }`}
+                      >
+                        {e.skipped ? <UndoIcon className="size-3.5" /> : <SkipIcon className="size-3.5" />}
+                        {e.skipped ? "Undo skip" : "Skip session"}
+                      </button>
+                    )}
                     {e.cheatsheetMinutes !== null && e.cheatsheetMinutes > 0 && (
                       <p className="mt-1 text-xs text-muted">
                         {e.cheatsheetMinutes < e.minutes && `${formatMinutes(e.minutes - e.cheatsheetMinutes)} theory · `}
                         {formatMinutes(e.cheatsheetMinutes)} cheatsheet
                         {e.cheatsheetTarget !== null && ` · aim: ${e.cheatsheetTarget}%`}
                       </p>
+                    )}
+                    {e.activity === "quiz" && e.planId && (
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/plans/${e.planId}/practice`)}
+                        className="mt-2 text-xs font-semibold text-accent"
+                      >
+                        Start quiz →
+                      </button>
                     )}
                     {e.type === "buffer" && subjects.length > 0 && (catchUp?.id === e.id ? (
                       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
@@ -467,6 +551,20 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
         )}
       </div>
       </div>}
+      {adding && (
+        <AddSessionDialog
+          subjects={subjectChoices}
+          initialMode={adding}
+          day={selected}
+          onClose={() => setAdding(null)}
+          onCreated={(task) => {
+            const start = new Date(task.scheduledAt);
+            setCalendarEvents((events) => [...events, toEvent(task)]);
+            setSelected(startOfDay(start));
+            setMonth(new Date(start.getFullYear(), start.getMonth(), 1));
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -45,7 +45,7 @@ export async function regeneratePlan(
   userId: string,
   planId: string,
   changes: Partial<StoredPlanConfig> & { title?: string },
-  { apply, now = new Date() }: { apply: boolean; now?: Date },
+  { apply, now = new Date(), quizGaps }: { apply: boolean; now?: Date; quizGaps?: Record<string, number> },
 ): Promise<RegenerateOutcome | null> {
   const [plan] = await db
     .select({ title: s.userPlans.title, config: s.userPlans.config, createdAt: s.userPlans.createdAt })
@@ -115,6 +115,8 @@ export async function regeneratePlan(
     .where(and(
       eq(s.sessions.userPlanId, planId),
       isNull(s.sessions.completedAt),
+      // A skipped block is replaced: its work is scheduled again.
+      isNull(s.sessions.skippedAt),
       eq(s.sessions.movedManually, true),
       ne(s.sessions.type, "exam"),
       gt(s.sessions.scheduledAt, now),
@@ -151,7 +153,7 @@ export async function regeneratePlan(
       subjects: subjects.map((sub) => ({ ...sub })),
     },
     now,
-    { busy, progress },
+    { busy, progress, quizGaps },
   );
   // The schedule now reflects every saved edit.
   const { pendingChanges: _pending, ...current } = config;

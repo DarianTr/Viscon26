@@ -1,4 +1,18 @@
-import type { Challenge, Comment, FriendStatus, Item, Person, TaskRecord } from "./types";
+import type { Challenge, Comment, FriendStatus, Item, Person, SessionType, TaskRecord } from "./types";
+
+export type NewSession = {
+  type: SessionType;
+  subject: string;
+  title: string;
+  /** ISO timestamp. */
+  scheduledAt: string;
+  plannedMinutes: number;
+  userPlanId?: string | null;
+  note?: string | null;
+  shared?: boolean;
+  /** Logged after the fact rather than planned ahead. */
+  done?: boolean;
+};
 
 /**
  * Thin client for the backend in `src/app/api`. Relative URLs keep it working
@@ -42,6 +56,20 @@ export const api = {
     request<{ task: TaskRecord }>(`/tasks/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ done, actualMinutes }),
+    }).then((r) => r.task),
+
+  /** Skip a planned session (it stays on the calendar, marked skipped) or undo that. */
+  setTaskSkipped: (id: string, skipped: boolean) =>
+    request<{ task: TaskRecord }>(`/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ skipped }),
+    }).then((r) => r.task),
+
+  /** Add a session by hand: planned ahead, or logged after the fact with `done: true`. */
+  createTask: (task: NewSession) =>
+    request<{ task: TaskRecord }>("/tasks", {
+      method: "POST",
+      body: JSON.stringify(task),
     }).then((r) => r.task),
 
   /** Rename your own activity's title and/or caption. */
