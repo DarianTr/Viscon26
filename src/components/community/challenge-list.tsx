@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Brain } from "@/components/mascot/brain";
+import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { Avatar, Button, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import { beatChallenge, formatEffort, sessionTypes, subjectColor } from "@/lib/session-types";
@@ -13,7 +13,7 @@ export function ChallengeList({ received, sent }: { received: Challenge[]; sent:
   if (received.length === 0 && sent.length === 0) {
     return (
       <Card className="flex flex-col items-center gap-3 py-8 text-center">
-        <Brain expression="confused" size={72} />
+        <ExpressionMascot expression="sleepy" size={96} />
         <p className="max-w-[32ch] text-sm text-muted">
           No challenges yet. Finish something hard, then tap ⚔️ on your post to make your friends suffer too.
         </p>
