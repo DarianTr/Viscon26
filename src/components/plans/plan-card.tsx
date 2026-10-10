@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Card } from "@/components/ui/primitives";
-import { AddSubjectWizard } from "@/components/plans/add-subject-wizard";
 import { ForecastChart } from "@/components/knowledge/forecast-chart";
 import { TopicProfile } from "@/components/knowledge/topic-profile";
 import type { CustomPlan } from "@/lib/queries";
@@ -344,7 +343,6 @@ export function CustomPlanCard({
   const [expanded, setExpanded] = useState(false);
   const [details, setDetails] = useState<PlanDetails | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showWizard, setShowWizard] = useState(false);
   const [strategy, setStrategy] = useState<StrategyResult | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -507,19 +505,6 @@ export function CustomPlanCard({
 
   return (
     <>
-    {showWizard && (
-      <AddSubjectWizard
-        planId={plan.id}
-        storedConfig={details?.config ?? null}
-        onClose={() => setShowWizard(false)}
-        onDone={async () => {
-          setShowWizard(false);
-          setDetails(null);
-          await fetchDetails();
-        }}
-      />
-    )}
-
     <Card className="overflow-hidden p-0">
       {/* Header: name on the left; Continue, Manage and the expand chevron on the right */}
       <div className={`flex flex-wrap items-start gap-x-3 gap-y-2 ${variant === "past" ? "p-3" : "p-4"}`}>
@@ -596,15 +581,7 @@ export function CustomPlanCard({
             <>
               {/* Per-subject progress */}
               <div>
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">Subject progress</p>
-                  <button
-                    onClick={() => setShowWizard(true)}
-                    className="text-xs font-semibold text-accent hover:opacity-80"
-                  >
-                    + Add subject
-                  </button>
-                </div>
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Subject progress</p>
                 <ul className="space-y-2.5">
                   {details.subjects.map((s) => {
                     const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : 0;
@@ -691,15 +668,6 @@ export function CustomPlanCard({
               className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${tab === "subjects" ? "bg-foreground text-background" : "bg-surface-2 text-foreground"}`}
             >
               Subjects
-            </button>
-            <Link href={`/plans/${plan.id}/log`} className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold">
-              Log data
-            </Link>
-            <button
-              onClick={() => setShowWizard(true)}
-              className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold hover:opacity-80"
-            >
-              + Add subject
             </button>
           </div>
 

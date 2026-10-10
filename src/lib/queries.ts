@@ -96,6 +96,29 @@ const zurichTime = new Intl.DateTimeFormat("en-GB", {
   timeZone: TIME_ZONE,
 });
 
+/**
+ * The plan and subject today's study is about, to preselect them when logging a
+ * data point: the latest session that has started today, else today's first one.
+ */
+export async function getTodaysLogContext(userId: string): Promise<{ planId: string; subject: string } | null> {
+  const rows = await db
+    .select({ planId: s.sessions.userPlanId, subject: s.sessions.subject, scheduledAt: s.sessions.scheduledAt })
+    .from(s.sessions)
+    .where(
+      and(
+        eq(s.sessions.userId, userId),
+        isNotNull(s.sessions.userPlanId),
+        isNotNull(s.sessions.subject),
+        inArray(s.sessions.type, studyTypes),
+        sql`${localDate(s.sessions.scheduledAt)} = ${today}`,
+      ),
+    )
+    .orderBy(asc(s.sessions.scheduledAt));
+  const now = Date.now();
+  const row = rows.findLast((r) => r.scheduledAt.getTime() <= now) ?? rows[0];
+  return row ? { planId: row.planId!, subject: row.subject! } : null;
+}
+
 export async function getTodaysTasks(userId: string): Promise<Task[]> {
   const rows = await db
     .select()
