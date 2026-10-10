@@ -2,9 +2,11 @@ import "server-only";
 import { and, asc, eq, gt, gte, isNotNull, isNull, lt, ne, notInArray, sql } from "drizzle-orm";
 import { db, schema as s } from "@/db";
 import type { StoredPlanConfig } from "@/db/schema";
-import { deleteObservation, listObservations } from "./knowledge";
+import { toGrade } from "./grades";
+import { deleteObservation, getOwnedPlan, KnowledgeError, listObservations } from "./knowledge";
 import { describeChanges, duplicateNames, mergePending } from "./plan-changes";
-import { progressFromRows } from "./plan-progress";
+import { latestMockGrades, progressFromRows, type MockResult } from "./plan-progress";
+import { subjectOfDataPoint } from "./predictions";
 import { generateStudyPlan, type ScheduleResult } from "./scheduler";
 import { listBusyIntervals, localDay } from "./tasks";
 
@@ -87,14 +89,17 @@ export async function regeneratePlan(
     (progress[subject] ??= { studyMinutes: 0, mocksDone: 0, cheatsheet: 0 }).cheatsheet = percent;
   }
 
-  // The latest logged mock/past-exam grade per subject re-plans how many mocks are needed.
+  // The latest logged mock/past-exam grade per subject re-plans how many mocks are needed:
+  // from the exam scores and from mock and exam results logged for the prediction model.
   const scores = await db
-    .select({ subject: s.examScores.subject, score: s.examScores.score })
+    .select({ subject: s.examScores.subject, score: s.examScores.score, takenAt: s.examScores.takenAt })
     .from(s.examScores)
     .where(and(eq(s.examScores.userId, userId), eq(s.examScores.userPlanId, planId)))
     .orderBy(asc(s.examScores.takenAt), asc(s.examScores.createdAt));
-  for (const { subject, score } of scores) {
-    (progress[subject] ??= { studyMinutes: 0, mocksDone: 0, cheatsheet: 0 }).latestMockGrade = score;
+  const mockResults: MockResult[] = scores.map((r) => ({ subject: r.subject, takenOn: r.takenAt, grade: r.score }));
+  mockResults.push(...(await loggedMockResults(userId, planId)));
+  for (const [subject, grade] of Object.entries(latestMockGrades(mockResults))) {
+    (progress[subject] ??= { studyMinutes: 0, mocksDone: 0, cheatsheet: 0 }).latestMockGrade = grade;
   }
 
   // Blocks moved by hand stay where they are if the new settings still allow them
@@ -328,4 +333,23 @@ export async function deletePlan(userId: string, planId: string): Promise<{ data
     await tx.delete(s.userPlans).where(eq(s.userPlans.id, planId));
   });
   return { dataPointsDeleted };
+}
+
+/**
+ * Mock and exam results logged through "Log data" (the prediction model's data
+ * points). If the knowledge service is down, recalibrating goes on without them.
+ */
+async function loggedMockResults(userId: string, planId: string): Promise<MockResult[]> {
+  const plan = await getOwnedPlan(userId, planId);
+  if (!plan) return [];
+  try {
+    const observations = await listObservations(userId, planId);
+    return observations.flatMap((o) => {
+      const subject = o.type === "mock" || o.type === "exam" ? subjectOfDataPoint(o.weights, plan.subjects) : null;
+      return subject ? [{ subject, takenOn: o.observedAt.slice(0, 10), grade: Math.round(toGrade(o.score) * 100) / 100 }] : [];
+    });
+  } catch (e) {
+    if (e instanceof KnowledgeError) return [];
+    throw e;
+  }
 }

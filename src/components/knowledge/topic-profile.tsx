@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { chanceAtLeast, formatGrade, fromGrade, gradeSd, Z90 } from "@/lib/grades";
 import type { KnowledgeSubject, MeanSd, Timeline } from "@/lib/knowledge";
+import { formatPredictedGrade, predictionFor } from "@/lib/predictions";
 import { DAY, formatDay, useWidth } from "./chart-utils";
 import { Segmented } from "./forecast-chart";
 
@@ -230,16 +231,17 @@ function ProgressList({ axes, timeline, compareAhead }: { axes: Axis[]; timeline
       {[...bySubject.values()].map((group) => {
         const subject = group[0].subject;
         const g = groupIndex.get(subject.id);
-        const level = g !== undefined ? timeline.current.groupLevels[g] : null;
         const forecast = g !== undefined ? timeline.current.groupForecasts[g] : null;
+        // The subject's grades, as everywhere else (lib/predictions.ts).
+        const prediction = predictionFor(timeline, subject);
         const target = subject.targetGrade ? fromGrade(subject.targetGrade) : null;
         return (
           <section key={subject.id} className="border-t border-border pt-2.5 pb-1">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
               <h3 className="font-semibold">{subject.name}</h3>
-              {level && forecast && (
+              {prediction && forecast && (
                 <p className="text-xs text-muted tabular-nums">
-                  now {formatGrade(level.mean)} · exam forecast {formatGrade(forecast.mean)}
+                  now {formatPredictedGrade(prediction.current.grade)} · exam forecast {formatPredictedGrade(prediction.examDay.grade)}
                   {target !== null && ` · ${Math.round(100 * chanceAtLeast(forecast.mean, forecast.sd, target))}% chance of ${formatGrade(target)}`}
                 </p>
               )}

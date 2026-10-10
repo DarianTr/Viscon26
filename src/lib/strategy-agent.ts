@@ -1,26 +1,15 @@
 import "server-only";
 import OpenAI from "openai";
+import type { SubjectPrediction } from "./predictions";
+import {
+  buildStrategyPrompt,
+  type DataPointEntry,
+  type HourlyActivity,
+  type ScoreEntry,
+  type SubjectStat,
+} from "./strategy-prompt";
 
-export type ScoreEntry = {
-  subject: string;
-  score: number;
-  examType: "mock" | "past";
-  takenAt: string;
-  notes: string | null;
-};
-
-export type SubjectStat = {
-  subject: string;
-  total: number;
-  done: number;
-  examDate: string | null;
-};
-
-export type HourlyActivity = {
-  hour: number;      // 0–23
-  sessions: number;  // completed sessions in this hour
-  avgFocus: number | null;  // 0–100, null if no focus data
-};
+export type { DataPointEntry, HourlyActivity, ScoreEntry, SubjectStat };
 
 export type SubjectRecommendation = {
   subject: string;
@@ -114,56 +103,18 @@ export async function runStrategyAgent(
   scores: ScoreEntry[],
   subjects: SubjectStat[],
   hourlyActivity: HourlyActivity[],
+  /** The grade prediction model's results and evidence (lib/predictions.ts). */
+  model: { predictions: SubjectPrediction[]; dataPoints: DataPointEntry[] } = { predictions: [], dataPoints: [] },
 ): Promise<StrategyResult> {
   const client = new OpenAI();
-  const today = new Date().toISOString().slice(0, 10);
-
-  const sections = subjects.map((sub) => {
-    const subScores = scores.filter((sc) => sc.subject === sub.subject);
-    const pct = sub.total > 0 ? Math.round((sub.done / sub.total) * 100) : 0;
-    const examLine = sub.examDate
-      ? `Exam on ${sub.examDate.slice(0, 10)}`
-      : "No exam date set";
-
-    const scoreLines =
-      subScores.length === 0
-        ? "  No scores logged yet."
-        : subScores
-            .map(
-              (sc) =>
-                `  • ${sc.takenAt} | ${sc.examType === "mock" ? "Mock" : "Past paper"} → ${sc.score}/6` +
-                (sc.notes ? ` ("${sc.notes}")` : ""),
-            )
-            .join("\n");
-
-    return (
-      `### ${sub.subject}\n` +
-      `Progress: ${pct}% (${sub.done}/${sub.total} sessions) | ${examLine}\n` +
-      `Scores:\n${scoreLines}`
-    );
+  const userPrompt = buildStrategyPrompt({
+    today: new Date().toISOString().slice(0, 10),
+    subjects,
+    scores,
+    dataPoints: model.dataPoints,
+    predictions: model.predictions,
+    hourlyActivity,
   });
-
-  const totalSessions = hourlyActivity.reduce((s, h) => s + h.sessions, 0);
-  const behaviorSection =
-    totalSessions < 5
-      ? "Behavioral data: Fewer than 5 completed sessions — not enough data to recommend a start hour."
-      : "## Session timing behavior\n" +
-        hourlyActivity
-          .map((h) => {
-            const label = `${String(h.hour).padStart(2, "0")}:00`;
-            const focus = h.avgFocus !== null ? ` (avg focus ${h.avgFocus}/100)` : "";
-            return `  ${label}: ${h.sessions} session${h.sessions !== 1 ? "s" : ""}${focus}`;
-          })
-          .join("\n") +
-        "\nUse this to suggest a preferredStartHour that maximises productive study time.";
-
-  const userPrompt =
-    `A student on the Swiss grade system (1–6, passing = 4.0) has logged the following exam performance and study behavior. ` +
-    `Analyse each subject and give targeted, evidence-based recommendations.\n\n` +
-    `Today: ${today}\n\n` +
-    sections.join("\n\n") +
-    `\n\n${behaviorSection}` +
-    `\n\nReference the actual scores and notes — be specific, not generic.`;
 
   const response = await client.chat.completions.create({
     model: "gpt-4o-mini",

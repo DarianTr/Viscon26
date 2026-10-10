@@ -649,6 +649,26 @@ function NewPlanForm() {
         }
     }
 
+    // ── Archive: the plan moves to Past Plans with everything it holds ───────
+    const [archiving, setArchiving] = useState(false);
+    const [archiveError, setArchiveError] = useState<string | null>(null);
+    async function archivePlan() {
+        if (unsaved && !window.confirm("You have unsaved changes. Archive the plan without saving them?")) return;
+        setArchiving(true);
+        setArchiveError(null);
+        const response = await fetch(`/api/plans/${editId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ archived: true }),
+        }).catch(() => null);
+        if (response?.ok) {
+            router.push(`/plans?archived=${encodeURIComponent(planName)}`);
+            return;
+        }
+        setArchiving(false);
+        setArchiveError("Archiving the plan failed. Try again.");
+    }
+
     // ── Delete: show what goes and what stays, then delete on the server ─────
     async function startDeletion() {
         setDeletion({ phase: "loading" });
@@ -1229,8 +1249,25 @@ function NewPlanForm() {
                         </button>
                     </section>
 
-                    {/* Danger zone */}
-                    <section className="space-y-3 rounded-[1.75rem] border-2 border-red-200 p-6">
+                    {/* Archive or delete */}
+                    <section className="space-y-5 rounded-[1.75rem] border-2 border-red-200 p-6">
+                        <div className="space-y-3">
+                            <h2 className="text-lg font-bold">Archive plan</h2>
+                            <p className="text-sm text-muted">
+                                Moves this plan to Past Plans. Its sessions, results and materials all stay, and
+                                you can move it back to your current plans at any time.
+                            </p>
+                            {archiveError && <p className="text-sm text-red-600">{archiveError}</p>}
+                            <button
+                                type="button"
+                                disabled={archiving}
+                                onClick={() => void archivePlan()}
+                                className="rounded-full border-2 border-foreground/70 px-5 py-2.5 text-sm font-display font-bold hover:bg-surface-2 disabled:opacity-50"
+                            >
+                                {archiving ? "Archiving…" : "Archive plan"}
+                            </button>
+                        </div>
+                        <div className="space-y-3 border-t border-red-200 pt-5">
                         <h2 className="text-lg font-bold text-red-700">Delete plan</h2>
                         <p className="text-sm text-muted">
                             Removes this plan and its upcoming schedule. You&apos;ll see exactly what is deleted
@@ -1243,6 +1280,7 @@ function NewPlanForm() {
                         >
                             Delete plan
                         </button>
+                        </div>
                     </section>
                 </div>
             )}

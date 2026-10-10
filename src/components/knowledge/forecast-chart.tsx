@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { chanceAtLeast, formatGrade, fromGrade, gradeSd, Z90 } from "@/lib/grades";
 import type { KnowledgeSubject, MeanSd, Timeline } from "@/lib/knowledge";
+import { formatPredictedGrade, predictionFor } from "@/lib/predictions";
 import {
   DAY,
   type Density,
@@ -51,6 +52,15 @@ export function ForecastChart({ timeline, subjects, initialSubjectId, showSubjec
   const pick = (step: { groupForecasts: MeanSd[]; overall: MeanSd }) =>
     selected === ALL ? step.overall : step.groupForecasts[group];
   const forecastNow = pick(timeline.current);
+  // A subject's grades, as everywhere else (lib/predictions.ts); "All" is the plan-wide average.
+  const prediction = topic ? predictionFor(timeline, topic) : null;
+  const predicted = prediction
+    ? { grade: formatPredictedGrade(prediction.examDay.grade), low: formatPredictedGrade(prediction.examDay.low), high: formatPredictedGrade(prediction.examDay.high) }
+    : {
+        grade: formatGrade(forecastNow.mean),
+        low: formatGrade(forecastNow.mean - Z90 * forecastNow.sd),
+        high: formatGrade(forecastNow.mean + Z90 * forecastNow.sd),
+      };
 
   const steps = timeline.steps.map((s) => ({ ...s, t: Date.parse(s.at) }));
   const t0 = Math.min(steps[0]?.t ?? asOf, asOf - 7 * DAY);
@@ -148,11 +158,8 @@ export function ForecastChart({ timeline, subjects, initialSubjectId, showSubjec
       </div>
 
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label={exam ? `Predicted grade, ${formatDay(exam)}` : "Predicted grade"} value={formatGrade(forecastNow.mean)} />
-        <Stat
-          label="90% range"
-          value={`${formatGrade(forecastNow.mean - Z90 * forecastNow.sd)}–${formatGrade(forecastNow.mean + Z90 * forecastNow.sd)}`}
-        />
+        <Stat label={exam ? `Predicted grade, ${formatDay(exam)}` : "Predicted grade"} value={predicted.grade} />
+        <Stat label="90% range" value={`${predicted.low}–${predicted.high}`} />
         <Stat
           label={target !== null ? `Chance of ${formatGrade(target)} or better` : "Target"}
           value={chance !== null ? `${Math.round(100 * chance)}%` : "not set"}

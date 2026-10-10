@@ -77,3 +77,14 @@ export function cheatsheetProgress(
   }
   return out;
 }
+
+/** A logged mock or real exam result, from the exam scores or the prediction model's data points. */
+export type MockResult = { subject: string; takenOn: string; grade: number };
+
+/** The latest mock/exam grade per subject, whichever source logged it; a later log wins a tie. */
+export function latestMockGrades(results: MockResult[]): Record<string, number> {
+  const latest: Record<string, number> = {};
+  const ordered = results.map((r, i) => ({ ...r, i })).sort((a, b) => a.takenOn.localeCompare(b.takenOn) || a.i - b.i);
+  for (const r of ordered) latest[r.subject] = r.grade;
+  return latest;
+}

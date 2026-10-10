@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useState } from "react";
 import { Card } from "@/components/ui/primitives";
 import { CombinedChart } from "@/components/knowledge/combined-chart";
+import { SubjectSummary } from "@/components/plans/subject-summary";
 import type { CustomPlan } from "@/lib/queries";
 import type { KnowledgeSubject, Timeline } from "@/lib/knowledge";
+import { subjectPredictions } from "@/lib/predictions";
 
 type ExamScore = {
   id: string;
@@ -211,7 +213,7 @@ function StrategySection({
       </div>
 
       {!hasScores && !strategy && (
-        <p className="text-xs text-muted">Log exam scores first to unlock AI strategy insights.</p>
+        <p className="text-xs text-muted">Log a practice sheet, quiz or mock exam (Today → Log data) to unlock AI strategy insights.</p>
       )}
 
       {error && <p className="text-xs text-red-500">{error}</p>}
@@ -356,6 +358,8 @@ export function CustomPlanCard({
   const [knowledge, setKnowledge] = useState<{ timeline: Timeline; subjects: KnowledgeSubject[] } | null>(null);
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
+  // The detailed grade prediction model, behind "View grade prediction model".
+  const [showModel, setShowModel] = useState(false);
 
   const progress = plan.totalSessions > 0 ? plan.doneSessions / plan.totalSessions : 0;
   const progressPct = Math.round(progress * 100);
@@ -412,7 +416,9 @@ export function CustomPlanCard({
     setExpanded(next);
     if (next) {
       if (!details) fetchDetails();
-      if (!knowledge) fetchKnowledge();
+      fetchKnowledge();
+    } else {
+      setShowModel(false);
     }
   }
 
@@ -496,6 +502,16 @@ export function CustomPlanCard({
   }
 
   const subjectNames = details?.subjects.map((s) => s.subject) ?? plan.subjects;
+  // One prediction per subject from the model's latest timeline — the same
+  // values the detailed charts below show (lib/predictions.ts).
+  const predictions = knowledge ? subjectPredictions(knowledge.timeline, knowledge.subjects) : [];
+  const predictionOf = new Map(predictions.map((p) => [p.subject, p]));
+  const model = knowledgeLoading || (!knowledge && !knowledgeError)
+    ? ({ status: "loading" } as const)
+    : knowledgeError || !knowledge
+      ? ({ status: "error", message: knowledgeError ?? "Could not load the grade prediction model." } as const)
+      : ({ status: "ready", asOf: knowledge.timeline.asOf } as const);
+  const hasEvidence = !!details && (details.scores.length > 0 || predictions.some((p) => p.evidence > 0));
 
   return (
     <>
@@ -559,7 +575,7 @@ export function CustomPlanCard({
       </div>
 
       {/* Overall progress bar */}
-      <div className={`mx-4 h-1 overflow-hidden rounded-full bg-surface-2 ${expanded ? "" : variant === "past" ? "mb-3" : "mb-4"}`}>
+      <div className={`mx-4 h-2 overflow-hidden rounded-full bg-surface-2 ${expanded ? "" : variant === "past" ? "mb-3" : "mb-4"}`}>
         <div
           className="h-full rounded-full bg-accent transition-[width] duration-500"
           style={{ width: `${progressPct}%` }}
@@ -571,35 +587,54 @@ export function CustomPlanCard({
         <div className="mt-4 space-y-5 border-t border-border px-4 pt-4 pb-4">
           {loading ? (
             <p className="py-4 text-center text-sm text-muted">Loading…</p>
-          ) : details ? (
-            <>
-              {/* Per-subject progress */}
+          ) : !details ? (
+            <p className="py-4 text-center text-sm text-muted">Failed to load plan details.</p>
+          ) : !showModel ? (
+            /* Summary: progress and the model's grades per subject */
+            <SubjectSummary
+              rows={details.subjects.map((s) => ({
+                subject: s.subject,
+                done: s.done,
+                total: s.total,
+                color: subjectColor(subjectNames, s.subject),
+                prediction: predictionOf.get(s.subject) ?? null,
+              }))}
+              model={model}
+              onOpenModel={() => setShowModel(true)}
+            />
+          ) : (
+            /* The detailed grade prediction model */
+            <div className="space-y-5" id={`prediction-model-${plan.id}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted">Grade prediction model</p>
+                <button
+                  type="button"
+                  onClick={() => setShowModel(false)}
+                  className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold hover:bg-beige"
+                >
+                  ← Back to plan overview
+                </button>
+              </div>
+
+              {knowledgeLoading && <p className="py-4 text-center text-sm text-muted">Loading…</p>}
+              {!knowledgeLoading && knowledgeError && <p className="text-xs text-red-500">{knowledgeError}</p>}
+              {!knowledgeLoading && !knowledgeError && knowledge && (
+                <CombinedChart timeline={knowledge.timeline} subjects={knowledge.subjects} />
+              )}
+
+              {/* Per subject: phase, mocks and cheatsheet progress */}
               <div>
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Subject progress</p>
-                <ul className="space-y-2.5">
-                  {details.subjects.map((s) => {
-                    const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : 0;
-                    const color = subjectColor(subjectNames, s.subject);
-                    return (
-                      <li key={s.subject}>
-                        <div className="mb-1 flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1.5 text-sm font-medium">
-                            <span className="size-2 shrink-0 rounded-full" style={{ background: color }} />
-                            {s.subject}
-                          </span>
-                          <span className="text-xs text-muted tabular-nums">
-                            {details.phases?.[s.subject] && (
-                              <span className="mr-2 font-medium capitalize text-foreground">{details.phases[s.subject]}</span>
-                            )}
-                            {s.done}/{s.total} sessions
-                          </span>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
-                          <div
-                            className="h-full rounded-full transition-[width] duration-500"
-                            style={{ width: `${pct}%`, background: color }}
-                          />
-                        </div>
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Mocks and cheatsheets</p>
+                <ul className="space-y-3">
+                  {details.subjects.map((s) => (
+                    <li key={s.subject}>
+                      <p className="flex items-center gap-1.5 text-sm font-medium">
+                        <span className="size-2 shrink-0 rounded-full" style={{ background: subjectColor(subjectNames, s.subject) }} />
+                        {s.subject}
+                        {details.phases?.[s.subject] && (
+                          <span className="ml-1 text-xs font-medium capitalize text-muted">{details.phases[s.subject]} phase</span>
+                        )}
+                      </p>
                         {(details.mocks?.[s.subject]?.available ?? 0) > 0 && (
                           <p className="mt-1 text-[11px] text-muted">
                             Mocks: {details.mocks[s.subject].done} done · {details.mocks[s.subject].planned} planned
@@ -639,52 +674,28 @@ export function CustomPlanCard({
                             )}
                           </div>
                         )}
-                      </li>
-                    );
-                  })}
+                    </li>
+                  ))}
                 </ul>
               </div>
-            </>
-          ) : (
-            <p className="py-4 text-center text-sm text-muted">Failed to load plan details.</p>
+
+              {/* AI Strategy */}
+              <StrategySection
+                planId={plan.id}
+                subjectNames={subjectNames}
+                hasScores={hasEvidence}
+                strategy={strategy}
+                loading={strategyLoading}
+                error={strategyError}
+                onAnalyse={fetchStrategy}
+                onReschedule={async () => {
+                  setDetails(null);
+                  await fetchDetails();
+                }}
+              />
+            </div>
           )}
 
-          {knowledgeLoading && (
-            <p className="py-4 text-center text-sm text-muted">Loading…</p>
-          )}
-          {!knowledgeLoading && knowledgeError && (
-            <p className="text-xs text-red-500">{knowledgeError}</p>
-          )}
-          {!knowledgeLoading && !knowledgeError && knowledge && (
-            <CombinedChart timeline={knowledge.timeline} subjects={knowledge.subjects} />
-          )}
-
-          {/* AI Strategy */}
-          {details && (
-            <StrategySection
-              planId={plan.id}
-              subjectNames={subjectNames}
-              hasScores={details.scores.length > 0}
-              strategy={strategy}
-              loading={strategyLoading}
-              error={strategyError}
-              onAnalyse={fetchStrategy}
-              onReschedule={async () => {
-                setDetails(null);
-                await fetchDetails();
-              }}
-            />
-          )}
-
-          {variant === "current" && (
-            <button
-              onClick={() => void setArchived(true)}
-              disabled={archiving}
-              className="text-xs font-semibold text-muted hover:text-foreground disabled:opacity-50"
-            >
-              Archive plan
-            </button>
-          )}
           {status === "archived" && (
             <button
               onClick={() => void setArchived(false)}

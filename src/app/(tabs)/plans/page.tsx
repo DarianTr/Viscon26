@@ -13,8 +13,8 @@ export const metadata: Metadata = { title: "Plans" };
 
 export default async function PlansPage({ searchParams }: PageProps<"/plans">) {
   const user = await getCurrentUser();
-  // Set by "Delete plan" in Manage plan after a successful deletion.
-  const { deleted } = await searchParams;
+  // Set by "Delete plan" / "Archive plan" in Manage plan once they succeeded.
+  const { deleted, archived } = await searchParams;
   const [activePlan, customPlans] = await Promise.all([
     getActivePlan(user.id),
     getUserCustomPlans(user.id),
@@ -27,6 +27,11 @@ export default async function PlansPage({ searchParams }: PageProps<"/plans">) {
       {typeof deleted === "string" && (
         <p role="status" className="mb-4 rounded-2xl border-2 border-recovery/30 bg-recovery/10 px-4 py-3 text-sm font-medium text-recovery">
           “{deleted}” was deleted. Your completed sessions stay in your study history.
+        </p>
+      )}
+      {typeof archived === "string" && (
+        <p role="status" className="mb-4 rounded-2xl border-2 border-recovery/30 bg-recovery/10 px-4 py-3 text-sm font-medium text-recovery">
+          “{archived}” was archived. You&apos;ll find it under Past Plans.
         </p>
       )}
 
