@@ -174,20 +174,6 @@ export function ActivityCard({ activity }: { activity: Activity }) {
           <p className="font-semibold">{activity.user.name}</p>
           <p className="flex items-center gap-1 truncate text-xs text-muted">
             {activity.postedAgo}
-            {activity.mine && (
-              <>
-                {" · "}
-                <button
-                  onClick={toggleShared}
-                  aria-pressed={!shared}
-                  className="inline-flex items-center gap-1 rounded-full font-semibold transition-colors hover:text-foreground"
-                  title={shared ? "Visible to friends — tap to make private" : "Private — tap to share with friends"}
-                >
-                  {shared ? <GlobeIcon className="size-3" /> : <LockIcon className="size-3" />}
-                  {shared ? "Public" : "Private"}
-                </button>
-              </>
-            )}
             {activity.location && (
               <>
                 {" · "}
@@ -292,7 +278,6 @@ export function ActivityCard({ activity }: { activity: Activity }) {
         )
       )}
       {photoError && <p className="px-4 pt-2 text-sm text-tempo">{photoError}</p>}
-      {sharedError && <p className="px-4 pt-2 text-sm text-tempo">Couldn&apos;t update: {sharedError}</p>}
 
       <dl className="grid grid-cols-2 gap-2 px-4 pt-4 pb-2">
         <Metric label="Subject" value={activity.subject} className={subjectColor(activity.subject).text} />
@@ -358,6 +343,32 @@ export function ActivityCard({ activity }: { activity: Activity }) {
           </div>
         )}
       </div>
+
+      {activity.mine && (
+        <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-2">
+          {sharedError && <p className="text-xs text-tempo">Couldn&apos;t update: {sharedError}</p>}
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-muted">
+            {shared ? <GlobeIcon className="size-3" /> : <LockIcon className="size-3" />}
+            {shared ? "Public" : "Private"}
+          </span>
+          <button
+            onClick={toggleShared}
+            role="switch"
+            aria-checked={shared}
+            aria-label="Share this post with friends"
+            title={shared ? "Visible to friends — tap to make private" : "Private — tap to share with friends"}
+            className={`relative h-5 w-9 shrink-0 rounded-full border-2 border-foreground transition-colors ${
+              shared ? "bg-accent" : "bg-surface-2"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 size-3 rounded-full border border-foreground bg-surface transition-[left] ${
+                shared ? "left-[17px]" : "left-0.5"
+              }`}
+            />
+          </button>
+        </div>
+      )}
 
       {showTags && (
         <TagFriends

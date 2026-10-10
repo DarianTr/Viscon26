@@ -24,7 +24,12 @@ export default async function CalendarPage({ searchParams }: PageProps<"/calenda
           </Link>
         }
       />
-      <CalendarView events={events} subjects={subjects} initialDate={initialDate} />
+      <CalendarView
+        events={events}
+        subjects={subjects}
+        initialDate={initialDate}
+        defaultShared={user.shareSessionsByDefault}
+      />
     </>
   );
 }

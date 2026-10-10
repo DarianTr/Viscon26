@@ -74,11 +74,14 @@ export function CalendarView({
   events,
   subjects,
   initialDate,
+  defaultShared,
 }: {
   events: CalendarEvent[];
   /** Subjects to pick from when adding a session by hand. */
   subjects: SubjectChoice[];
   initialDate?: string;
+  /** The user's preferred privacy for new posts, from their profile settings. */
+  defaultShared: boolean;
 }) {
   const todayIso = useSyncExternalStore(
     noop,
@@ -96,6 +99,7 @@ export function CalendarView({
       initial={Number.isNaN(initial.getTime()) ? today : initial}
       events={events}
       subjectChoices={subjects}
+      defaultShared={defaultShared}
     />
   );
 }
@@ -107,11 +111,13 @@ function Calendar({
   initial,
   events: list,
   subjectChoices,
+  defaultShared,
 }: {
   today: Date;
   initial: Date;
   events: CalendarEvent[];
   subjectChoices: SubjectChoice[];
+  defaultShared: boolean;
 }) {
   const router = useRouter();
   const [calendarEvents, setCalendarEvents] = useState(list);
@@ -566,6 +572,7 @@ function Calendar({
           subjects={subjectChoices}
           initialMode={adding}
           day={selected}
+          defaultShared={defaultShared}
           onClose={() => setAdding(null)}
           onCreated={(task) => {
             const start = new Date(task.scheduledAt);

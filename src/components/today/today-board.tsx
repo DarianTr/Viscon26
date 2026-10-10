@@ -74,6 +74,7 @@ export function TodayBoard({
   greeting,
   date,
   firstName,
+  defaultShared,
 }: {
   initialTasks: Task[];
   /** Subjects to pick from when adding a session by hand. */
@@ -83,6 +84,8 @@ export function TodayBoard({
   greeting: string;
   date: string;
   firstName: string;
+  /** The user's preferred privacy for new posts, from their profile settings. */
+  defaultShared: boolean;
 }) {
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
@@ -387,6 +390,7 @@ export function TodayBoard({
         <AddSessionDialog
           subjects={subjects}
           initialMode="plan"
+          defaultShared={defaultShared}
           onClose={() => setAdding(false)}
           onCreated={handleCreated}
         />

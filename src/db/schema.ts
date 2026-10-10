@@ -73,6 +73,8 @@ export const users = pgTable("users", {
   isAdmin: boolean("is_admin").notNull().default(false),
   /** Tone of the daily "go study" push: savage, gentle, or off. */
   nudgeStyle: text("nudge_style").$type<NudgeStyle>().notNull().default("savage"),
+  /** Default visibility for new session posts; each post can override it. */
+  shareSessionsByDefault: boolean("share_sessions_by_default").notNull().default(true),
   /**
    * Secret in the read-only calendar feed URL (`/api/calendar/<token>.ics`).
    * Stored as-is so settings can show the link again; null means no feed.
