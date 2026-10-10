@@ -1,0 +1,16 @@
+# The `direct` service in docker-compose.yml: serves the calendar feed on the
+# VM's direct address, past the organizers' login wall, which calendar apps
+# can't get through. Caddy fetches the HTTPS certificate on its own.
+#
+# Only the feed is exposed here — each feed URL carries its own secret token.
+# Everything else (e.g. the "open in Braina" links inside events) is sent on
+# to the normal, logged-in address.
+
+{$CALENDAR_FEED_ORIGIN} {
+	handle /api/calendar/* {
+		reverse_proxy app:3000
+	}
+	handle {
+		redir {$APP_ORIGIN}{uri}
+	}
+}

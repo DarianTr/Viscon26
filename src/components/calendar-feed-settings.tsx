@@ -19,7 +19,9 @@ export function CalendarFeedSettings({ origin, token: initial }: { origin: strin
   const [confirm, dialog] = useConfirm();
 
   const url = token ? `${origin}/api/calendar/${token}.ics` : null;
-  const webcal = url?.replace(/^https?:/, "webcal:");
+  // Calendar apps fetch webcal:// links over HTTPS, so a plain-http origin
+  // (local dev) only works when the link is pasted as is.
+  const webcal = url?.startsWith("https:") ? url.replace(/^https:/, "webcal:") : null;
 
   function run(action: () => Promise<void>, done?: string) {
     setMessage(null);
@@ -77,20 +79,24 @@ export function CalendarFeedSettings({ origin, token: initial }: { origin: strin
               className="w-full rounded-xl border-2 border-border bg-surface-2 px-3.5 py-2.5 font-mono text-xs outline-none focus:border-accent"
             />
             <div className="flex flex-wrap gap-2">
-              <a
-                href={webcal}
-                className="rounded-full border-2 border-foreground bg-accent px-4 py-2 text-sm font-bold text-white shadow-[0_3px_0_0_var(--border)] active:translate-y-[3px] active:shadow-none"
-              >
-                Open in calendar app
-              </a>
-              <a
-                href={`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal!)}`}
-                target="_blank"
-                rel="noreferrer"
-                className={pill}
-              >
-                Add to Google Calendar
-              </a>
+              {webcal && (
+                <>
+                  <a
+                    href={webcal}
+                    className="rounded-full border-2 border-foreground bg-accent px-4 py-2 text-sm font-bold text-white shadow-[0_3px_0_0_var(--border)] active:translate-y-[3px] active:shadow-none"
+                  >
+                    Open in calendar app
+                  </a>
+                  <a
+                    href={`https://calendar.google.com/calendar/r?cid=${encodeURIComponent(webcal)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={pill}
+                  >
+                    Add to Google Calendar
+                  </a>
+                </>
+              )}
               <button type="button" onClick={copy} className={pill}>
                 Copy link
               </button>
