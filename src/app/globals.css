@@ -34,6 +34,32 @@
   --focus-accent: #e3573b;
 }
 
+/* --- Braina palette, dark --------------------------------------------- */
+/* The same warm, hand-drawn world lit for the evening — a dim umber-brown
+   ground instead of cream paper, closer to old leather than embers: kept
+   deliberately low-saturation so nothing reads as glowing. Toggled via the
+   DarkModeToggle bubble, which sets/removes this class on <html>. */
+:root.dark {
+  --background: #211912;
+  --surface: #2b2117;
+  --surface-2: #3a2c1e;
+  --foreground: #f1e9dc;
+  --muted: rgb(241 233 220 / 0.62);
+  --border: rgb(241 233 220 / 0.12);
+  --accent: #d6684c;
+  --accent-soft: rgb(214 104 76 / 0.18);
+  --beige: #4a3a28;
+  --teal: #4b9793;
+  --slate: #9aa7b8;
+  --gold: #d9a94a;
+  --gold-soft: rgb(217 169 74 / 0.18);
+
+  --deep: #4b9793;
+  --intervals: #d6684c;
+  --tempo: #c98a4a;
+  --recovery: #9aa7b8;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);

@@ -132,6 +132,12 @@ export const ChevronDownIcon = (p: P) => (
   </Icon>
 );
 
+export const MoonIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" />
+  </Icon>
+);
+
 export const ChevronLeftIcon = (p: P) => (
   <Icon {...p}>
     <path d="M15 5l-7 7 7 7" />
