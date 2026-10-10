@@ -259,3 +259,44 @@ def test_parent_may_be_a_group_that_is_not_a_topic(client):
     )  # fmt: skip
     assert res.status_code == 200, res.text
     assert {t["parentId"] for t in res.json()["topics"]} == {"physics"}
+
+
+def test_prune_replaces_placeholder_topics(client):
+    plan = "prune-plan"
+    placeholders = [
+        {"id": f"linalg.{x}", "name": x, "parentId": "linalg"}
+        for x in ("systems", "spaces", "eigen")
+    ]
+    assert client.put(f"/plans/{plan}/topics", json={"topics": placeholders}).status_code == 200
+    user = uuid.uuid4()
+    assert observe_in(client, plan, user, 0, {"linalg.systems": 1}).status_code == 201
+
+    real = [
+        {"id": f"lineare-algebra.{x}", "name": x, "parentId": "linalg"}
+        for x in ("vectors", "determinants", "svd", "linear-maps")
+    ]
+    # A plain PUT only adds...
+    res = client.put(f"/plans/{plan}/topics", json={"topics": real[:1]})
+    assert len(res.json()["topics"]) == 4
+    # ...prune leaves exactly the given topics.
+    res = client.put(f"/plans/{plan}/topics", params={"prune": "true"}, json={"topics": real})
+    assert [t["id"] for t in res.json()["topics"]] == [t["id"] for t in real]
+
+    tl = client.get(f"/users/{user}/plans/{plan}/timeline").json()
+    assert tl["groups"] == [{"id": "linalg", "topicIds": [t["id"] for t in real], "examDate": None}]
+    # The data point on a removed placeholder topic no longer counts.
+    assert len(tl["skipped"]) == 1 and len(tl["steps"]) == 1
+
+
+def observe_in(client, plan, user, day, weights):
+    return client.post(
+        "/observations",
+        json={
+            "userId": str(user),
+            "planId": plan,
+            "type": "quiz",
+            "observedAt": (DAY0 + timedelta(days=day)).isoformat(),
+            "score": 0.7,
+            "weights": weights,
+        },
+    )

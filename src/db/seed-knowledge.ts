@@ -1,35 +1,43 @@
 /**
  * Demo data for the knowledge pages: `npm run db:seed-knowledge`.
  *
- * Creates (or reuses) the plan "Basisprüfung (demo)" for the demo user and
- * logs six weeks of practice sheets, quizzes and mocks into the knowledge
- * service, so the grade forecast and the spider chart have something to show.
- * Re-running replaces the plan's demo data points. Needs the database and the
- * knowledge service (KNOWLEDGE_URL, default http://localhost:8000) running.
+ * Creates (or reuses) the plan "Basisprüfung (demo)" for the demo user with
+ * four first-year ETH CS courses and their real topics from `course_profiles`
+ * (run `npm run db:seed-courses` first), and logs a realistic learning phase:
+ * lectures are over, the exams are 2–5 weeks away, and for the last four
+ * weeks the student has been reviewing each course topic by topic:
  *
- * Every topic has its own hidden learning curve, so the model has real
- * differences to find: a weak topic, a fast learner, a solid one, and one
- * subject logged so rarely that the model stays unsure about it.
+ * - topic exercises on what's being reviewed, every few days (with solutions
+ *   at hand, so they run a bit high);
+ * - short self-tests on topics reviewed earlier;
+ * - full old exams under exam conditions about every ten days;
+ * - one course reviewed only sporadically, so the model stays unsure there.
+ *
+ * Every topic follows a hidden curve: where the semester left it, a slow fade
+ * since, and gains once it's reviewed. Some topics aren't reviewed yet.
+ * `--truth` prints the hidden levels for checking. Re-running replaces the
+ * plan's data points. Needs the database and the knowledge service
+ * (KNOWLEDGE_URL, default http://localhost:8000).
  */
 import { drizzle } from "drizzle-orm/postgres-js";
 import { and, eq } from "drizzle-orm";
 import postgres from "postgres";
 import * as s from "./schema";
 import { type StoredPlanConfig, type StoredSubjectConfig } from "./schema";
-import { toKnowledgeSubjects, topicsPayload, type KnowledgeSubject } from "../lib/knowledge-topics";
+import { fromGrade, toGrade, zurichNoon, zurichToday } from "../lib/grades";
+import { profileMap, toKnowledgeSubjects, topicsPayload, type KnowledgeSubject } from "../lib/knowledge-topics";
 
-const TZ = "Europe/Zurich";
 const DEMO_HANDLE = process.env.DEMO_USER_HANDLE ?? "tprazak";
 const KNOWLEDGE = (process.env.KNOWLEDGE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 const PLAN_TITLE = "Basisprüfung (demo)";
-const HISTORY_DAYS = 42;
+const SHOW_TRUTH = process.argv.includes("--truth");
 
 const client = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
 const db = drizzle(client, { schema: s });
 
 // --- Deterministic randomness ---------------------------------------------
 
-let rngState = 7;
+let rngState = 11;
 function rand() {
   rngState = (rngState + 0x6d2b79f5) | 0;
   let t = rngState;
@@ -38,104 +46,119 @@ function rand() {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 const normal = () => Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand());
+const between = (lo: number, hi: number) => lo + rand() * (hi - lo);
 const pick = <T,>(list: readonly T[]) => list[Math.floor(rand() * list.length)];
+const clamp01 = (x: number) => Math.min(0.97, Math.max(0.03, x));
 
-// --- Dates ------------------------------------------------------------------
+// --- Dates (days relative to today, in Zurich) --------------------------------
 
-const todayIso = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
+const today = zurichToday();
 const dayIso = (offset: number) => {
-  const d = new Date(`${todayIso}T12:00:00Z`);
+  const d = new Date(`${today}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + offset);
   return d.toISOString().slice(0, 10);
 };
+/** The learning phase (lectures over, exams ahead) began four weeks ago. */
+const PHASE_START = -28;
 
-// --- The demo plan ----------------------------------------------------------
+// --- The demo courses --------------------------------------------------------
 
-/** start = level 6 weeks ago, gain = what it adds by the end, tau = how fast (days). */
-type Curve = { start: number; gain: number; tau: number };
-
-const SUBJECTS: {
+type CourseSpec = {
   name: string;
-  examIn: number;
-  target: string;
   current: string;
-  curves: [Curve, Curve, Curve];
-  /** How often it gets practised: 1 = every few days, lower = rarely. */
+  target: string;
+  /** Days from today to the exam. */
+  examIn: number;
+  /** How much this student gains when reviewing a topic, relative to average. */
+  strength: number;
+  /** Chance of doing topic exercises on a given study day for this course. */
   diligence: number;
-  mocks: number[];
-}[] = [
-  {
-    name: "Analysis II",
-    examIn: 24,
-    target: "5",
-    current: "4",
-    // Series: catching up fast. Differentiation: solid. Integration: weak and slow.
-    curves: [{ start: 0.38, gain: 0.32, tau: 14 }, { start: 0.62, gain: 0.1, tau: 10 }, { start: 0.34, gain: 0.16, tau: 30 }],
-    diligence: 1,
-    mocks: [-21, -6],
-  },
-  {
-    name: "Linear Algebra",
-    examIn: 31,
-    target: "4.5",
-    current: "4.5",
-    // Systems: strong. Vector spaces: steady. Eigenvalues: improving quickly.
-    curves: [{ start: 0.74, gain: 0.08, tau: 10 }, { start: 0.55, gain: 0.18, tau: 22 }, { start: 0.42, gain: 0.28, tau: 12 }],
-    diligence: 0.9,
-    mocks: [-14],
-  },
-  {
-    name: "Physics",
-    examIn: 38,
-    target: "4.5",
-    current: "3.5",
-    // Mechanics: fine. Waves: the weak spot. Thermodynamics: coming along.
-    curves: [{ start: 0.55, gain: 0.14, tau: 15 }, { start: 0.3, gain: 0.1, tau: 25 }, { start: 0.4, gain: 0.22, tau: 15 }],
-    diligence: 0.8,
-    mocks: [-10],
-  },
-  {
-    name: "Algorithms & Data Structures",
-    examIn: 45,
-    target: "5",
-    current: "4",
-    curves: [{ start: 0.66, gain: 0.08, tau: 10 }, { start: 0.55, gain: 0.14, tau: 15 }, { start: 0.42, gain: 0.16, tau: 15 }],
-    // Barely logged yet: the model should stay unsure here.
-    diligence: 0.25,
-    mocks: [],
-  },
+  /** Full old exams written so far in the learning phase. */
+  oldExams: number;
+};
+
+const COURSES: CourseSpec[] = [
+  { name: "Diskrete Mathematik", current: "4", target: "5", examIn: 15, strength: 1.0, diligence: 0.45, oldExams: 3 },
+  { name: "Lineare Algebra", current: "4.5", target: "5", examIn: 22, strength: 1.2, diligence: 0.4, oldExams: 2 },
+  { name: "Algorithmen und Datenstrukturen", current: "4", target: "4.5", examIn: 29, strength: 0.8, diligence: 0.4, oldExams: 2 },
+  { name: "Einführung in die Programmierung", current: "4.5", target: "5", examIn: 36, strength: 1.05, diligence: 0.12, oldExams: 0 },
 ];
 
 const TYPES = {
-  practice: { points: 20, c: 2.5, bias: 0.06 }, // with notes: runs a bit high
-  quiz: { points: 12, c: 1.5, bias: 0 },
-  mock: { points: 60, c: 1.2, bias: 0 },
+  practice: { c: 2.5, bias: 0.06 }, // exercise sheets are done with notes
+  quiz: { c: 1.5, bias: 0 },
+  mock: { c: 1.2, bias: 0 },
 } as const;
 
-const level = (c: Curve, day: number) => c.start + c.gain * (1 - Math.exp(-(day + HISTORY_DAYS) / c.tau));
+// --- Hidden learning curves ---------------------------------------------------
+
+type TopicTruth = {
+  /** Level when the learning phase began (where the semester left it). */
+  start: number;
+  /** Day the student starts reviewing it; after today means not reviewed yet. */
+  reviewed: number;
+  peak: number;
+  tau: number;
+  /** Fade per day while not being reviewed. */
+  fade: number;
+};
+
+function truthFor(course: CourseSpec, topics: number): TopicTruth[] {
+  const base = fromGrade(Number(course.current));
+  // Topics are reviewed one after another, in a shuffled order; the last ones
+  // fall after today, so not everything has been reviewed yet.
+  const order = Array.from({ length: topics }, (_, i) => i).sort(() => rand() - 0.5);
+  const span = course.examIn - PHASE_START - 5; // finish reviewing shortly before the exam
+  return Array.from({ length: topics }, (_, i) => {
+    const start = clamp01(base - 0.05 + 0.12 * normal()); // some topics shaky, some solid
+    const gain = between(0.12, 0.3) * course.strength * (rand() < 0.2 ? 0.5 : 1); // some just don't click
+    return {
+      start,
+      reviewed: PHASE_START + Math.floor((order.indexOf(i) * span) / topics),
+      peak: clamp01(start + gain),
+      tau: between(3, 9),
+      fade: between(0.0005, 0.0015),
+    };
+  });
+}
+
+function level(t: TopicTruth, day: number): number {
+  const sinceStart = day - PHASE_START;
+  if (day < t.reviewed) return Math.max(0, t.start - t.fade * sinceStart);
+  const before = t.start - t.fade * (t.reviewed - PHASE_START);
+  return before + (t.peak - before) * (1 - Math.exp(-(day - t.reviewed) / t.tau));
+}
 
 type DataPoint = { type: keyof typeof TYPES; day: number; topics: string[]; points: number; maxPoints: number };
 
-function history(subject: KnowledgeSubject, spec: (typeof SUBJECTS)[number]): DataPoint[] {
+function learningPhase(subject: KnowledgeSubject, course: CourseSpec, truth: TopicTruth[]): DataPoint[] {
   const ids = subject.topics.map((t) => t.id);
   const out: DataPoint[] = [];
-  const add = (type: DataPoint["type"], day: number, idx: number[]) => {
-    const t = TYPES[type];
-    const p = idx.reduce((sum, i) => sum + level(spec.curves[i], day), 0) / idx.length + t.bias;
-    const sd = Math.sqrt((t.c * Math.max(0.05, p * (1 - p))) / t.points);
+  const add = (type: DataPoint["type"], day: number, idx: number[], maxPoints: number) => {
+    if (day >= 0 || idx.length === 0) return;
+    const p = idx.reduce((sum, i) => sum + level(truth[i], day), 0) / idx.length + TYPES[type].bias;
+    const sd = Math.sqrt((TYPES[type].c * Math.max(0.05, p * (1 - p))) / maxPoints);
     const score = Math.min(1, Math.max(0, p + sd * normal()));
-    out.push({ type, day, topics: idx.map((i) => ids[i]), points: Math.round(score * t.points), maxPoints: t.points });
+    out.push({ type, day, topics: idx.map((i) => ids[i]), points: Math.round(score * maxPoints), maxPoints });
   };
-  for (let day = -HISTORY_DAYS; day < 0; day++) {
-    // Practice sheets every few days, mostly mixing two topics.
-    if (rand() < 0.3 * spec.diligence) {
-      const first = Math.floor(rand() * 3);
-      add("practice", day, rand() < 0.65 ? [first, (first + 1 + Math.floor(rand() * 2)) % 3] : [first]);
+  const reviewedBy = (day: number) => truth.flatMap((t, i) => (t.reviewed <= day ? [i] : []));
+  const all = truth.map((_, i) => i);
+
+  for (let day = PHASE_START; day < 0; day++) {
+    if (rand() < course.diligence) {
+      // Exercises on the topic under review, sometimes together with the previous one.
+      const current = reviewedBy(day).sort((a, b) => truth[b].reviewed - truth[a].reviewed);
+      const idx = current.length > 1 && rand() < 0.35 ? current.slice(0, 2) : current.slice(0, 1);
+      add("practice", day, idx, pick([12, 16, 20, 24]));
     }
-    // A short single-topic quiz about once a week.
-    if (rand() < 0.14 * spec.diligence) add("quiz", day, [Math.floor(rand() * 3)]);
+    // About once a week, a quick self-test on something reviewed earlier.
+    const earlier = reviewedBy(day - 4);
+    if (earlier.length && rand() < 0.14 * (0.5 + course.diligence)) add("quiz", day, [pick(earlier)], pick([8, 10, 12]));
   }
-  for (const day of spec.mocks) add("mock", day, [0, 1, 2]);
+  // Full old exams under exam conditions, spread over the phase.
+  for (let k = 0; k < course.oldExams; k++) {
+    add("mock", Math.round(PHASE_START + ((k + 1) * -PHASE_START) / (course.oldExams + 1)), all, pick([60, 80, 100]));
+  }
   return out.sort((a, b) => a.day - b.day);
 }
 
@@ -156,17 +179,23 @@ async function main() {
   const [user] = await db.select({ id: s.users.id }).from(s.users).where(eq(s.users.handle, DEMO_HANDLE));
   if (!user) throw new Error(`No user @${DEMO_HANDLE}. Run npm run db:seed first.`);
 
-  const subjectConfigs: StoredSubjectConfig[] = SUBJECTS.map((x) => ({
-    name: x.name,
-    examDate: dayIso(x.examIn),
+  const profiles = profileMap(
+    await db
+      .select({ slug: s.courseProfiles.slug, aliases: s.courseProfiles.aliases, topics: s.courseProfiles.topics })
+      .from(s.courseProfiles),
+  );
+
+  const subjectConfigs: StoredSubjectConfig[] = COURSES.map((c) => ({
+    name: c.name,
+    examDate: dayIso(c.examIn),
     examDuration: "180",
-    targetGrade: x.target,
-    currentGrade: x.current,
+    targetGrade: c.target,
+    currentGrade: c.current,
     confidence: "some",
     approach: "balanced",
     customPhases: [],
-    mockCount: String(x.mocks.length),
-    allocation: Math.round(100 / SUBJECTS.length),
+    mockCount: String(c.oldExams + 2),
+    allocation: Math.round(100 / COURSES.length),
     materials: [],
     cheatsheet: "",
     comments: "",
@@ -179,6 +208,20 @@ async function main() {
     subjects: subjectConfigs,
   };
 
+  const subjects = toKnowledgeSubjects(
+    COURSES.map((c, i) => ({
+      name: c.name,
+      examDate: subjectConfigs[i].examDate,
+      targetGrade: Number(c.target),
+      currentGrade: Number(c.current),
+    })),
+    profiles,
+  );
+  const missing = subjects.filter((x) => !profiles.has(x.id)).map((x) => x.name);
+  if (missing.length) {
+    throw new Error(`No course profile for ${missing.join(", ")}. Run npm run db:seed-courses first.`);
+  }
+
   let [plan] = await db
     .select({ id: s.userPlans.id })
     .from(s.userPlans)
@@ -186,15 +229,8 @@ async function main() {
   if (plan) await db.update(s.userPlans).set({ config }).where(eq(s.userPlans.id, plan.id));
   else [plan] = await db.insert(s.userPlans).values({ userId: user.id, title: PLAN_TITLE, config }).returning({ id: s.userPlans.id });
 
-  const subjects = toKnowledgeSubjects(
-    SUBJECTS.map((x, i) => ({
-      name: x.name,
-      examDate: subjectConfigs[i].examDate,
-      targetGrade: Number(x.target),
-      currentGrade: Number(x.current),
-    })),
-  );
-  await call(`/plans/${plan.id}/topics`, { method: "PUT", body: JSON.stringify(topicsPayload(subjects)) });
+  // Exactly these topics: earlier demo runs may have left placeholder topics.
+  await call(`/plans/${plan.id}/topics?prune=true`, { method: "PUT", body: JSON.stringify(topicsPayload(subjects)) });
 
   // Replace earlier demo data points.
   const q = new URLSearchParams({ userId: user.id, planId: plan.id, limit: "1000" });
@@ -203,7 +239,9 @@ async function main() {
 
   let logged = 0;
   for (const [i, subject] of subjects.entries()) {
-    const points = history(subject, SUBJECTS[i]);
+    const course = COURSES[i];
+    const truth = truthFor(course, subject.topics.length);
+    const points = learningPhase(subject, course, truth);
     for (const p of points) {
       await call("/observations", {
         method: "POST",
@@ -211,7 +249,7 @@ async function main() {
           userId: user.id,
           planId: plan.id,
           type: p.type,
-          observedAt: `${dayIso(p.day)}T${pick(["09", "13", "17"])}:00:00+02:00`,
+          observedAt: zurichNoon(dayIso(p.day)),
           score: p.points / p.maxPoints,
           nPoints: p.maxPoints,
           weights: Object.fromEntries(p.topics.map((t) => [t, 1])),
@@ -219,7 +257,14 @@ async function main() {
         }),
       });
     }
-    console.log(`${subject.name}: ${points.length} data points`);
+    const counts = (["practice", "quiz", "mock"] as const).map((t) => points.filter((p) => p.type === t).length);
+    console.log(`${subject.name}: ${subject.topics.length} topics, ${counts[0]} exercises, ${counts[1]} self-tests, ${counts[2]} old exams`);
+    if (SHOW_TRUTH) {
+      for (const [k, t] of subject.topics.entries()) {
+        const reviewed = truth[k].reviewed < 0 ? `reviewed since ${dayIso(truth[k].reviewed)}` : "not reviewed yet";
+        console.log(`  ${t.id.padEnd(60)} true grade today ${toGrade(level(truth[k], 0)).toFixed(2)}  (${reviewed})`);
+      }
+    }
   }
   console.log(`\nLogged ${logged} data points for @${DEMO_HANDLE}. Open /plans/${plan.id}/forecast`);
 }
