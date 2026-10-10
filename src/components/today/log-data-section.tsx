@@ -25,7 +25,7 @@ export async function LogDataSection({ userId, open }: { userId: string; open: s
   if (open === undefined) {
     return (
       <>
-        <SectionTitle>Log data</SectionTitle>
+        <SectionTitle>Upload results</SectionTitle>
         <Card className="flex flex-wrap items-center justify-between gap-3">
           <p id="log-data" className="max-w-[46ch] text-sm text-muted">
             Optional: log a practice sheet, quiz, mock or exam result to update your grade forecast.
@@ -34,7 +34,7 @@ export async function LogDataSection({ userId, open }: { userId: string; open: s
             href={`/?log=${fallback.id}#log-data`}
             className="rounded-full bg-foreground px-5 py-2.5 text-sm font-semibold text-background"
           >
-            Log data
+            Upload results
           </Link>
         </Card>
       </>
@@ -56,7 +56,7 @@ export async function LogDataSection({ userId, open }: { userId: string; open: s
           </Link>
         }
       >
-        Log data
+        Upload results
       </SectionTitle>
       <div id="log-data">
         {options.length > 1 && <LogPlanPicker plans={options} value={plan.id} />}

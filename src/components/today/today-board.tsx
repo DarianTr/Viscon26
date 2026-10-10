@@ -57,6 +57,8 @@ const timeFormat = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "
 const toBoardTask = (t: TaskRecord): Task => ({
   id: t.id,
   type: t.type as SessionType,
+  activity: t.activity,
+  userPlanId: t.userPlanId,
   subject: t.subject ?? "",
   title: t.title,
   detail: t.detail,
@@ -167,6 +169,11 @@ export function TodayBoard({
     persistProgress(updated);
     setDone(running.id, true, minutes);
     setRunning(null);
+    // After exercise, mock exam, past exam paper, or quiz sessions, prompt to upload results.
+    const skipPrompt = running.activity === "mock_review" || running.activity === "cheatsheet" || running.activity === "exam_eve";
+    if (!skipPrompt && running.userPlanId) {
+      router.push(`/?log=${running.userPlanId}#log-data`);
+    }
   }
 
   return (
