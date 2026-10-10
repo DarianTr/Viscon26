@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { getSessionUser } from "@/lib/auth";
 
-/** Centered card for /login and /signup. Logged-in users go straight to the app. */
+/** Centered card for /signup. Users who already have a profile go straight to the app. */
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
   if (await getSessionUser()) redirect("/");
 

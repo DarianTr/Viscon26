@@ -10,9 +10,9 @@ export type NewUser = Pick<Row, "handle" | "name"> &
   Partial<Pick<Row, "hue" | "spiritAnimal" | "program" | "weeklyGoalHours">>;
 export type UserPatch = Partial<NewUser>;
 
-// Never send the password hash (or admin flag) out through the API.
+// Never send the email, calendar token (or admin flag) out through the API.
 function toUser(row: Row): User {
-  const { passwordHash, isAdmin, ...user } = row;
+  const { email, calendarToken, isAdmin, ...user } = row;
   return { ...user, createdAt: row.createdAt.toISOString() };
 }
 

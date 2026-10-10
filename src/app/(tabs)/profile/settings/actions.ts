@@ -5,9 +5,9 @@ import { revalidatePath } from "next/cache";
 import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema as s } from "@/db";
-import { hashPassword, verifyPassword } from "@/db/password";
 import { userFields } from "@/app/api/users/schemas";
-import { deleteOtherSessions, deleteSession, requireUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
+import { newCalendarToken } from "@/lib/calendar-feed";
 
 /*
  * Settings for the signed-in user. Each action acts on the session's user
@@ -29,22 +29,6 @@ const profileSchema = z.object({
   hue: z.coerce.number().pipe(userFields.hue),
 });
 
-const passwordSchema = z
-  .object({
-    current: z.string().min(1, "Enter your current password"),
-    next: z.string().min(8, "New password: at least 8 characters").max(200),
-    confirm: z.string(),
-  })
-  .refine((d) => d.next === d.confirm, { message: "New passwords don't match" });
-
-async function passwordMatches(userId: string, password: string) {
-  const row = await db.query.users.findFirst({
-    where: eq(s.users.id, userId),
-    columns: { passwordHash: true },
-  });
-  return !!row?.passwordHash && (await verifyPassword(password, row.passwordHash));
-}
-
 export async function updateProfile(_prev: SettingsState, form: FormData): Promise<SettingsState> {
   const user = await requireUser();
   const values = Object.fromEntries(form) as Record<string, string>;
@@ -63,31 +47,15 @@ export async function updateProfile(_prev: SettingsState, form: FormData): Promi
   return { ok: "Profile saved" };
 }
 
-export async function changePassword(_prev: SettingsState, form: FormData): Promise<SettingsState> {
-  const user = await requireUser();
-  const parsed = passwordSchema.safeParse(Object.fromEntries(form));
-  if (!parsed.success) return { error: parsed.error.issues[0].message };
-  if (!(await passwordMatches(user.id, parsed.data.current))) {
-    return { error: "Current password is wrong" };
-  }
-
-  await db
-    .update(s.users)
-    .set({ passwordHash: await hashPassword(parsed.data.next) })
-    .where(eq(s.users.id, user.id));
-  await deleteOtherSessions(user.id);
-  return { ok: "Password changed — other devices were signed out" };
-}
-
 export async function deleteAccount(_prev: SettingsState, form: FormData): Promise<SettingsState> {
   const user = await requireUser();
-  if (!(await passwordMatches(user.id, String(form.get("password") ?? "")))) {
-    return { error: "Wrong password" };
+  if (String(form.get("handle") ?? "").trim().replace(/^@/, "").toLowerCase() !== user.handle) {
+    return { error: `Type @${user.handle} to confirm` };
   }
 
-  await deleteSession();
   // Cascades to sessions, kudos, friendships, enrollments, …
   await db.delete(s.users).where(eq(s.users.id, user.id));
+  // The proxy still knows them, so they land on a fresh signup.
   redirect("/signup");
 }
 
@@ -100,4 +68,21 @@ export async function setNudgeStyle(style: string): Promise<void> {
     .update(s.users)
     .set({ nudgeStyle: nudgeStyleSchema.parse(style) })
     .where(eq(s.users.id, user.id));
+}
+
+/**
+ * Creates the user's calendar feed, or replaces its secret so every existing
+ * subscription stops updating. Returns the new token.
+ */
+export async function resetCalendarFeed(): Promise<string> {
+  const user = await requireUser();
+  const token = newCalendarToken();
+  await db.update(s.users).set({ calendarToken: token }).where(eq(s.users.id, user.id));
+  return token;
+}
+
+/** Turns the feed off; subscribed clients get a 404 from then on. */
+export async function disableCalendarFeed(): Promise<void> {
+  const user = await requireUser();
+  await db.update(s.users).set({ calendarToken: null }).where(eq(s.users.id, user.id));
 }

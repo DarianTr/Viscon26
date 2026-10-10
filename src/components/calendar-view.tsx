@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronLeftIcon, ChevronRightIcon, ClockIcon } from "@/components/icons";
 import { Card } from "@/components/ui/primitives";
-import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
+import { eventLabel, formatMinutes, phaseLabels, sessionTypes, subjectColor } from "@/lib/session-types";
 import type { CalendarEvent } from "@/lib/types";
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -12,31 +12,13 @@ const calendarHourCount = 19;
 /** Drops in the week view snap to this many minutes. */
 const dropSnapMinutes = 5;
 
-const eventStyles: Record<CalendarEvent["type"], { label: string; color: string; soft: string }> = {
+const eventStyles: Record<CalendarEvent["type"], { color: string; soft: string }> = {
   ...sessionTypes,
-  exam: { label: "Exam", color: "bg-foreground", soft: "bg-foreground text-background" },
-  lecture: { label: "Lecture", color: "bg-muted", soft: "bg-surface-2 text-muted" },
-  buffer: { label: "Buffer / Catch-up Time", color: "bg-muted/50", soft: "bg-surface-2 text-muted" },
-  break: { label: "Break", color: "bg-border", soft: "border-dashed bg-surface text-muted" },
+  exam: { color: "bg-foreground", soft: "bg-foreground text-background" },
+  lecture: { color: "bg-muted", soft: "bg-surface-2 text-muted" },
+  buffer: { color: "bg-muted/50", soft: "bg-surface-2 text-muted" },
+  break: { color: "bg-border", soft: "border-dashed bg-surface text-muted" },
 };
-
-/** Activities that need a more specific label than their session type. */
-const activityLabels: Partial<Record<NonNullable<CalendarEvent["activity"]>, string>> = {
-  mock_exam: "Mock exam",
-  mock_review: "Mock exam review",
-  cheatsheet: "Cheatsheet",
-  exam_eve: "Exam Eve — Final Review",
-  short_break: "Break",
-  lunch: "Lunch",
-  dinner: "Dinner",
-};
-
-const labelOf = (e: CalendarEvent) =>
-  (e.activity === "study" && e.cheatsheetMinutes ? "Theory + Cheatsheet" : undefined)
-  ?? (e.activity && activityLabels[e.activity])
-  ?? eventStyles[e.type].label;
-
-const phaseLabels = { foundation: "Foundation", build: "Build", peak: "Peak", taper: "Taper" } as const;
 
 /** Study blocks carry their subject's colour on the left edge, cheatsheet work included. */
 const subjectEdge = (e: CalendarEvent) =>
@@ -315,7 +297,7 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
                       e.dataTransfer.effectAllowed = "move";
                       e.dataTransfer.setData("text/plain", event.id);
                     }} onDragEnd={() => setDraggedId(null)}
-                      title={`${range} · ${labelOf(event)} · ${event.title} · drag to move`}
+                      title={`${range} · ${eventLabel(event)} · ${event.title} · drag to move`}
                       style={{ top: `${(top / 60) * 4}rem`, height: `${(height / 60) * 4}rem`, ...subjectEdge(event) }}
                       className={`absolute inset-x-0.5 overflow-hidden rounded-md border border-background px-1.5 py-1 text-[10px] leading-tight ${eventStyles[event.type].soft} ${draggedId === event.id ? "opacity-40" : "cursor-grab active:cursor-grabbing"}`}>
                       <span className="block font-semibold">{range}</span><span className="line-clamp-2">{event.title}</span>
@@ -426,7 +408,7 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
                   <span className="w-12 shrink-0 pt-3.5 text-right font-mono text-xs text-muted tabular-nums">{timeFormat.format(new Date(e.start))}</span>
                   <Card className="relative flex-1 p-4" style={subjectEdge(e)}>
                     <span className={`absolute top-5 -left-[0.8125rem] size-2.5 rounded-full ring-4 ring-background ${style.color}`} />
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${style.soft}`}>{labelOf(e)}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${style.soft}`}>{eventLabel(e)}</span>
                     {e.prepPhase && (
                       <span className="ml-2 text-[11px] font-medium text-muted">{phaseLabels[e.prepPhase]} phase</span>
                     )}

@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
-import { logout } from "@/app/(auth)/actions";
 import { listTables } from "@/lib/admin";
 import { requireAdmin } from "@/lib/auth";
 
@@ -34,9 +33,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/" className="rounded-lg px-2 py-1.5 hover:bg-surface-2">
             ← Back to app
           </Link>
-          <form action={logout}>
-            <button className="w-full rounded-lg px-2 py-1.5 text-left hover:bg-surface-2">Log out</button>
-          </form>
         </div>
       </aside>
       <main className="min-w-0 flex-1 p-6">{children}</main>
