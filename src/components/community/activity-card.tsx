@@ -294,17 +294,10 @@ export function ActivityCard({ activity }: { activity: Activity }) {
       {photoError && <p className="px-4 pt-2 text-sm text-tempo">{photoError}</p>}
       {sharedError && <p className="px-4 pt-2 text-sm text-tempo">Couldn&apos;t update: {sharedError}</p>}
 
-      <dl className="grid grid-cols-3 gap-2 px-4 pt-4">
+      <dl className="grid grid-cols-2 gap-2 px-4 pt-4 pb-2">
         <Metric label="Subject" value={activity.subject} className={subjectColor(activity.subject).text} />
         <Metric label="Time" value={formatMinutes(activity.minutes)} />
-        <Metric label="Focus" value={activity.focus === null ? "–" : `${activity.focus}%`} />
       </dl>
-
-      {activity.trace && activity.trace.length > 1 ? (
-        <FocusTrace values={activity.trace} />
-      ) : (
-        <div className="h-2" />
-      )}
 
       <div className="flex items-center gap-1 border-t-2 border-border px-2 py-1.5">
         <button
@@ -452,19 +445,3 @@ function Metric({ label, value, className = "" }: { label: string; value: string
   );
 }
 
-/** Focus-over-time sparkline — a quiet footnote, not the headline of the post. */
-function FocusTrace({ values }: { values: number[] }) {
-  const w = 300;
-  const h = 24;
-  const step = w / (values.length - 1);
-  const points = values.map((v, i) => `${i * step},${h - v * (h - 4)}`);
-  const line = `M${points.join(" L")}`;
-  return (
-    <div className="mx-4 mt-3 mb-2 text-muted" title="Focus over the session">
-      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-6 w-full opacity-60" aria-label="Focus over the session">
-        <path d={`${line} L${w},${h} L0,${h} Z`} fill="currentColor" opacity={0.08} />
-        <path d={line} fill="none" stroke="currentColor" strokeWidth={1.25} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-      </svg>
-    </div>
-  );
-}
