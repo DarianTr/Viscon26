@@ -51,6 +51,13 @@ export const api = {
       body: JSON.stringify(patch),
     }).then((r) => r.task),
 
+  /** Make your own activity visible to friends (shared) or private (only you). */
+  setActivityShared: (id: string, shared: boolean) =>
+    request<{ task: TaskRecord }>(`/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ shared }),
+    }).then((r) => r.task),
+
   setKudos: (taskId: string, on: boolean) =>
     request<void>(`/tasks/${taskId}/kudos`, { method: on ? "PUT" : "DELETE" }),
 

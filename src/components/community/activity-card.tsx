@@ -1,7 +1,18 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { BrainIcon, CameraIcon, CommentIcon, EditIcon, MapPinIcon, SwordsIcon, UsersIcon, XIcon } from "@/components/icons";
+import {
+  BrainIcon,
+  CameraIcon,
+  CommentIcon,
+  EditIcon,
+  GlobeIcon,
+  LockIcon,
+  MapPinIcon,
+  SwordsIcon,
+  UsersIcon,
+  XIcon,
+} from "@/components/icons";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Avatar, Button, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
@@ -41,6 +52,9 @@ export function ActivityCard({ activity }: { activity: Activity }) {
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
+  const [shared, setShared] = useState(activity.shared);
+  const [sharedError, setSharedError] = useState<string | null>(null);
+
   function startEdit() {
     setTitleDraft(title);
     setNoteDraft(note ?? "");
@@ -79,6 +93,17 @@ export function ActivityCard({ activity }: { activity: Activity }) {
     const next = !liked;
     setLiked(next);
     api.setKudos(activity.id, next).catch(() => setLiked(!next));
+  }
+
+  /** Flip between shared (friends can see it) and private (only you). */
+  function toggleShared() {
+    const next = !shared;
+    setShared(next);
+    setSharedError(null);
+    api.setActivityShared(activity.id, next).catch((err: Error) => {
+      setShared(!next);
+      setSharedError(err.message);
+    });
   }
 
   function toggleComments() {
@@ -149,7 +174,20 @@ export function ActivityCard({ activity }: { activity: Activity }) {
           <p className="font-semibold">{activity.user.name}</p>
           <p className="flex items-center gap-1 truncate text-xs text-muted">
             {activity.postedAgo}
-            {!activity.shared && " · Only you"}
+            {activity.mine && (
+              <>
+                {" · "}
+                <button
+                  onClick={toggleShared}
+                  aria-pressed={!shared}
+                  className="inline-flex items-center gap-1 rounded-full font-semibold transition-colors hover:text-foreground"
+                  title={shared ? "Visible to friends — tap to make private" : "Private — tap to share with friends"}
+                >
+                  {shared ? <GlobeIcon className="size-3" /> : <LockIcon className="size-3" />}
+                  {shared ? "Public" : "Private"}
+                </button>
+              </>
+            )}
             {activity.location && (
               <>
                 {" · "}
@@ -254,6 +292,7 @@ export function ActivityCard({ activity }: { activity: Activity }) {
         )
       )}
       {photoError && <p className="px-4 pt-2 text-sm text-tempo">{photoError}</p>}
+      {sharedError && <p className="px-4 pt-2 text-sm text-tempo">Couldn&apos;t update: {sharedError}</p>}
 
       <dl className="grid grid-cols-3 gap-2 px-4 pt-4">
         <Metric label="Subject" value={activity.subject} className={subjectColor(activity.subject).text} />
