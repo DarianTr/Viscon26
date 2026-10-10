@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Baloo_2, Plus_Jakarta_Sans } from "next/font/google";
+import { NumericInputWheelGuard } from "@/components/numeric-input-wheel-guard";
 import "./globals.css";
 
 const baloo = Baloo_2({
@@ -33,7 +34,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${baloo.variable} ${jakarta.variable} h-full antialiased`}
     >
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        <NumericInputWheelGuard />
+        {children}
+      </body>
     </html>
   );
 }
