@@ -59,6 +59,8 @@ type Subject = {
     currentGrade: string;
     confidence: string;
     materials: string[];
+    /** Uploaded locally; not yet persisted with the plan. */
+    files: File[];
     mockCount: string;
     approach: StudyApproach;
     customPhases: string[];
@@ -80,6 +82,7 @@ const createSubject = (): Subject => ({
     currentGrade: "",
     confidence: "",
     materials: [],
+    files: [],
     mockCount: "",
     approach: "balanced",
     customPhases: [],
@@ -99,6 +102,13 @@ const studyPhases = [
 ];
 
 const formatHours = (minutes: number) => `${Math.round(minutes / 60)} h`;
+
+/** Bytes → "12.3 KB" / "4.1 MB". */
+const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 /** Minutes after midnight → "HH:MM". */
 const clock = (minutes: number) =>
@@ -230,6 +240,9 @@ function NewPlanForm() {
     const completedCount = subjects.filter((s) => s.completed).length;
 
     const subject = step === 3 ? subjects[activeSubject] : undefined;
+
+    // Drag-and-drop state for the study materials upload zone.
+    const [materialsDragging, setMaterialsDragging] = useState(false);
 
     const inputClass =
         "w-full rounded-xl border-2 border-border bg-surface px-4 py-3 text-sm outline-none focus:border-accent";
@@ -493,7 +506,7 @@ function NewPlanForm() {
             focusDays,
             vacationRanges,
             ...(basis !== null ? { workloadBasisWeeklyMinutes: basis } : {}),
-            subjects: subjects.map(({ completed: _, ...subject }, index) => ({
+            subjects: subjects.map(({ completed: _, files: _files, ...subject }, index) => ({
                 ...subject,
                 allocation: distribution[index] ?? 0,
             })),
@@ -1323,9 +1336,74 @@ function NewPlanForm() {
                             ))}
                         </div>
 
-                        <p className="mt-3 text-xs text-muted">
-                            File uploads will be added later.
-                        </p>
+                        {/* File upload / drop zone */}
+                        <label
+                            htmlFor="materialFiles"
+                            onDragOver={(e) => {
+                                e.preventDefault();
+                                setMaterialsDragging(true);
+                            }}
+                            onDragLeave={() => setMaterialsDragging(false)}
+                            onDrop={(e) => {
+                                e.preventDefault();
+                                setMaterialsDragging(false);
+                                const dropped = Array.from(e.dataTransfer.files);
+                                if (dropped.length) updateSubject("files", [...subject.files, ...dropped]);
+                            }}
+                            className={`mt-3 flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
+                                materialsDragging
+                                    ? "border-accent bg-surface-2"
+                                    : "border-border hover:border-foreground/40"
+                            }`}
+                        >
+                            <span className="text-2xl">📎</span>
+                            <span className="text-sm font-medium">
+                                Drop files here, or click to browse
+                            </span>
+                            <span className="text-xs text-muted">
+                                Slides, exercise sheets, past exams, summaries — any format.
+                            </span>
+                            <input
+                                id="materialFiles"
+                                type="file"
+                                multiple
+                                className="sr-only"
+                                onChange={(e) => {
+                                    const picked = Array.from(e.target.files ?? []);
+                                    if (picked.length) updateSubject("files", [...subject.files, ...picked]);
+                                    e.target.value = "";
+                                }}
+                            />
+                        </label>
+
+                        {subject.files.length > 0 && (
+                            <ul className="mt-3 space-y-2">
+                                {subject.files.map((file, index) => (
+                                    <li
+                                        key={`${file.name}-${file.lastModified}-${index}`}
+                                        className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2 text-sm"
+                                    >
+                                        <span className="truncate">{file.name}</span>
+                                        <span className="flex shrink-0 items-center gap-3">
+                                            <span className="text-xs text-muted">{formatFileSize(file.size)}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    updateSubject(
+                                                        "files",
+                                                        subject.files.filter((_, i) => i !== index)
+                                                    )
+                                                }
+                                                aria-label={`Remove ${file.name}`}
+                                                className="text-muted hover:text-red-500"
+                                            >
+                                                ✕
+                                            </button>
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </div>
 
                     {/* Past exams */}
