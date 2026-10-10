@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { Brain } from "@/components/mascot/brain";
 import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { Avatar, Card } from "@/components/ui/primitives";
 import { emptyStateLines } from "@/lib/mascot";
@@ -52,9 +51,9 @@ export function CommunityTabs({
         </div>
       </div>
 
-      {segment === "Feed" && <ActivityList activities={feed} empty={emptyStateLines.noFriends} mood="confused" />}
+      {segment === "Feed" && <ActivityList activities={feed} empty={emptyStateLines.noFriends} />}
 
-      {segment === "You" && <ActivityList activities={mine} empty={emptyStateLines.noPosts} mood="sleepy" />}
+      {segment === "You" && <ActivityList activities={mine} empty={emptyStateLines.noPosts} />}
 
       {segment === "Leaderboard" && (
         <Card className="p-2">
@@ -87,19 +86,11 @@ export function CommunityTabs({
   );
 }
 
-function ActivityList({
-  activities,
-  empty,
-  mood,
-}: {
-  activities: Activity[];
-  empty: string;
-  mood: "confused" | "sleepy";
-}) {
+function ActivityList({ activities, empty }: { activities: Activity[]; empty: string }) {
   if (activities.length === 0) {
     return (
       <Card className="flex flex-col items-center gap-3 py-8 text-center">
-        {mood === "sleepy" ? <ExpressionMascot expression="sleepy" size={96} /> : <Brain expression="confused" size={72} />}
+        <ExpressionMascot expression="sleepy" size={96} />
         <p className="max-w-[28ch] text-sm text-muted">{empty}</p>
       </Card>
     );
