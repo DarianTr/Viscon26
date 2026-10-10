@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckIcon, ChevronDownIcon, ClockIcon, FlameIcon, PlayIcon } from "@/components/icons";
-import { Brain, type BrainExpression } from "@/components/mascot/brain";
+import { ExpressionMascot, type RealExpression } from "@/components/mascot/expression-mascot";
+import { LightningBolt, Sparkle, SpeechBubble, StickerLabel, WashiTape } from "@/components/mascot/doodles";
 import { Button, Card, Ring, SectionTitle } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import { emptyStateLines } from "@/lib/mascot";
@@ -27,7 +28,20 @@ function persistProgress(map: Map<string, number>) {
   } catch {}
 }
 
-export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; streak: number }) {
+export function TodayBoard({
+  initialTasks,
+  streak,
+  greeting,
+  date,
+  firstName,
+}: {
+  initialTasks: Task[];
+  streak: number;
+  /** Server-computed display strings, purely for the hero copy — no logic lives here. */
+  greeting: string;
+  date: string;
+  firstName: string;
+}) {
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
   const [running, setRunning] = useState<Task | null>(null);
@@ -50,7 +64,7 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
 
   // Purely decorative — which face the mascot pulls today. Doesn't touch
   // any streak, XP or progress calculation, just which picture shows.
-  const mood: BrainExpression =
+  const mood: RealExpression =
     total > 0 && progress === 1
       ? "celebrating"
       : streak >= 7
@@ -107,37 +121,60 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
 
   return (
     <>
-      <Card className="flex items-center gap-4">
-        <Brain expression={mood} size={64} />
-        <div className="h-12 w-px shrink-0 bg-border" />
-        <Ring value={progress} size={76} stroke={8}>
-          <div className="text-center leading-none">
-            <p className="font-display text-lg font-bold">{Math.round(progress * 100)}%</p>
-            <p className="mt-1 text-[10px] text-muted">of today</p>
-          </div>
-        </Ring>
-        <div className="grid flex-1 grid-cols-2 gap-x-4 gap-y-3">
-          <Stat label="Studied" value={formatMinutes(studied)} />
-          <Stat label="Planned" value={formatMinutes(total)} />
-          <Stat
-            label="Streak"
-            value={
-              <span className="inline-flex items-center gap-1">
-                <FlameIcon className="size-4 text-accent" />
-                {streak} days
-              </span>
-            }
-          />
-          <Stat label="Sessions" value={`${tasks.filter((t) => t.done).length}/${tasks.length}`} />
+      <div
+        className="relative overflow-hidden rounded-tl-3xl rounded-tr-[2.5rem] rounded-br-3xl rounded-bl-[2.5rem] border-[2.5px] border-foreground p-5 shadow-[0_5px_0_0_var(--foreground)]"
+        style={{ background: "linear-gradient(165deg, var(--surface) 0%, var(--beige) 135%)" }}
+      >
+        <Sparkle size={15} className="mascot-sparkle absolute top-5 right-7" />
+        <Sparkle size={9} color="var(--pink)" className="mascot-float absolute top-16 right-16" />
+
+        <p className="font-display text-xs font-bold tracking-wide text-accent uppercase">{date}</p>
+        <div className="mt-2 flex items-end gap-3">
+          <ExpressionMascot expression={mood} size={132} className="-mb-3 shrink-0" />
+          <SpeechBubble className="mb-2">
+            <h1 className="font-display text-lg leading-tight font-extrabold md:text-xl">
+              {greeting}, {firstName}!
+            </h1>
+          </SpeechBubble>
         </div>
-      </Card>
+
+        <div className="mt-5 flex items-center gap-4 border-t-2 border-dashed border-border pt-4">
+          <Ring value={progress} size={80} stroke={9}>
+            <div className="text-center leading-none">
+              <p className="font-display text-lg font-bold">{Math.round(progress * 100)}%</p>
+              <p className="mt-1 text-[10px] text-muted">of today</p>
+            </div>
+          </Ring>
+          <div className="grid flex-1 grid-cols-2 gap-x-3 gap-y-2.5">
+            <Stat label="Studied" value={formatMinutes(studied)} />
+            <Stat label="Planned" value={formatMinutes(total)} />
+            <Stat
+              label="Streak"
+              value={
+                <span className="inline-flex items-center gap-1">
+                  <FlameIcon className="size-4 text-accent" />
+                  {streak} days
+                </span>
+              }
+            />
+            <Stat label="Sessions" value={`${tasks.filter((t) => t.done).length}/${tasks.length}`} />
+          </div>
+        </div>
+      </div>
 
       {next && (
-        <div className="relative mt-4 overflow-hidden rounded-[1.75rem] border-[2.5px] border-foreground bg-accent p-5 text-surface shadow-[0_4px_0_0_var(--foreground)]">
-          <p className="font-display text-xs font-bold tracking-wide uppercase opacity-85">
-            Next mission · {next.time}
-          </p>
-          <h3 className="mt-1.5 font-display text-2xl leading-snug font-extrabold">{next.title}</h3>
+        <div className="relative mt-5 overflow-hidden rounded-tl-[2.5rem] rounded-tr-xl rounded-br-[2.5rem] rounded-bl-xl border-[2.5px] border-foreground bg-accent p-5 pr-28 text-surface shadow-[0_5px_0_0_var(--foreground)] sm:pr-36">
+          <div className="pointer-events-none absolute -top-10 -right-6 size-36 rounded-full bg-white/10" />
+          <div className="pointer-events-none absolute right-10 -bottom-16 size-28 rounded-full bg-white/10" />
+          <Sparkle size={16} className="mascot-sparkle absolute top-6 right-24 sm:right-32" color="#fff" />
+          <WashiTape color="var(--gold)" className="sticker-settle absolute -top-2.5 left-8 -rotate-6" />
+
+          <StickerLabel className="sticker-settle -rotate-2 bg-gold text-foreground">
+            <LightningBolt size={12} />
+            Next mission
+          </StickerLabel>
+          <p className="mt-2 text-xs font-bold tracking-wide opacity-85">{next.time}</p>
+          <h3 className="mt-1 font-display text-2xl leading-snug font-extrabold">{next.title}</h3>
           <p className="mt-1 text-sm opacity-90">
             {sessionTypes[next.type].label} ·{" "}
             <span className="inline-flex items-center gap-1.5">
@@ -150,8 +187,12 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
             <PlayIcon className="size-4" />
             {(inProgress.get(next.id) ?? 0) > 0 ? "Resume session" : "Start session"}
           </Button>
-          <div className="pointer-events-none absolute -top-8 -right-8 size-32 rounded-full bg-white/10" />
-          <div className="pointer-events-none absolute -right-2 -bottom-14 size-28 rounded-full bg-white/10" />
+
+          <ExpressionMascot
+            expression="excited"
+            size={150}
+            className="mascot-breathe pointer-events-none absolute -right-5 bottom-0 drop-shadow-lg"
+          />
         </div>
       )}
 
@@ -163,19 +204,20 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
       )}
       {tasks.length === 0 && (
         <Card className="flex flex-col items-center gap-3 py-8 text-center">
-          <Brain expression="sleepy" size={72} />
+          <ExpressionMascot expression="sleepy" size={96} />
           <p className="max-w-[22ch] text-sm text-muted">{emptyStateLines.noSessionsToday}</p>
         </Card>
       )}
       <ul className="flex flex-col gap-3">
-        {tasks.map((task) => {
+        {tasks.map((task, index) => {
           const type = sessionTypes[task.type];
           const savedSecs = inProgress.get(task.id) ?? 0;
           const isPaused = !task.done && savedSecs > 0;
           const isExpanded = expanded.has(task.id);
+          const tilt = task.done ? "" : index % 2 === 0 ? "sm:-rotate-[0.4deg]" : "sm:rotate-[0.4deg]";
           return (
             <li key={task.id}>
-              <Card className={`flex gap-4 p-4 transition-opacity ${task.done ? "opacity-60" : ""}`}>
+              <Card className={`flex gap-4 p-4 transition-opacity ${tilt} ${task.done ? "opacity-60" : ""}`}>
                 <div className={`w-1.5 shrink-0 rounded-full ${isPaused ? "bg-amber-400" : type.color}`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-xs">
@@ -222,7 +264,8 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
                     {task.time} · {formatMinutes(task.minutes)}
                   </p>
                 </div>
-                <div className="flex flex-col items-center justify-between gap-2">
+                <div className="relative flex flex-col items-center justify-between gap-2">
+                  {task.done && <Sparkle size={11} className="mascot-pop absolute -top-1 -right-1" />}
                   <button
                     onClick={() => setDone(task.id, !task.done)}
                     aria-label={task.done ? "Mark as not done" : "Mark as done"}
@@ -268,9 +311,9 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
 
 function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div>
-      <p className="text-[11px] font-medium text-muted">{label}</p>
-      <p className="mt-0.5 text-[15px] font-semibold">{value}</p>
+    <div className="rounded-xl border-2 border-border bg-surface-2/60 px-2.5 py-1.5">
+      <p className="text-[10px] font-bold tracking-wide text-muted uppercase">{label}</p>
+      <p className="mt-0.5 font-display text-[15px] font-bold">{value}</p>
     </div>
   );
 }
