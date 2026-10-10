@@ -104,6 +104,12 @@ export const CommentIcon = (p: P) => (
   </Icon>
 );
 
+export const ChevronDownIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M6 9l6 6 6-6" />
+  </Icon>
+);
+
 export const ChevronLeftIcon = (p: P) => (
   <Icon {...p}>
     <path d="M15 5l-7 7 7 7" />

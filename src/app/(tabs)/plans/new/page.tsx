@@ -345,6 +345,7 @@ function NewPlanForm() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     planTitle: planName,
+                    planConfig: { weeklyHours, studyDays, sessionLength, vacationRanges },
                     tasks: result.sessions.map((s) => ({
                         type: s.type,
                         subject: s.subject,
@@ -600,7 +601,8 @@ function NewPlanForm() {
                                             Start date
                                         </span>
                                         <input
-                                            type="date"
+                                            type="text"
+                                            placeholder="YYYY-MM-DD"
                                             value={range.start}
                                             onChange={(e) =>
                                                 setVacationRanges((prev) =>
@@ -620,8 +622,8 @@ function NewPlanForm() {
                                             End date
                                         </span>
                                         <input
-                                            type="date"
-                                            min={range.start || undefined}
+                                            type="text"
+                                            placeholder="YYYY-MM-DD"
                                             value={range.end}
                                             onChange={(e) =>
                                                 setVacationRanges((prev) =>

@@ -5,7 +5,7 @@ import { Card, PageHeader, SectionTitle } from "@/components/ui/primitives";
 import { getActivePlan, getCurrentUser, getUserCustomPlans } from "@/lib/queries";
 import { sessionTypes } from "@/lib/session-types";
 import type { ActivePlan } from "@/lib/types";
-import type { CustomPlan } from "@/lib/queries";
+import { CustomPlanCard } from "@/components/plans/plan-card";
 
 export const metadata: Metadata = { title: "Plans" };
 
@@ -56,29 +56,6 @@ export default async function PlansPage() {
   );
 }
 
-function CustomPlanCard({ plan }: { plan: CustomPlan }) {
-  const progress = plan.totalSessions > 0 ? plan.doneSessions / plan.totalSessions : 0;
-  const progressPct = Math.round(progress * 100);
-
-  const fmt = (iso: string) =>
-    new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-
-  return (
-    <Card className="p-4 space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="font-semibold">{plan.title}</p>
-          {plan.subjects.length > 0 && (
-            <p className="mt-0.5 text-xs text-muted">{plan.subjects.join(" · ")}</p>
-          )}
-        </div>
-        <span className="shrink-0 text-xs font-semibold tabular-nums text-muted">
-          {progressPct}%
-        </span>
-      </div>
-    </Card>
-  );
-}
 
 function ActivePlanOverview({ activePlan }: { activePlan: ActivePlan }) {
   const { plan } = activePlan;

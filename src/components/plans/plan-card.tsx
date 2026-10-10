@@ -1,0 +1,470 @@
+"use client";
+
+import { useState, useTransition, useRef } from "react";
+import { Card } from "@/components/ui/primitives";
+import type { CustomPlan } from "@/lib/queries";
+
+type ExamScore = {
+  id: string;
+  subject: string;
+  score: number;
+  examType: "mock" | "past";
+  takenAt: string;
+  notes: string | null;
+};
+
+type SubjectStat = {
+  subject: string;
+  total: number;
+  done: number;
+  examDate: string | null;
+};
+
+type PlanDetails = {
+  subjects: SubjectStat[];
+  scores: ExamScore[];
+};
+
+const PALETTE = [
+  "#6366f1",
+  "#f59e0b",
+  "#10b981",
+  "#ef4444",
+  "#8b5cf6",
+  "#3b82f6",
+  "#ec4899",
+  "#06b6d4",
+];
+
+function subjectColor(subjects: string[], subject: string) {
+  const i = subjects.indexOf(subject);
+  return PALETTE[i % PALETTE.length];
+}
+
+// ─── Score chart ────────────────────────────────────────────────────────────
+
+function ScoreChart({ scores, subjects }: { scores: ExamScore[]; subjects: string[] }) {
+  if (scores.length === 0) {
+    return (
+      <p className="py-6 text-center text-xs text-muted">
+        No scores yet — log one to start tracking your progress.
+      </p>
+    );
+  }
+
+  const W = 320, H = 130;
+  const pad = { top: 10, right: 16, bottom: 26, left: 28 };
+  const iW = W - pad.left - pad.right;
+  const iH = H - pad.top - pad.bottom;
+
+  const allTs = scores.map((s) => new Date(s.takenAt).getTime());
+  const minT = Math.min(...allTs);
+  const maxT = Math.max(...allTs);
+  const tRange = maxT === minT ? 1 : maxT - minT;
+
+  const toX = (date: string) =>
+    pad.left + ((new Date(date).getTime() - minT) / tRange) * iW;
+  const toY = (score: number) =>
+    pad.top + iH - ((score - 1) / 5) * iH;
+
+  const bySubject = new Map<string, ExamScore[]>();
+  for (const s of scores) {
+    if (!bySubject.has(s.subject)) bySubject.set(s.subject, []);
+    bySubject.get(s.subject)!.push(s);
+  }
+
+  const fmtDate = (ms: number) =>
+    new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+
+  const yTicks = [2, 3, 4, 5, 6];
+
+  return (
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full overflow-visible">
+        {/* grid + y-axis */}
+        {yTicks.map((v) => (
+          <g key={v}>
+            <line
+              x1={pad.left} y1={toY(v)}
+              x2={pad.left + iW} y2={toY(v)}
+              stroke={v === 4 ? "var(--recovery)" : "currentColor"}
+              strokeOpacity={v === 4 ? 0.6 : 0.1}
+              strokeWidth={v === 4 ? 1.5 : 1}
+              strokeDasharray={v === 4 ? undefined : "3 3"}
+            />
+            <text
+              x={pad.left - 5} y={toY(v)}
+              textAnchor="end" dominantBaseline="middle"
+              fontSize={10} fill="var(--muted)"
+            >
+              {v}
+            </text>
+          </g>
+        ))}
+        {/* y=1 tick */}
+        <text x={pad.left - 5} y={toY(1)} textAnchor="end" dominantBaseline="middle" fontSize={10} fill="var(--muted)">1</text>
+
+        {/* x-axis dates */}
+        <text x={pad.left} y={H - 4} fontSize={10} fill="var(--muted)">{fmtDate(minT)}</text>
+        {maxT !== minT && (
+          <text x={pad.left + iW} y={H - 4} textAnchor="end" fontSize={10} fill="var(--muted)">
+            {fmtDate(maxT)}
+          </text>
+        )}
+
+        {/* lines and dots per subject */}
+        {[...bySubject.entries()].map(([subject, pts]) => {
+          const sorted = [...pts].sort((a, b) => a.takenAt.localeCompare(b.takenAt));
+          const color = subjectColor(subjects, subject);
+          const d = sorted.map((p, i) => `${i === 0 ? "M" : "L"}${toX(p.takenAt).toFixed(1)},${toY(p.score).toFixed(1)}`).join(" ");
+
+          return (
+            <g key={subject}>
+              {sorted.length > 1 && (
+                <path
+                  d={d} fill="none"
+                  stroke={color} strokeWidth={2}
+                  strokeLinecap="round" strokeLinejoin="round"
+                  opacity={0.8}
+                />
+              )}
+              {sorted.map((p, i) => (
+                <circle
+                  key={i}
+                  cx={toX(p.takenAt)} cy={toY(p.score)} r={4}
+                  fill={color} stroke="var(--surface)" strokeWidth={1.5}
+                >
+                  <title>{`${p.subject}: ${p.score} (${p.examType === "mock" ? "Mock" : "Past"})`}</title>
+                </circle>
+              ))}
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* legend */}
+      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+        {subjects.filter((s) => bySubject.has(s)).map((s) => (
+          <span key={s} className="inline-flex items-center gap-1.5 text-xs text-muted">
+            <span className="size-2 rounded-full" style={{ background: subjectColor(subjects, s) }} />
+            {s}
+          </span>
+        ))}
+        <span className="ml-auto text-xs text-muted" style={{ color: "var(--recovery)" }}>
+          — passing (4.0)
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Log score form ──────────────────────────────────────────────────────────
+
+function LogScoreForm({
+  planId,
+  subjects,
+  onSaved,
+  onCancel,
+}: {
+  planId: string;
+  subjects: string[];
+  onSaved: (score: ExamScore) => void;
+  onCancel: () => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const payload = {
+      userPlanId: planId,
+      subject: fd.get("subject") as string,
+      score: parseFloat(fd.get("score") as string),
+      examType: fd.get("examType") as "mock" | "past",
+      takenAt: fd.get("takenAt") as string,
+      notes: (fd.get("notes") as string) || undefined,
+    };
+
+    startTransition(async () => {
+      setError(null);
+      try {
+        const res = await fetch("/api/exam-scores", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          setError(data.error ?? "Failed to save score");
+          return;
+        }
+        const saved: ExamScore = await res.json();
+        onSaved(saved);
+        formRef.current?.reset();
+      } catch {
+        setError("Network error — please try again");
+      }
+    });
+  }
+
+  return (
+    <form ref={formRef} onSubmit={handleSubmit} className="space-y-3 rounded-2xl bg-surface-2 p-4">
+      <p className="text-sm font-semibold">Log exam score</p>
+
+      <div className="grid grid-cols-2 gap-2">
+        {/* Subject */}
+        <div className="col-span-2">
+          <label className="mb-1 block text-xs text-muted">Subject</label>
+          <select
+            name="subject"
+            required
+            className="w-full rounded-xl bg-surface px-3 py-2 text-sm ring-1 ring-border focus:outline-none focus:ring-accent"
+          >
+            {subjects.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Score */}
+        <div>
+          <label className="mb-1 block text-xs text-muted">Score (1–6)</label>
+          <input
+            name="score"
+            type="number"
+            min={1} max={6} step={0.25}
+            required
+            placeholder="4.5"
+            className="w-full rounded-xl bg-surface px-3 py-2 text-sm ring-1 ring-border focus:outline-none focus:ring-accent"
+          />
+        </div>
+
+        {/* Date */}
+        <div>
+          <label className="mb-1 block text-xs text-muted">Date</label>
+          <input
+            name="takenAt"
+            type="date"
+            defaultValue={today}
+            required
+            className="w-full rounded-xl bg-surface px-3 py-2 text-sm ring-1 ring-border focus:outline-none focus:ring-accent"
+          />
+        </div>
+
+        {/* Exam type */}
+        <div className="col-span-2 flex gap-4">
+          {(["mock", "past"] as const).map((t) => (
+            <label key={t} className="flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="radio" name="examType" value={t}
+                defaultChecked={t === "mock"}
+                className="accent-accent"
+              />
+              {t === "mock" ? "Mock exam" : "Past paper"}
+            </label>
+          ))}
+        </div>
+
+        {/* Notes */}
+        <div className="col-span-2">
+          <label className="mb-1 block text-xs text-muted">Notes (optional)</label>
+          <input
+            name="notes"
+            type="text"
+            maxLength={500}
+            placeholder="e.g. finished with 10 min to spare"
+            className="w-full rounded-xl bg-surface px-3 py-2 text-sm ring-1 ring-border focus:outline-none focus:ring-accent"
+          />
+        </div>
+      </div>
+
+      {error && <p className="text-xs text-red-500">{error}</p>}
+
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-full px-4 py-2 text-sm text-muted hover:text-foreground"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {pending ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// ─── Main card ───────────────────────────────────────────────────────────────
+
+export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
+  const [expanded, setExpanded] = useState(false);
+  const [details, setDetails] = useState<PlanDetails | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+
+  const progress = plan.totalSessions > 0 ? plan.doneSessions / plan.totalSessions : 0;
+  const progressPct = Math.round(progress * 100);
+
+  async function handleToggle() {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && !details) {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/plans/${plan.id}`);
+        if (res.ok) setDetails(await res.json());
+      } finally {
+        setLoading(false);
+      }
+    }
+  }
+
+  function handleScoreSaved(score: ExamScore) {
+    setDetails((prev) =>
+      prev ? { ...prev, scores: [...prev.scores, score].sort((a, b) => a.takenAt.localeCompare(b.takenAt)) } : prev
+    );
+    setShowForm(false);
+  }
+
+  const subjectNames = details?.subjects.map((s) => s.subject) ?? plan.subjects;
+
+  return (
+    <Card className="overflow-hidden p-0">
+      {/* Header — always visible, click to expand */}
+      <button
+        onClick={handleToggle}
+        className="flex w-full items-start justify-between gap-3 p-4 text-left"
+      >
+        <div className="min-w-0">
+          <p className="font-semibold">{plan.title}</p>
+          {plan.subjects.length > 0 && (
+            <p className="mt-0.5 text-xs text-muted">{plan.subjects.join(" · ")}</p>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-xs font-semibold tabular-nums text-muted">{progressPct}%</span>
+          <svg
+            viewBox="0 0 16 16" className={`size-4 text-muted transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+            fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+          >
+            <polyline points="4 6 8 10 12 6" />
+          </svg>
+        </div>
+      </button>
+
+      {/* Overall progress bar */}
+      <div className="mx-4 h-1 overflow-hidden rounded-full bg-surface-2">
+        <div
+          className="h-full rounded-full bg-accent transition-[width] duration-500"
+          style={{ width: `${progressPct}%` }}
+        />
+      </div>
+
+      {/* Expanded content */}
+      {expanded && (
+        <div className="space-y-5 px-4 pt-4 pb-4">
+          {loading ? (
+            <p className="py-4 text-center text-sm text-muted">Loading…</p>
+          ) : details ? (
+            <>
+              {/* Per-subject progress */}
+              <div>
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Subject progress</p>
+                <ul className="space-y-2.5">
+                  {details.subjects.map((s) => {
+                    const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : 0;
+                    const color = subjectColor(subjectNames, s.subject);
+                    return (
+                      <li key={s.subject}>
+                        <div className="mb-1 flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1.5 text-sm font-medium">
+                            <span className="size-2 shrink-0 rounded-full" style={{ background: color }} />
+                            {s.subject}
+                          </span>
+                          <span className="text-xs text-muted tabular-nums">
+                            {s.done}/{s.total} sessions
+                          </span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
+                          <div
+                            className="h-full rounded-full transition-[width] duration-500"
+                            style={{ width: `${pct}%`, background: color }}
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+
+              {/* Exam scores section */}
+              <div>
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">Exam scores</p>
+                  {!showForm && (
+                    <button
+                      onClick={() => setShowForm(true)}
+                      className="text-xs font-semibold text-accent hover:opacity-80"
+                    >
+                      + Log score
+                    </button>
+                  )}
+                </div>
+
+                {showForm && (
+                  <LogScoreForm
+                    planId={plan.id}
+                    subjects={subjectNames}
+                    onSaved={handleScoreSaved}
+                    onCancel={() => setShowForm(false)}
+                  />
+                )}
+
+                <ScoreChart scores={details.scores} subjects={subjectNames} />
+
+                {/* Recent scores list */}
+                {details.scores.length > 0 && (
+                  <ul className="mt-3 space-y-1">
+                    {[...details.scores].reverse().slice(0, 5).map((s) => (
+                      <li key={s.id} className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            className="size-2 rounded-full"
+                            style={{ background: subjectColor(subjectNames, s.subject) }}
+                          />
+                          <span className="font-medium">{s.subject}</span>
+                          <span className="text-muted">
+                            {s.examType === "mock" ? "Mock" : "Past"} ·{" "}
+                            {new Date(s.takenAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                          </span>
+                        </span>
+                        <span
+                          className="font-semibold tabular-nums"
+                          style={{ color: s.score >= 4 ? "var(--recovery)" : "var(--intervals)" }}
+                        >
+                          {s.score.toFixed(1)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="py-4 text-center text-sm text-muted">Failed to load plan details.</p>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}

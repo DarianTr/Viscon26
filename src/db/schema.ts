@@ -90,6 +90,13 @@ export const friendships = pgTable(
 
 export type PlanPhase = { name: string; weeks: number };
 
+export type StoredPlanConfig = {
+  weeklyHours: number;
+  studyDays: string[];
+  sessionLength: number;
+  vacationRanges: { start: string; end: string }[];
+};
+
 /** A custom study plan created by the user via the plan wizard. */
 export const userPlans = pgTable(
   "user_plans",
@@ -97,6 +104,7 @@ export const userPlans = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
+    config: jsonb("config").$type<StoredPlanConfig>(),
     createdAt: createdAt(),
   },
   (t) => [index().on(t.userId)],
@@ -231,6 +239,24 @@ export const userBadges = pgTable(
     earnedAt: timestamp("earned_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.badgeId] })],
+);
+
+/** Exam scores logged by the user for mock or past exams. */
+export const examScores = pgTable(
+  "exam_scores",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userPlanId: uuid("user_plan_id").references(() => userPlans.id, { onDelete: "set null" }),
+    subject: text("subject").notNull(),
+    /** Swiss grade scale 1–6. */
+    score: real("score").notNull(),
+    examType: text("exam_type").$type<"mock" | "past">().notNull().default("mock"),
+    takenAt: date("taken_at").notNull(),
+    notes: text("notes"),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId), index().on(t.userPlanId)],
 );
 
 /** The original starter example, kept for /api/items. */

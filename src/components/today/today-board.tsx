@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckIcon, ClockIcon, FlameIcon, PlayIcon } from "@/components/icons";
+import { CheckIcon, ChevronDownIcon, ClockIcon, FlameIcon, PlayIcon } from "@/components/icons";
 import { Card, Ring, SectionTitle } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
@@ -30,6 +30,7 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
   const [tasks, setTasks] = useState(initialTasks);
   const [running, setRunning] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // Seconds accumulated per task ID from earlier, paused runs.
   const [inProgress, setInProgress] = useState<Map<string, number>>(new Map());
 
@@ -156,6 +157,7 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
           const type = sessionTypes[task.type];
           const savedSecs = inProgress.get(task.id) ?? 0;
           const isPaused = !task.done && savedSecs > 0;
+          const isExpanded = expanded.has(task.id);
           return (
             <li key={task.id}>
               <Card className={`flex gap-4 p-4 transition-opacity ${task.done ? "opacity-60" : ""}`}>
@@ -175,10 +177,31 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
                       </span>
                     )}
                   </div>
-                  <p className={`mt-1.5 font-semibold ${task.done ? "line-through" : ""}`}>
-                    {task.title}
-                  </p>
-                  {task.detail && <p className="mt-0.5 text-sm text-muted">{task.detail}</p>}
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <p className={`font-semibold ${task.done ? "line-through" : ""}`}>
+                      {task.title}
+                    </p>
+                    {task.detail && (
+                      <button
+                        onClick={() =>
+                          setExpanded((prev) => {
+                            const next = new Set(prev);
+                            next.has(task.id) ? next.delete(task.id) : next.add(task.id);
+                            return next;
+                          })
+                        }
+                        aria-label={isExpanded ? "Hide details" : "Show details"}
+                        className="text-muted transition-transform"
+                      >
+                        <ChevronDownIcon
+                          className={`size-4 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                        />
+                      </button>
+                    )}
+                  </div>
+                  {task.detail && isExpanded && (
+                    <p className="mt-0.5 text-sm text-muted">{task.detail}</p>
+                  )}
                   <p className="mt-2 flex items-center gap-1.5 text-xs text-muted">
                     <ClockIcon className="size-3.5" />
                     {task.time} · {formatMinutes(task.minutes)}

@@ -42,6 +42,9 @@ export interface ScheduledSession {
 export interface SubjectConfig {
   name: string;
   examDate: string;
+  examDuration: string;
+  targetGrade: string;
+  currentGrade: string;
   confidence: string;
   approach: string;
   customPhases: string[];
@@ -49,6 +52,7 @@ export interface SubjectConfig {
   allocation: number;
   materials: string[];
   cheatsheet: string;
+  comments: string;
 }
 
 export interface PlanConfig {
@@ -262,7 +266,8 @@ export function generateStudyPlan(config: PlanConfig): ScheduleResult {
     const weeksUntil = daysUntil / 7;
 
     const confScore = CONFIDENCE_SCORE[s.confidence] ?? 0.5;
-    const multiplier = 1.25 - 0.5 * confScore; // [0.75 … 1.25]
+    const gradeGap = Math.max(0, (Number(s.targetGrade) || 0) - (Number(s.currentGrade) || 0));
+    const multiplier = 1.25 - 0.5 * confScore + 0.05 * gradeGap; // confidence + grade gap
 
     const estHours = weeksUntil * config.weeklyHours * (s.allocation / 100);
     const mockCount = Math.max(0, parseInt(s.mockCount) || 0);
@@ -414,13 +419,15 @@ export function generateStudyPlan(config: PlanConfig): ScheduleResult {
   for (const s of subjects) {
     const examAt = new Date(s.examDate);
     examAt.setHours(9, 0, 0, 0);
+    const examSubject = config.subjects.find((cs) => cs.name === s.name);
+    const examDuration = parseInt(examSubject?.examDuration ?? "") || 180;
     result.push({
       type: "exam",
       subject: s.name,
       title: `${s.name} — Exam`,
       detail: "Your scheduled exam. Good luck!",
       scheduledAt: examAt,
-      plannedMinutes: 180,
+      plannedMinutes: examDuration,
     });
   }
 
