@@ -142,7 +142,7 @@ function SessionForm({
   const [start] = useState(() => defaultStart(mode, day));
   const [subject, setSubject] = useState(subjects[0]?.name ?? OTHER);
   const [otherSubject, setOtherSubject] = useState("");
-  const [type, setType] = useState<SessionType>("deep");
+  const [type, setType] = useState<SessionType>("theory");
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(dateValue(start));
   const [time, setTime] = useState(timeValue(start));

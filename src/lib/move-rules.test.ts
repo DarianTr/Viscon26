@@ -4,7 +4,7 @@ import { dayRule, mealRule, mockOrderRule, mockPartnerTitle, type DayBlock } fro
 
 const block = (overrides: Partial<DayBlock>): DayBlock => ({
   id: "x",
-  type: "deep",
+  type: "theory",
   activity: "study",
   subject: "Analysis",
   title: "Analysis — Theory recap 1",
@@ -34,7 +34,7 @@ describe("moving blocks by hand", () => {
   });
 
   it("keeps Exam Eve for the final review only, at most 4 h", () => {
-    const eve = block({ type: "recovery", activity: "exam_eve", title: "Analysis — Exam Eve — Final Review", minutes: 150 });
+    const eve = block({ type: "theory", activity: "exam_eve", title: "Analysis — Exam Eve — Final Review", minutes: 150 });
     assert.equal(dayRule([eve], config, undefined, ["Analysis"]), null);
     assert.match(dayRule([eve, block({ start: 14 * 60, title: "Analysis — Theory recap 9" })], config, undefined, ["Analysis"])!, /eve of your Analysis exam/);
     assert.match(dayRule([eve, block({ subject: "Physics", start: 14 * 60 })], config, undefined, ["Analysis"])!, /final review only/);
@@ -51,7 +51,7 @@ describe("moving blocks by hand", () => {
   });
 
   it("keeps a mock exam before its review", () => {
-    const mock = { ...block({ type: "tempo", activity: "mock_exam", title: "Analysis — Mock exam 2", minutes: 150 }), at: Date.UTC(2027, 2, 2, 8) };
+    const mock = { ...block({ type: "mock_exam", activity: "mock_exam", title: "Analysis — Mock exam 2", minutes: 150 }), at: Date.UTC(2027, 2, 2, 8) };
     const review = { ...block({ activity: "mock_review", title: "Analysis — Mock Exam Review 2", minutes: 60 }), at: Date.UTC(2027, 2, 2, 11) };
     assert.equal(mockPartnerTitle(mock), "Analysis — Mock Exam Review 2");
     assert.equal(mockPartnerTitle(review), "Analysis — Mock exam 2");
