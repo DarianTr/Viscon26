@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/primitives";
 import { AddSubjectWizard } from "@/components/plans/add-subject-wizard";
+import { ForecastChart } from "@/components/knowledge/forecast-chart";
+import { TopicProfile } from "@/components/knowledge/topic-profile";
 import type { CustomPlan } from "@/lib/queries";
+import type { KnowledgeSubject, Timeline } from "@/lib/knowledge";
 
 type ExamScore = {
   id: string;
@@ -80,269 +83,6 @@ const PALETTE = [
 function subjectColor(subjects: string[], subject: string) {
   const i = subjects.indexOf(subject);
   return PALETTE[i % PALETTE.length];
-}
-
-// ─── Score chart ────────────────────────────────────────────────────────────
-
-function ScoreChart({ scores, subjects }: { scores: ExamScore[]; subjects: string[] }) {
-  if (scores.length === 0) {
-    return (
-      <p className="py-6 text-center text-xs text-muted">
-        No scores yet — log one to start tracking your progress.
-      </p>
-    );
-  }
-
-  const W = 320, H = 130;
-  const pad = { top: 10, right: 16, bottom: 26, left: 28 };
-  const iW = W - pad.left - pad.right;
-  const iH = H - pad.top - pad.bottom;
-
-  const allTs = scores.map((s) => new Date(s.takenAt).getTime());
-  const minT = Math.min(...allTs);
-  const maxT = Math.max(...allTs);
-  const tRange = maxT === minT ? 1 : maxT - minT;
-
-  const toX = (date: string) =>
-    pad.left + ((new Date(date).getTime() - minT) / tRange) * iW;
-  const toY = (score: number) =>
-    pad.top + iH - ((score - 1) / 5) * iH;
-
-  const bySubject = new Map<string, ExamScore[]>();
-  for (const s of scores) {
-    if (!bySubject.has(s.subject)) bySubject.set(s.subject, []);
-    bySubject.get(s.subject)!.push(s);
-  }
-
-  const fmtDate = (ms: number) =>
-    new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-
-  const yTicks = [2, 3, 4, 5, 6];
-
-  return (
-    <div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full overflow-visible">
-        {/* grid + y-axis */}
-        {yTicks.map((v) => (
-          <g key={v}>
-            <line
-              x1={pad.left} y1={toY(v)}
-              x2={pad.left + iW} y2={toY(v)}
-              stroke={v === 4 ? "var(--recovery)" : "currentColor"}
-              strokeOpacity={v === 4 ? 0.6 : 0.1}
-              strokeWidth={v === 4 ? 1.5 : 1}
-              strokeDasharray={v === 4 ? undefined : "3 3"}
-            />
-            <text
-              x={pad.left - 5} y={toY(v)}
-              textAnchor="end" dominantBaseline="middle"
-              fontSize={10} fill="var(--muted)"
-            >
-              {v}
-            </text>
-          </g>
-        ))}
-        {/* y=1 tick */}
-        <text x={pad.left - 5} y={toY(1)} textAnchor="end" dominantBaseline="middle" fontSize={10} fill="var(--muted)">1</text>
-
-        {/* x-axis dates */}
-        <text x={pad.left} y={H - 4} fontSize={10} fill="var(--muted)">{fmtDate(minT)}</text>
-        {maxT !== minT && (
-          <text x={pad.left + iW} y={H - 4} textAnchor="end" fontSize={10} fill="var(--muted)">
-            {fmtDate(maxT)}
-          </text>
-        )}
-
-        {/* lines and dots per subject */}
-        {[...bySubject.entries()].map(([subject, pts]) => {
-          const sorted = [...pts].sort((a, b) => a.takenAt.localeCompare(b.takenAt));
-          const color = subjectColor(subjects, subject);
-          const d = sorted.map((p, i) => `${i === 0 ? "M" : "L"}${toX(p.takenAt).toFixed(1)},${toY(p.score).toFixed(1)}`).join(" ");
-
-          return (
-            <g key={subject}>
-              {sorted.length > 1 && (
-                <path
-                  d={d} fill="none"
-                  stroke={color} strokeWidth={2}
-                  strokeLinecap="round" strokeLinejoin="round"
-                  opacity={0.8}
-                />
-              )}
-              {sorted.map((p, i) => (
-                <circle
-                  key={i}
-                  cx={toX(p.takenAt)} cy={toY(p.score)} r={4}
-                  fill={color} stroke="var(--surface)" strokeWidth={1.5}
-                >
-                  <title>{`${p.subject}: ${p.score} (${p.examType === "mock" ? "Mock" : "Past"})`}</title>
-                </circle>
-              ))}
-            </g>
-          );
-        })}
-      </svg>
-
-      {/* legend */}
-      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-        {subjects.filter((s) => bySubject.has(s)).map((s) => (
-          <span key={s} className="inline-flex items-center gap-1.5 text-xs text-muted">
-            <span className="size-2 rounded-full" style={{ background: subjectColor(subjects, s) }} />
-            {s}
-          </span>
-        ))}
-        <span className="ml-auto text-xs text-muted" style={{ color: "var(--recovery)" }}>
-          — passing (4.0)
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ─── Log score form ──────────────────────────────────────────────────────────
-
-function LogScoreForm({
-  planId,
-  subjects,
-  onSaved,
-  onCancel,
-}: {
-  planId: string;
-  subjects: string[];
-  onSaved: (score: ExamScore) => void;
-  onCancel: () => void;
-}) {
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const formRef = useRef<HTMLFormElement>(null);
-
-  const today = new Date().toISOString().slice(0, 10);
-
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    const payload = {
-      userPlanId: planId,
-      subject: fd.get("subject") as string,
-      score: parseFloat(fd.get("score") as string),
-      examType: fd.get("examType") as "mock" | "past",
-      takenAt: fd.get("takenAt") as string,
-      notes: (fd.get("notes") as string) || undefined,
-    };
-
-    startTransition(async () => {
-      setError(null);
-      try {
-        const res = await fetch("/api/exam-scores", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          setError(data.error ?? "Failed to save score");
-          return;
-        }
-        const saved: ExamScore = await res.json();
-        onSaved(saved);
-        formRef.current?.reset();
-      } catch {
-        setError("Network error — please try again");
-      }
-    });
-  }
-
-  return (
-    <form ref={formRef} onSubmit={handleSubmit} className="space-y-3 rounded-2xl bg-surface-2 p-4">
-      <p className="text-sm font-semibold">Log exam score</p>
-
-      <div className="grid grid-cols-2 gap-2">
-        {/* Subject */}
-        <div className="col-span-2">
-          <label className="mb-1 block text-xs text-muted">Subject</label>
-          <select
-            name="subject"
-            required
-            className="w-full rounded-xl bg-surface px-3 py-2 text-sm ring-1 ring-border focus:outline-none focus:ring-accent"
-          >
-            {subjects.map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Score */}
-        <div>
-          <label className="mb-1 block text-xs text-muted">Score (1–6)</label>
-          <input
-            name="score"
-            type="number"
-            min={1} max={6} step={0.25}
-            required
-            placeholder="4.5"
-            className="w-full rounded-xl bg-surface px-3 py-2 text-sm ring-1 ring-border focus:outline-none focus:ring-accent"
-          />
-        </div>
-
-        {/* Date */}
-        <div>
-          <label className="mb-1 block text-xs text-muted">Date</label>
-          <input
-            name="takenAt"
-            type="date"
-            defaultValue={today}
-            required
-            className="w-full rounded-xl bg-surface px-3 py-2 text-sm ring-1 ring-border focus:outline-none focus:ring-accent"
-          />
-        </div>
-
-        {/* Exam type */}
-        <div className="col-span-2 flex gap-4">
-          {(["mock", "past"] as const).map((t) => (
-            <label key={t} className="flex cursor-pointer items-center gap-2 text-sm">
-              <input
-                type="radio" name="examType" value={t}
-                defaultChecked={t === "mock"}
-                className="accent-accent"
-              />
-              {t === "mock" ? "Mock exam" : "Past paper"}
-            </label>
-          ))}
-        </div>
-
-        {/* Notes */}
-        <div className="col-span-2">
-          <label className="mb-1 block text-xs text-muted">Notes (optional)</label>
-          <input
-            name="notes"
-            type="text"
-            maxLength={500}
-            placeholder="e.g. finished with 10 min to spare"
-            className="w-full rounded-xl bg-surface px-3 py-2 text-sm ring-1 ring-border focus:outline-none focus:ring-accent"
-          />
-        </div>
-      </div>
-
-      {error && <p className="text-xs text-red-500">{error}</p>}
-
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-full px-4 py-2 text-sm text-muted hover:text-foreground"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          {pending ? "Saving…" : "Save"}
-        </button>
-      </div>
-    </form>
-  );
 }
 
 // ─── Changes summary ─────────────────────────────────────────────────────────
@@ -584,7 +324,6 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
   const [expanded, setExpanded] = useState(false);
   const [details, setDetails] = useState<PlanDetails | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showForm, setShowForm] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [strategy, setStrategy] = useState<StrategyResult | null>(() => {
     if (typeof window === "undefined") return null;
@@ -601,6 +340,10 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
   const [savingReport, setSavingReport] = useState(false);
   const [caughtUp, setCaughtUp] = useState<{ subject: string; actual: number; planned: number; addedMinutes: number } | null>(null);
   const [strategyError, setStrategyError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"forecast" | "subjects">("forecast");
+  const [knowledge, setKnowledge] = useState<{ timeline: Timeline; subjects: KnowledgeSubject[] } | null>(null);
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
 
   const progress = plan.totalSessions > 0 ? plan.doneSessions / plan.totalSessions : 0;
   const progressPct = Math.round(progress * 100);
@@ -615,21 +358,31 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
     }
   }
 
+  async function fetchKnowledge() {
+    setKnowledgeLoading(true);
+    setKnowledgeError(null);
+    try {
+      const res = await fetch(`/api/plans/${plan.id}/knowledge`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setKnowledgeError(data.error ?? "Could not load knowledge data.");
+        return;
+      }
+      setKnowledge(await res.json());
+    } catch {
+      setKnowledgeError("Network error — please try again.");
+    } finally {
+      setKnowledgeLoading(false);
+    }
+  }
+
   async function handleToggle() {
     const next = !expanded;
     setExpanded(next);
-    if (next && !details) await fetchDetails();
-  }
-
-  function handleScoreSaved(score: ExamScore) {
-    setDetails((prev) =>
-      prev ? { ...prev, scores: [...prev.scores, score].sort((a, b) => a.takenAt.localeCompare(b.takenAt)) } : prev
-    );
-    setShowForm(false);
-    // Invalidate cached strategy so the user is prompted to refresh
-    setStrategy(null);
-    localStorage.removeItem(`strategy-${plan.id}`);
-    void reassessMocks();
+    if (next) {
+      if (!details) fetchDetails();
+      if (!knowledge) fetchKnowledge();
+    }
   }
 
   // A new result can change how many mocks are worth doing: preview the plan, and
@@ -711,6 +464,13 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
     }
   }
 
+  useEffect(() => {
+    if (details && details.scores.length > 0 && !strategy && !strategyLoading) {
+      fetchStrategy();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [details]);
+
   const subjectNames = details?.subjects.map((s) => s.subject) ?? plan.subjects;
 
   return (
@@ -780,214 +540,60 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
         </Link>
       </div>
 
-      {/* Knowledge pages: always visible, no need to expand the card */}
-      <div className="flex flex-wrap gap-2 px-4 pt-3 pb-4">
-        <Link
-          href={`/plans/${plan.id}/forecast`}
-          className="rounded-full bg-foreground px-4 py-2 text-xs font-semibold text-background"
-        >
-          Grade forecast
-        </Link>
-        <Link href={`/plans/${plan.id}/topics`} className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold">
-          Subjects
-        </Link>
-        <Link href={`/plans/${plan.id}/log`} className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold">
-          Log data
-        </Link>
-      </div>
-
       {/* Expanded content */}
       {expanded && (
         <div className="space-y-5 border-t border-border px-4 pt-4 pb-4">
-          {loading ? (
+          {/* Tab bar */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setTab("forecast")}
+              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${tab === "forecast" ? "bg-foreground text-background" : "bg-surface-2 text-foreground"}`}
+            >
+              Grade forecast
+            </button>
+            <button
+              onClick={() => setTab("subjects")}
+              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${tab === "subjects" ? "bg-foreground text-background" : "bg-surface-2 text-foreground"}`}
+            >
+              Subjects
+            </button>
+            <Link href={`/plans/${plan.id}/log`} className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold">
+              Log data
+            </Link>
+            <button
+              onClick={() => setShowWizard(true)}
+              className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold hover:opacity-80"
+            >
+              + Add subject
+            </button>
+          </div>
+
+          {/* Tab content */}
+          {knowledgeLoading ? (
             <p className="py-4 text-center text-sm text-muted">Loading…</p>
-          ) : details ? (
-            <>
-              {/* Per-subject progress */}
-              <div>
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">Subject progress</p>
-                  <button
-                    onClick={() => setShowWizard(true)}
-                    className="text-xs font-semibold text-accent hover:opacity-80"
-                  >
-                    + Add subject
-                  </button>
-                </div>
-                <ul className="space-y-2.5">
-                  {details.subjects.map((s) => {
-                    const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : 0;
-                    const color = subjectColor(subjectNames, s.subject);
-                    return (
-                      <li key={s.subject}>
-                        <div className="mb-1 flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1.5 text-sm font-medium">
-                            <span className="size-2 shrink-0 rounded-full" style={{ background: color }} />
-                            {s.subject}
-                          </span>
-                          <span className="text-xs text-muted tabular-nums">
-                            {s.done}/{s.total} sessions
-                          </span>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
-                          <div
-                            className="h-full rounded-full transition-[width] duration-500"
-                            style={{ width: `${pct}%`, background: color }}
-                          />
-                        </div>
-                        {(details.mocks?.[s.subject]?.available ?? 0) > 0 && (
-                          <p className="mt-1 text-[11px] text-muted">
-                            Mocks: {details.mocks[s.subject].done} done · {details.mocks[s.subject].planned} planned
-                            {details.mocks[s.subject].reserve > 0 && ` · ${details.mocks[s.subject].reserve} in reserve`}
-                          </p>
-                        )}
-                        {details.cheatsheet?.[s.subject] && (
-                          <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
-                            <span>
-                              Cheatsheet: {details.cheatsheet[s.subject].actual}% {details.cheatsheet[s.subject].reported ? "reported" : "done"}
-                              {" · "}{details.cheatsheet[s.subject].planned}% planned by now
-                            </span>
-                            {reporting?.subject === s.subject ? (
-                              <span className="flex items-center gap-1">
-                                <input
-                                  aria-label={`${s.subject} cheatsheet progress in percent`}
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={reporting.percent}
-                                  onChange={(e) => setReporting({ subject: s.subject, percent: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })}
-                                  className="w-14 rounded-md border border-border bg-background px-1.5 py-0.5"
-                                />
-                                %
-                                <button onClick={() => void reportCheatsheet()} disabled={savingReport} className="font-semibold text-accent disabled:opacity-50">
-                                  {savingReport ? "Saving…" : "Save"}
-                                </button>
-                                <button onClick={() => setReporting(null)}>Cancel</button>
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => setReporting({ subject: s.subject, percent: details.cheatsheet[s.subject].actual })}
-                                className="font-semibold text-accent"
-                              >
-                                Update progress
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
+          ) : knowledgeError ? (
+            <p className="text-xs text-red-500">{knowledgeError}</p>
+          ) : knowledge ? (
+            tab === "forecast"
+              ? <ForecastChart timeline={knowledge.timeline} subjects={knowledge.subjects} />
+              : <TopicProfile timeline={knowledge.timeline} subjects={knowledge.subjects} />
+          ) : null}
 
-              {/* Exam scores section */}
-              <div>
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">Exam scores</p>
-                  {!showForm && (
-                    <button
-                      onClick={() => setShowForm(true)}
-                      className="text-xs font-semibold text-accent hover:opacity-80"
-                    >
-                      + Log score
-                    </button>
-                  )}
-                </div>
-
-                {caughtUp && (
-                  <div className="mb-3 space-y-1 rounded-2xl bg-surface-2 p-3 text-xs">
-                    <p className="font-semibold">Catching up on your {caughtUp.subject} cheatsheet</p>
-                    <p className="text-muted">
-                      {caughtUp.actual}% done, {caughtUp.planned}% was planned by now — your remaining schedule now has
-                      {caughtUp.addedMinutes > 0 ? ` ${Math.round((caughtUp.addedMinutes / 60) * 10) / 10} h more` : " more"} cheatsheet time.
-                      Completed sessions, results and blocks you moved stay.
-                    </p>
-                    <button onClick={() => setCaughtUp(null)} className="font-semibold text-muted">Dismiss</button>
-                  </div>
-                )}
-
-                {mockChanges && (
-                  <div className="mb-3 space-y-2 rounded-2xl bg-surface-2 p-3 text-xs">
-                    <p className="font-semibold">Your result changes your mock plan</p>
-                    <ul className="space-y-1 text-muted">
-                      {mockChanges.map((c) => (
-                        <li key={c.subject}>
-                          <span className="font-medium text-foreground">{c.subject}</span>: {c.from} → {c.to} planned mock{c.to === 1 ? "" : "s"}. {c.reason}
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => void applyMockChanges()}
-                        disabled={updatingMocks}
-                        className="rounded-full bg-accent px-3 py-1.5 font-semibold text-white disabled:opacity-50"
-                      >
-                        {updatingMocks ? "Updating…" : "Update schedule"}
-                      </button>
-                      <button onClick={() => setMockChanges(null)} className="rounded-full px-3 py-1.5 font-semibold text-muted">
-                        Not now
-                      </button>
-                    </div>
-                    <p className="text-muted">Updating rebuilds your remaining schedule; completed sessions and results stay.</p>
-                  </div>
-                )}
-
-                {showForm && (
-                  <LogScoreForm
-                    planId={plan.id}
-                    subjects={subjectNames}
-                    onSaved={handleScoreSaved}
-                    onCancel={() => setShowForm(false)}
-                  />
-                )}
-
-                <ScoreChart scores={details.scores} subjects={subjectNames} />
-
-                {/* Recent scores list */}
-                {details.scores.length > 0 && (
-                  <ul className="mt-3 space-y-1">
-                    {[...details.scores].reverse().slice(0, 5).map((s) => (
-                      <li key={s.id} className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1.5">
-                          <span
-                            className="size-2 rounded-full"
-                            style={{ background: subjectColor(subjectNames, s.subject) }}
-                          />
-                          <span className="font-medium">{s.subject}</span>
-                          <span className="text-muted">
-                            {s.examType === "mock" ? "Mock" : "Past"} ·{" "}
-                            {new Date(s.takenAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                          </span>
-                        </span>
-                        <span
-                          className="font-semibold tabular-nums"
-                          style={{ color: s.score >= 4 ? "var(--recovery)" : "var(--intervals)" }}
-                        >
-                          {s.score.toFixed(1)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              {/* AI Strategy section */}
-              <StrategySection
-                planId={plan.id}
-                subjectNames={subjectNames}
-                hasScores={details.scores.length > 0}
-                strategy={strategy}
-                loading={strategyLoading}
-                error={strategyError}
-                onAnalyse={fetchStrategy}
-                onReschedule={async () => {
-                  setDetails(null);
-                  await fetchDetails();
-                }}
-              />
-            </>
-          ) : (
-            <p className="py-4 text-center text-sm text-muted">Failed to load plan details.</p>
+          {/* AI Strategy */}
+          {details && (
+            <StrategySection
+              planId={plan.id}
+              subjectNames={subjectNames}
+              hasScores={details.scores.length > 0}
+              strategy={strategy}
+              loading={strategyLoading}
+              error={strategyError}
+              onAnalyse={fetchStrategy}
+              onReschedule={async () => {
+                setDetails(null);
+                await fetchDetails();
+              }}
+            />
           )}
         </div>
       )}

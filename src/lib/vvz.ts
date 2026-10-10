@@ -4,13 +4,30 @@
  * Fetches a course detail page and extracts topic/content information from the
  * "Inhalt" / "Content" section. Falls back gracefully — callers are expected to
  * supply curated topics whenever the fetch or parse fails.
+ *
+ * Also discovers publicly-accessible course materials (PDFs, exercise sheets,
+ * scripts) linked from the course's own website.
  */
 
 export type VvzCourseData = {
   name: string;
   description: string;
   topics: string[];
+  /** VVZ "Lernziel" / "Learning objective" section. */
+  learningObjectives: string;
+  /** VVZ "Literatur" / "Literature" section (textbook references). */
+  literature: string;
+  /** Script/lecture-notes note from VVZ "Skript" / "Lecture notes" section. */
+  scriptNote: string;
+  /** First external non-ETH-VVZ URL found in the course's links section. */
+  websiteUrl: string | null;
   sourceUrl: string;
+};
+
+export type ResourceLink = {
+  title: string;
+  url: string;
+  type: "script" | "exercises" | "slides" | "exam" | "solution" | "website" | "other";
 };
 
 const VVZ_BASE =
@@ -77,16 +94,133 @@ export async function fetchVvzCourseByName(name: string): Promise<VvzCourseData 
   return null;
 }
 
+/**
+ * Fetches a course website and returns links to course materials (PDFs,
+ * exercise sheets, scripts). Handles relative URLs. Returns at most 40
+ * links to avoid flooding the DB.
+ */
+export async function discoverResourceLinks(websiteUrl: string): Promise<ResourceLink[]> {
+  let html: string;
+  try {
+    const res = await fetch(websiteUrl, {
+      headers: { Accept: "text/html", "User-Agent": "VisCon26/1.0 (course-profiler)" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return [];
+    html = await res.text();
+  } catch {
+    return [];
+  }
+
+  const base = new URL(websiteUrl);
+  const links: ResourceLink[] = [];
+  const seen = new Set<string>();
+
+  // Match all <a href="...">text</a> pairs.
+  const linkRe = /<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = linkRe.exec(html)) !== null && links.length < 40) {
+    const raw = m[1].trim();
+    const text = stripHtml(m[2]).replace(/\s+/g, " ").trim();
+    if (!raw || raw.startsWith("#") || raw.startsWith("javascript:")) continue;
+
+    let href: string;
+    try {
+      href = new URL(raw, base).href;
+    } catch {
+      continue;
+    }
+    if (seen.has(href)) continue;
+    seen.add(href);
+
+    const type = classifyResource(href, text);
+    if (type === null) continue; // skip nav links, images, etc.
+
+    const title = text.length >= 3 ? text : inferTitle(href);
+    links.push({ title: title.slice(0, 200), url: href, type });
+  }
+
+  return links;
+}
+
+/**
+ * Fetches a URL and returns the plain-text content, capped at 100 k chars.
+ * Returns null for non-HTML responses (PDFs, images) or on error.
+ */
+export async function fetchPageContent(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { Accept: "text/html", "User-Agent": "VisCon26/1.0 (course-profiler)" },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return null;
+    const ct = res.headers.get("content-type") ?? "";
+    // Only extract text from HTML pages, not PDFs or binaries.
+    if (!ct.includes("html") && !ct.includes("text/plain")) return null;
+    const html = await res.text();
+    const text = stripHtml(html).replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+    return text.slice(0, 100_000);
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Internal: resource classification
+// ---------------------------------------------------------------------------
+
+const EXERCISE_RE = /exercise|exercises|uebung|übung|serie|blatt|aufgabe|homework|hw\d/i;
+const SCRIPT_RE = /script|skript|lecture.note|notes|vorlesung/i;
+const SOLUTION_RE = /solution|lösung|losung|sol\b/i;
+const EXAM_RE = /exam|pruefung|prüfung|klausur|midterm|final/i;
+const SLIDES_RE = /slide|folie|presentation/i;
+
+function classifyResource(url: string, text: string): ResourceLink["type"] | null {
+  const combined = `${url} ${text}`.toLowerCase();
+
+  // Always include PDFs — they're course materials.
+  const isPdf = url.toLowerCase().endsWith(".pdf");
+
+  // Skip clearly non-content links.
+  const skip = /\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|mp4|zip)$/i;
+  if (!isPdf && skip.test(url)) return null;
+
+  // Skip pure navigation links (very short text, no PDF, no keywords).
+  if (!isPdf && text.length < 4 && !EXERCISE_RE.test(combined) && !SCRIPT_RE.test(combined)) {
+    return null;
+  }
+
+  if (SOLUTION_RE.test(combined)) return "solution";
+  if (EXAM_RE.test(combined)) return "exam";
+  if (EXERCISE_RE.test(combined)) return "exercises";
+  if (SLIDES_RE.test(combined)) return "slides";
+  if (SCRIPT_RE.test(combined)) return "script";
+  if (isPdf) return "other";
+
+  // Non-PDF links that don't match keywords: only keep if they look like
+  // sub-pages of the same course site.
+  return "website";
+}
+
+function inferTitle(url: string): string {
+  try {
+    const path = new URL(url).pathname;
+    return path.split("/").filter(Boolean).pop()?.replace(/[-_]/g, " ").replace(/\.pdf$/i, "") ?? url;
+  } catch {
+    return url;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Internal: VVZ HTML parsing
+// ---------------------------------------------------------------------------
+
 /** Extracts the first ETH course code (e.g. "252-0025-01") found in HTML. */
 function extractCourseCodeFromHtml(html: string): string | null {
   // VVZ search results contain links like: lerneinheitscode=252-0025-01
   const m = html.match(/lerneinheitscode=(\d{3}-\d{4}-\d{2})/i);
   return m?.[1] ?? null;
 }
-
-// ---------------------------------------------------------------------------
-// HTML parsing helpers
-// ---------------------------------------------------------------------------
 
 function parseVvzHtml(html: string, sourceUrl: string): VvzCourseData | null {
   const name = extractTitle(html);
@@ -97,7 +231,21 @@ function parseVvzHtml(html: string, sourceUrl: string): VvzCourseData | null {
   const topics = extractTopics(contentHtml);
   if (topics.length === 0) return null;
 
-  return { name, description, topics, sourceUrl };
+  const learningObjectives = extractSectionText(html, [
+    "Learning objective",
+    "Lernziel",
+    "Learning objectives",
+  ]);
+  const literature = extractSectionText(html, [
+    "Literature / Suggested reading",
+    "Literatur",
+    "Literature",
+    "Suggested reading",
+  ]);
+  const scriptNote = extractSectionText(html, ["Lecture notes", "Skript"]);
+  const websiteUrl = extractCourseWebsite(html, sourceUrl);
+
+  return { name, description, topics, learningObjectives, literature, scriptNote, websiteUrl, sourceUrl };
 }
 
 function extractTitle(html: string): string {
@@ -131,6 +279,42 @@ function extractSection(html: string, labels: string[]): string | null {
     if (headingMatch?.[1]?.trim()) return headingMatch[1];
   }
   return null;
+}
+
+/** Extract a section as plain text (used for objectives, literature, etc.). */
+function extractSectionText(html: string, labels: string[]): string {
+  const sectionHtml = extractSection(html, labels);
+  if (!sectionHtml) return "";
+  return stripHtml(sectionHtml).replace(/\s+/g, " ").trim().slice(0, 2000);
+}
+
+/**
+ * Finds the course's own website URL from the VVZ "Links" or content
+ * sections. Prefers non-VVZ ETH links (n.ethz.ch, disco.ethz.ch, etc.)
+ * over generic ETH.ch navigation.
+ */
+function extractCourseWebsite(html: string, sourceUrl: string): string | null {
+  // Try the explicit Links section first.
+  const linksHtml =
+    extractSection(html, ["Links", "Link", "External links", "Webseite", "Website"]) ?? html;
+
+  const hrefRe = /href=["']([^"']+)["']/gi;
+  const skip = /vvz\.ethz\.ch|javascript:|mailto:|#|\.css|\.js|www\.ethz\.ch\/en\/|\.ethz\.ch\/(de|en)\//i;
+  const prefer = /\.ethz\.ch\//i;
+
+  const candidates: string[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = hrefRe.exec(linksHtml)) !== null) {
+    const href = m[1].trim();
+    if (!href.startsWith("http")) continue;
+    if (skip.test(href)) continue;
+    candidates.push(href);
+  }
+
+  // Prefer links that look like course sub-sites over generic ETH pages.
+  return candidates.find((u) => prefer.test(u) && !u.includes("news") && !u.includes("search"))
+    ?? candidates[0]
+    ?? null;
 }
 
 function extractTopics(html: string): string[] {

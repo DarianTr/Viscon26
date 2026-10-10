@@ -52,7 +52,15 @@ export async function PATCH(_req: Request, ctx: Ctx) {
 
     await db
       .update(s.courseProfiles)
-      .set({ topics, description: vvz.description, sourceUrl: vvz.sourceUrl, fetchedAt: new Date() })
+      .set({
+        topics,
+        description: vvz.description,
+        learningObjectives: vvz.learningObjectives || null,
+        literature: vvz.literature || null,
+        websiteUrl: vvz.websiteUrl ?? null,
+        sourceUrl: vvz.sourceUrl,
+        fetchedAt: new Date(),
+      })
       .where(eq(s.courseProfiles.slug, slug));
 
     return Response.json({ slug, topicCount: topics.length });
