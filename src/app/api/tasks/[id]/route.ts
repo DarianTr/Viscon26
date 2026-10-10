@@ -1,3 +1,4 @@
+import { syncChallengeCompletion } from "@/lib/challenges";
 import { handle, isId, notFound } from "@/lib/http";
 import { getCurrentUser } from "@/lib/queries";
 import { assertTaskSchedulable, deleteTask, getTask, updateTask } from "@/lib/tasks";
@@ -19,6 +20,7 @@ export async function GET(_request: Request, ctx: Ctx) {
 // `done: true` marks it complete (actualMinutes defaults to plannedMinutes);
 // `done: false` clears the completion. A new time or length must not overlap
 // other calendar blocks or fall outside the plan's study days (409).
+// Finishing an accepted challenge's session completes the challenge.
 export async function PATCH(request: Request, ctx: Ctx) {
   return handle(async () => {
     const { id } = await ctx.params;
@@ -30,6 +32,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     const patch = updateTaskSchema.parse(await request.json());
     await assertTaskSchedulable(id, patch);
     const task = await updateTask(id, patch.scheduledAt ? { ...patch, movedManually: true } : patch);
+    if (task && patch.done !== undefined) await syncChallengeCompletion(user, id, patch.done);
     return task ? Response.json({ task }) : notFound("Task");
   });
 }

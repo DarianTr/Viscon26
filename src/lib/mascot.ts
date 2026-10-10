@@ -6,10 +6,10 @@ import type { BrainStage } from "@/components/mascot/brain";
  * not a game mechanic.
  */
 export function mascotStageFromHours(hours: number): BrainStage {
-  if (hours >= 150) return 5;
-  if (hours >= 75) return 4;
-  if (hours >= 30) return 3;
-  if (hours >= 8) return 2;
+  if (hours >= 200) return 5;
+  if (hours >= 125) return 4;
+  if (hours >= 75) return 3;
+  if (hours >= 30) return 2;
   return 1;
 }
 

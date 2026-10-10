@@ -23,10 +23,12 @@ type Me = {
   weeklyGoalHours: number;
 };
 
-export function SettingsForms({ me }: { me: Me }) {
+/** `notifications` goes between the profile and the password forms. */
+export function SettingsForms({ me, notifications }: { me: Me; notifications?: React.ReactNode }) {
   return (
     <>
       <ProfileForm me={me} />
+      {notifications}
       <PasswordForm />
       <DeleteForm />
     </>

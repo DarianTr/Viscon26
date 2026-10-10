@@ -349,7 +349,7 @@ const taggedUsers = sql<{ id: string; name: string; hue: number }[]>`coalesce((
   where ${s.sessionTags.sessionId} = ${s.sessions.id}
 ), '[]')`;
 
-function timeAgo(date: Date) {
+export function timeAgo(date: Date) {
   const minutes = Math.round((Date.now() - date.getTime()) / 60_000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes} min ago`;

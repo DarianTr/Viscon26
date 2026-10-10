@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { EvolutionMascot } from "./mascot/evolution-mascot";
+import { ExpressionMascot } from "./mascot/expression-mascot";
 import {
   CalendarIcon,
   CommunityIcon,
@@ -16,7 +16,6 @@ const tabs = [
   { href: "/plans", label: "Plans", icon: PlansIcon },
   { href: "/calendar", label: "Calendar", icon: CalendarIcon },
   { href: "/community", label: "Community", icon: CommunityIcon },
-  { href: "/profile", label: "Profile", icon: ProfileIcon },
 ] as const;
 
 function useIsActive() {
@@ -31,7 +30,7 @@ export function TabBar() {
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t-2 border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
-      <ul className="mx-auto grid max-w-md grid-cols-5">
+      <ul className="mx-auto grid max-w-md grid-cols-4">
         {tabs.map(({ href, label, icon: Icon }) => {
           const active = isActive(href);
           return (
@@ -67,8 +66,8 @@ export function SideNav({ plan }: { plan: PlanSummary | null }) {
   return (
     <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r-2 border-border px-4 py-6 md:flex">
       <Link href="/" className="mb-8 flex items-center gap-2 px-3">
-        <EvolutionMascot stage={1} size={36} />
-        <span className="font-display text-xl font-extrabold tracking-tight">Braina</span>
+        <ExpressionMascot expression="focused" size={56} />
+        <span className="font-display text-2xl font-extrabold tracking-tight">Braina</span>
       </Link>
       <ul className="flex flex-col gap-1">
         {tabs.map(({ href, label, icon: Icon }) => {
@@ -110,5 +109,28 @@ export function SideNav({ plan }: { plan: PlanSummary | null }) {
         </Link>
       )}
     </aside>
+  );
+}
+
+/** A small floating bubble, pinned top-right on every screen, linking to the profile. */
+export function ProfileBubble() {
+  const isActive = useIsActive();
+  const active = isActive("/profile");
+
+  return (
+    <Link
+      href="/profile"
+      aria-label="Profile"
+      aria-current={active ? "page" : undefined}
+      className="fixed top-[max(1rem,env(safe-area-inset-top))] right-4 z-50"
+    >
+      <span
+        className={`grid size-10 place-items-center rounded-full border-2 border-foreground shadow-[0_3px_0_0_var(--foreground)] transition-colors active:translate-y-[3px] active:shadow-none ${
+          active ? "bg-accent-soft text-accent" : "bg-surface text-foreground hover:bg-surface-2"
+        }`}
+      >
+        <ProfileIcon className="size-5" strokeWidth={active ? 2.4 : 1.9} />
+      </span>
+    </Link>
   );
 }

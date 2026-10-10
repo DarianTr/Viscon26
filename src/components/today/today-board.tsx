@@ -3,8 +3,8 @@
 import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { CheckIcon, ChevronDownIcon, ClockIcon, FlameIcon, PlayIcon } from "@/components/icons";
-import { ExpressionMascot, type RealExpression } from "@/components/mascot/expression-mascot";
-import { LightningBolt, Sparkle, SpeechBubble, StickerLabel, WashiTape } from "@/components/mascot/doodles";
+import { ExpressionMascot } from "@/components/mascot/expression-mascot";
+import { LightningBolt, Sparkle, SpeechBubble, StickerLabel } from "@/components/mascot/doodles";
 import { Button, Card, Ring, SectionTitle } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import { emptyStateLines } from "@/lib/mascot";
@@ -83,19 +83,6 @@ export function TodayBoard({
   const progress = tasks.length ? completedCount / tasks.length : 0;
   const next = tasks.find((t) => !t.done);
 
-  // Purely decorative — which face the mascot pulls today. Doesn't touch
-  // any streak, XP or progress calculation, just which picture shows.
-  const mood: RealExpression =
-    total > 0 && progress === 1
-      ? "celebrating"
-      : streak >= 7
-        ? "proud"
-        : next
-          ? "excited"
-          : total === 0
-            ? "sleepy"
-            : "happy";
-
   /** Optimistically flip a task, then save; roll back if the save fails. */
   function setDone(id: string, value: boolean, minutes?: number) {
     const prev = tasks;
@@ -140,7 +127,7 @@ export function TodayBoard({
   return (
     <>
       <div
-        className="relative overflow-hidden rounded-tl-3xl rounded-tr-[2.5rem] rounded-br-3xl rounded-bl-[2.5rem] border-[2.5px] border-foreground p-5 shadow-[0_5px_0_0_var(--foreground)]"
+        className="relative mt-[max(1.25rem,env(safe-area-inset-top))] overflow-hidden rounded-tl-3xl rounded-tr-[2.5rem] rounded-br-3xl rounded-bl-[2.5rem] border-[2.5px] border-foreground p-5 shadow-[0_5px_0_0_var(--foreground)] md:mt-10"
         style={{ background: "linear-gradient(165deg, var(--surface) 0%, var(--beige) 135%)" }}
       >
         <Sparkle size={15} className="mascot-sparkle absolute top-5 right-7" />
@@ -148,7 +135,7 @@ export function TodayBoard({
 
         <p className="font-display text-xs font-bold tracking-wide text-accent uppercase">{date}</p>
         <div className="mt-2 flex items-end gap-3">
-          <ExpressionMascot expression={mood} size={132} className="-mb-3 shrink-0" />
+          <ExpressionMascot expression="proud" size={132} className="-mb-3 shrink-0" />
           <SpeechBubble className="mb-2">
             <h1 className="font-display text-lg leading-tight font-extrabold md:text-xl">
               {greeting}, {firstName}!
@@ -185,7 +172,6 @@ export function TodayBoard({
           <div className="pointer-events-none absolute -top-10 -right-6 size-36 rounded-full bg-white/10" />
           <div className="pointer-events-none absolute right-10 -bottom-16 size-28 rounded-full bg-white/10" />
           <Sparkle size={16} className="mascot-sparkle absolute top-6 right-24 sm:right-32" color="#fff" />
-          <WashiTape color="var(--gold)" className="sticker-settle absolute -top-2.5 left-8 -rotate-6" />
 
           <StickerLabel className="sticker-settle -rotate-2 bg-gold text-foreground">
             <LightningBolt size={12} />

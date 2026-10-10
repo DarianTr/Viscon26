@@ -3,7 +3,6 @@ import Link from "next/link";
 import { logout } from "@/app/(auth)/actions";
 import { ActivityCard } from "@/components/community/activity-card";
 import { FlameIcon, SettingsIcon } from "@/components/icons";
-import { Brain } from "@/components/mascot/brain";
 import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { BrainEvolution } from "@/components/profile/brain-evolution";
 import { SubjectInvestment } from "@/components/profile/subject-investment";
@@ -232,7 +231,7 @@ function StudyBehaviorCard({ behavior }: { behavior: { hourly: HourlyBucket[]; p
   if (behavior.totalSessions === 0) {
     return (
       <Card className="flex flex-col items-center gap-3 py-8 text-center">
-        <Brain expression="confused" size={72} />
+        <ExpressionMascot expression="sleepy" size={96} />
         <p className="text-sm text-muted">Complete sessions to see your study patterns here.</p>
       </Card>
     );

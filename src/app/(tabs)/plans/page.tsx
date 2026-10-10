@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { CheckIcon, PlusIcon } from "@/components/icons";
-import { Brain } from "@/components/mascot/brain";
+import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { Card, PageHeader, SectionTitle } from "@/components/ui/primitives";
 import { emptyStateLines } from "@/lib/mascot";
 import { getActivePlan, getCurrentUser, getUserCustomPlans } from "@/lib/queries";
@@ -27,7 +27,7 @@ export default async function PlansPage() {
       <SectionTitle>My plans</SectionTitle>
       {customPlans.length === 0 ? (
         <Card className="flex flex-col items-center gap-3 py-8 text-center">
-          <Brain expression="confused" size={72} />
+          <ExpressionMascot expression="sleepy" size={96} />
           <p className="max-w-[26ch] text-sm text-muted">{emptyStateLines.noPlan}</p>
           <Link
             href="/plans/new"
