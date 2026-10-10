@@ -656,12 +656,29 @@ function NewPlanForm() {
                 throw new Error(text || `HTTP ${response.status}`);
             }
 
+            const { userPlanId } = await response.json();
+
+            // Upload any dropped files per subject (fire-and-forget; plan is saved regardless).
+            if (userPlanId) {
+                const uploads = subjects.flatMap((subj) =>
+                    subj.files.length > 0 ? [uploadSubjectFiles(userPlanId, subj.name, subj.files)] : [],
+                );
+                await Promise.allSettled(uploads);
+            }
+
             setPlanSaved(true);
         } catch (err) {
             setGenerationError(err instanceof Error ? err.message : "Unknown error");
         } finally {
             setIsGenerating(false);
         }
+    }
+
+    async function uploadSubjectFiles(planId: string, subject: string, files: File[]) {
+        const form = new FormData();
+        form.append("subject", subject);
+        for (const f of files) form.append("files", f);
+        await fetch(`/api/plans/${planId}/subjects/files`, { method: "POST", body: form });
     }
 
 

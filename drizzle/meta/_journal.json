@@ -153,7 +153,14 @@
       "idx": 21,
       "version": "7",
       "when": 1791720001007,
-      "tag": "0019_course_resources",
+      "tag": "0020_course_resources",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791720001008,
+      "tag": "0021_user_course_materials",
       "breakpoints": true
     }
   ]

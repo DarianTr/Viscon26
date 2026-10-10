@@ -446,6 +446,7 @@ export const courseProfiles = pgTable("course_profiles", {
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export type CourseMaterialType = "script" | "exercises" | "slides" | "exam" | "solution" | "other";
 export type CourseResourceType = "script" | "exercises" | "slides" | "exam" | "solution" | "website" | "other";
 
 /**
@@ -468,3 +469,25 @@ export const courseResources = pgTable("course_resources", {
   contentFetchedAt: timestamp("content_fetched_at", { withTimezone: true }),
   createdAt: createdAt(),
 });
+
+/**
+ * Files uploaded by a student for a specific subject in their plan.
+ * Extracted text is stored so quiz generation can use it without re-fetching.
+ */
+export const userCourseMaterials = pgTable(
+  "user_course_materials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userPlanId: uuid("user_plan_id").notNull().references(() => userPlans.id, { onDelete: "cascade" }),
+    subject: text("subject").notNull(),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type").notNull().default("application/octet-stream"),
+    type: text("type").$type<CourseMaterialType>().notNull().default("other"),
+    fileSize: integer("file_size").notNull(),
+    /** Extracted plain text content for quiz generation, capped at ~100 k chars. */
+    content: text("content"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("user_course_materials_plan_idx").on(t.userPlanId, t.subject)],
+);
