@@ -222,6 +222,12 @@ screen). Push needs a VAPID key pair in `VAPID_PUBLIC_KEY` /
 `VAPID_PRIVATE_KEY`, made with `npx web-push generate-vapid-keys`. Without the
 keys, push is off and the rest still works.
 
+For `npm run dev`, put the keys in `.env.local`; for `docker compose`, in `.env`
+next to `docker-compose.yml` (compose doesn't read `.env.local`). Use the same
+pair in both, or devices have to turn push on again after switching. Push
+works on `http://localhost` without HTTPS. The container only sends outbound
+requests to the browsers' push services, so it needs no extra ports.
+
 **Daily nudges.** `src/instrumentation.ts` starts a timer on each server that
 runs at 18:00 and 21:00 Zurich time. Everyone with push on who hasn't finished
 a session that day gets one line, built from their friends' real numbers
