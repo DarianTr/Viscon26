@@ -1,7 +1,7 @@
 # The whole app: `docker compose up --build` → http://localhost:3000
 #
 #   db         Postgres, data kept in the `pgdata` volume
-#   migrate    one-off: applies migrations, seeds demo data into an empty DB
+#   migrate    one-off: applies migrations, creates the admin account if missing
 #   app        the Next.js server, started once `migrate` has succeeded
 #   knowledge  per-topic knowledge state (Python, services/knowledge); keeps its
 #              tables in its own `knowledge` schema and is reachable from `app`
@@ -39,12 +39,10 @@ services:
       target: migrate
     environment:
       DATABASE_URL: *database-url
-      DEMO_USER_HANDLE: ${DEMO_USER_HANDLE:-tprazak}
-      # The demo user (an admin) belongs to whoever logs in with this email.
-      DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-}
-      DEMO_USER_NAME: ${DEMO_USER_NAME:-}
-      # Set to false to start with an empty database.
-      SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+      # The admin account belongs to whoever logs in with ADMIN_EMAIL.
+      ADMIN_HANDLE: ${ADMIN_HANDLE:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_NAME: ${ADMIN_NAME:-}
     depends_on:
       db:
         condition: service_healthy

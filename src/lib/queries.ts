@@ -279,11 +279,7 @@ export async function listPlans(): Promise<Plan[]> {
     .from(s.plans)
     .leftJoin(counts, eq(counts.planId, s.plans.id))
     .orderBy(desc(sql`coalesce(${counts.enrolled}, 0)`));
-  return rows.map(({ plan, enrolled }) => ({
-    ...plan,
-    title: plan.id === "analysis-exam" ? "DiskMath Exam Prep" : plan.title,
-    enrolled,
-  }));
+  return rows.map(({ plan, enrolled }) => ({ ...plan, enrolled }));
 }
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];

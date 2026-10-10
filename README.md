@@ -10,7 +10,7 @@ Needs Docker (for the local Postgres) and Node 20+.
 ```bash
 npm install
 cp .env.example .env.local   # then set DEV_USER_ID to your email
-# Starts Postgres, applies migrations, and loads demo data
+# Starts Postgres, applies migrations, and creates the admin account
 npm run db:setup
 npm run dev
 ```
@@ -33,8 +33,8 @@ docker compose up --build
 To run it in the background instead, use `npm run docker:up`.
 
 Then open http://localhost:3000. On first start it creates the tables and
-loads the demo data. Later starts keep your data, because the seed only runs
-on an empty database. Stop with `docker compose down`. Add `-v` to also delete
+the admin account; there is no demo data. Later starts keep your data. Stop
+with `docker compose down`. Add `-v` to also delete
 the data.
 
 | Variable            | Default   | Purpose                                     |
@@ -42,10 +42,9 @@ the data.
 | `APP_PORT`          | `3000`    | Port the app is published on                |
 | `DB_PORT`           | `5432`    | Port Postgres is published on (localhost)   |
 | `POSTGRES_PASSWORD` | `stride`  | Database password: change it on a server    |
-| `SEED_DEMO_DATA`    | `true`    | `false` to start with an empty database     |
-| `DEMO_USER_HANDLE`  | `tprazak` | Seeded admin user                           |
-| `DEMO_USER_EMAIL`   | `demo@example.com` | Email (X-User-Id) that logs in as the seeded admin |
-| `DEMO_USER_NAME`    | `Tomas P.` | Name of the seeded admin                   |
+| `ADMIN_HANDLE`      | `admin`   | Handle of the seeded admin                  |
+| `ADMIN_EMAIL`       | `tprazak@ethz.ch` | Email (X-User-Id) that logs in as the admin |
+| `ADMIN_NAME`        | `Admin`   | Name of the seeded admin                    |
 | `DEV_USER_ID`, `DEV_USER_NAME` | – | Stand-in login without the proxy; never set on the VM |
 | `KNOWLEDGE_PORT`    | `8000`    | Port the knowledge service is published on (localhost) |
 
@@ -69,8 +68,8 @@ Postgres via [Drizzle ORM](https://orm.drizzle.team) and the `postgres` driver.
 | `npm run db:up`       | Start only Postgres in Docker, for `npm run dev`          |
 | `npm run db:down`     | Stop it (data persists in a Docker volume)                |
 | `npm run db:migrate`  | Apply migrations in `drizzle/`                            |
-| `npm run db:seed`     | **Wipe** all tables and load demo data                    |
-| `npm run db:reset`    | **Wipe** everything, migrate, refetch courses (VVZ), seed demo + knowledge data |
+| `npm run db:seed`     | Create the admin account if it doesn't exist              |
+| `npm run db:reset`    | **Wipe** everything, migrate, refetch courses (VVZ), create the admin |
 | `npm run db:generate` | Write a new migration after editing `src/db/schema.ts`    |
 | `npm run db:studio`   | Browse the data in Drizzle Studio                         |
 
@@ -125,19 +124,9 @@ Which account that is:
 - **Your own:** an email without an account gets the signup page on the first
   visit, which creates one. To make it an admin:
   `update users set is_admin = true where handle = '<handle>';`
-- **Your own, with the demo data:** the seed (`npm run db:seed` /
-  `db:reset`) creates the demo admin from `DEMO_USER_HANDLE`,
-  `DEMO_USER_EMAIL` and `DEMO_USER_NAME`. Make them yours and reset:
-
-  ```bash
-  # .env.local
-  DEMO_USER_HANDLE=jdoe
-  DEMO_USER_EMAIL=jdoe@ethz.ch   # same as DEV_USER_ID
-  DEMO_USER_NAME=Jörg Doe
-  ```
-
-  Without them it's `@tprazak` with `demo@example.com`; set `DEV_USER_ID` to
-  that to look around as them.
+- **The admin:** `npm run db:seed` creates `@admin` for `tprazak@ethz.ch`
+  (or `ADMIN_HANDLE`, `ADMIN_EMAIL`, `ADMIN_NAME` from `.env.local`). Set
+  `DEV_USER_ID` to that email to log in as them.
 - **An existing account:** link it once in the database:
 
   ```bash
@@ -165,7 +154,7 @@ get a 404; admins see an "Admin" button on their profile):
   fields get the column default.
 - A SQL console that runs any statement directly. There's no undo.
 
-To make someone an admin on a database that wasn't seeded, sign up and run
+To make someone else an admin, have them sign up and run
 `update users set is_admin = true where handle = '<handle>';` in the database
 (on the VM: `docker compose -p viscon exec db psql -U stride stride`).
 
@@ -201,7 +190,7 @@ src/
   db/
     schema.ts             tables (Drizzle) — source of truth for migrations
     index.ts              database client
-    seed.ts               demo data
+    seed.ts               creates the admin account
     reset.ts              wipes the database for `npm run db:reset`
   components/
     tab-bar.tsx           tab navigation (bottom bar + sidebar)
@@ -324,7 +313,7 @@ session, lecture or exam. It counts as done once `completedAt` is set.
 With curl against a local server, send the header the proxy would add:
 
 ```bash
-S='X-User-Id: demo@example.com'
+S='X-User-Id: tprazak@ethz.ch'
 curl -H "$S" 'localhost:3000/api/users?q=lena'
 curl -H "$S" -X POST localhost:3000/api/tasks -H 'content-type: application/json' \
   -d '{"type":"deep","subject":"DiskMath","title":"Long block","scheduledAt":"2026-10-12T09:00:00+02:00","plannedMinutes":90}'
@@ -381,29 +370,6 @@ topics equally, and the plan average weights subjects equally. Grades map linear
 grade = 1 + 5 × score. These choices live in `src/lib/knowledge-topics.ts`.
 The app talks to the service only from the server (`src/lib/knowledge.ts`),
 after checking that the plan belongs to the user.
-
-**Demo data:** with the database and the knowledge service running, run
-`npm run db:seed-courses`, then `npm run db:seed-knowledge`. Docker deploys
-run `db:seed-courses` themselves. This creates the plan "Basisprüfung (demo)"
-for the demo user with four ETH CS courses and their real topics, and logs
-a learning phase. The app is built for that time: lectures are over, the
-exams are 2–5 weeks away, and for four weeks the student has been reviewing
-topic by topic:
-
-- topic exercises every few days;
-- short self-tests on topics reviewed earlier;
-- full old exams about every ten days;
-- one course reviewed only sporadically.
-
-Every topic follows a hidden curve: where the semester left it, a slow fade,
-and gains once reviewed. `--truth` prints the hidden levels for today, to
-compare with the model. Re-running replaces the demo
-data points. On the VM:
-
-```bash
-docker compose -p viscon --env-file /home/viscon/viscon.env run --rm \
-  -e KNOWLEDGE_URL=http://knowledge:8000 migrate npx tsx src/db/seed-knowledge.ts
-```
 
 The model, API and tests are described in
 [`services/knowledge/README.md`](services/knowledge/README.md).

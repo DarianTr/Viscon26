@@ -7,9 +7,7 @@
  *      stay, so a running service keeps working);
  *   2. db:migrate         recreates the schema;
  *   3. db:seed-courses    refetches the courses from VVZ and their websites;
- *   4. db:seed            loads the demo users and plans;
- *   5. db:seed-knowledge  logs demo data points (skipped if the knowledge
- *                         service isn't running).
+ *   4. db:seed            creates the admin account.
  *
  * Only runs against a local database unless given --force.
  */

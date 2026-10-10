@@ -34,10 +34,11 @@ template app already listens there, so stop it first:
 cd ~/template && docker compose down
 ```
 
-Set `DEMO_USER_EMAIL` to your own X-User-Id (e.g. `jdoe@ethz.ch`), and
-`DEMO_USER_HANDLE` / `DEMO_USER_NAME` to yours, to log in as the seeded admin.
-The seed only runs on an empty database, so this applies on the first deploy
-(or after wiping the volume). Everyone else gets the signup page on their first visit.
+Every deploy creates the admin account `@admin` for `tprazak@ethz.ch` if it
+doesn't exist yet; set `ADMIN_EMAIL` (and `ADMIN_HANDLE` / `ADMIN_NAME`) to
+give it to someone else. It's never changed once it exists, so after the first
+deploy change it in `/admin/users` instead. Everyone else gets the signup page
+on their first visit.
 
 Login comes from the proxy's `X-User-Id` header, which anyone could forge if
 they reached the app directly. So **don't** `ufw allow` the app port, keep
