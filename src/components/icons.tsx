@@ -176,3 +176,10 @@ export const UsersIcon = (p: P) => (
     <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8" />
   </Icon>
 );
+
+export const SwordsIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M14.5 17.5 3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2" />
+    <path d="M14.5 6.5 18 3h3v3l-3.5 3.5M5 14l4 4M7 17l-3 3M3 19l2 2" />
+  </Icon>
+);

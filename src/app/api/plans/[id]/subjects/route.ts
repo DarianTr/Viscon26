@@ -2,9 +2,9 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { handle, isId, notFound } from "@/lib/http";
 import { getCurrentUser } from "@/lib/queries";
-import { createTasksBulk } from "@/lib/tasks";
-import { generateStudyPlan } from "@/lib/scheduler";
+import { regeneratePlan } from "@/lib/plans";
 import { db, schema as s } from "@/db";
+import { ensureCourseProfile } from "@/lib/course-profiles";
 
 type Ctx = RouteContext<"/api/plans/[id]/subjects">;
 
@@ -36,6 +36,7 @@ const bodySchema = z.object({
 });
 
 // POST /api/plans/:id/subjects — add a new subject to an existing custom plan
+// and regenerate its uncompleted schedule (completed work stays).
 export async function POST(request: Request, ctx: Ctx) {
   return handle(async () => {
     const user = await getCurrentUser();
@@ -51,50 +52,31 @@ export async function POST(request: Request, ctx: Ctx) {
 
     const { subject, scheduleConfig } = bodySchema.parse(await request.json());
 
-    const cfg = scheduleConfig ?? plan.config;
-    if (!cfg) {
+    if (!scheduleConfig && !plan.config) {
       return Response.json(
         { error: "No schedule config found. Please provide weeklyHours, studyDays, sessionLength." },
         { status: 422 },
       );
     }
 
-    // Persist config and append new subject to the stored subjects list
-    const updatedConfig = {
-      ...cfg,
-      subjects: [
-        ...(plan.config?.subjects ?? []),
-        { ...subject, allocation: 100 },
-      ],
-    };
-    await db
-      .update(s.userPlans)
-      .set({ config: updatedConfig })
-      .where(eq(s.userPlans.id, id));
+    // The new subject gets an even share; the others keep their proportions.
+    // Then the whole uncompleted schedule is regenerated, so the two-subjects-a-day
+    // rule and every other constraint holds across all subjects.
+    const existing = plan.config?.subjects ?? [];
+    const share = Math.round(100 / (existing.length + 1));
+    const subjects = [
+      ...existing.map((sub) => ({ ...sub, allocation: Math.round((sub.allocation * (100 - share)) / 100) })),
+      { ...subject, allocation: share },
+    ];
+    // Fetch the subject's VVZ course profile alongside — it must not block or
+    // break the response if VVZ is unreachable.
+    const profile = ensureCourseProfile(subject.name).catch(() => {});
+    const outcome = await regeneratePlan(user.id, id, { ...scheduleConfig, subjects }, { apply: true });
+    if (!outcome) return notFound("Plan");
+    const { result } = outcome;
+    const count = result.sessions.length;
 
-    const result = generateStudyPlan({
-      planName: plan.title,
-      weeklyHours: cfg.weeklyHours,
-      studyDays: cfg.studyDays,
-      sessionLength: cfg.sessionLength,
-      vacationRanges: cfg.vacationRanges,
-      subjects: [{ ...subject, allocation: 100 }],
-    });
-
-    const tasks = result.sessions.map((sess) => ({
-      type: sess.type,
-      subject: sess.subject,
-      title: sess.title,
-      detail: sess.detail ?? null,
-      scheduledAt: sess.scheduledAt,
-      plannedMinutes: sess.plannedMinutes,
-      userId: user.id,
-      userPlanId: id,
-      shared: false as const,
-    }));
-
-    const count = await createTasksBulk(tasks);
-
-    return Response.json({ count, breakdown: result.breakdown }, { status: 201 });
+    await profile;
+    return Response.json({ count, breakdown: result.breakdown, warnings: result.warnings }, { status: 201 });
   });
 }

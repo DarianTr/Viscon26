@@ -28,6 +28,21 @@ export const sessionType = pgEnum("session_type", [
   "recovery",
   "lecture",
   "exam",
+  "buffer",
+  "break",
+]);
+
+/** What a scheduled block is for — see blockActivities in lib/types.ts. */
+export const blockActivity = pgEnum("block_activity", [
+  "study",
+  "mock_exam",
+  "mock_review",
+  "cheatsheet",
+  "short_break",
+  "lunch",
+  "dinner",
+  "buffer",
+  "exam",
 ]);
 
 export const planLevel = pgEnum("plan_level", ["Beginner", "Intermediate", "Advanced"]);
@@ -48,8 +63,12 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash"),
   /** Admins can open /admin and edit the database directly. */
   isAdmin: boolean("is_admin").notNull().default(false),
+  /** Tone of the daily "go study" push: savage, gentle, or off. */
+  nudgeStyle: text("nudge_style").$type<NudgeStyle>().notNull().default("savage"),
   createdAt: createdAt(),
 });
+
+export type NudgeStyle = "savage" | "gentle" | "off";
 
 /** Login sessions. The cookie holds a random token; only its SHA-256 is stored. */
 export const authSessions = pgTable(
@@ -115,6 +134,18 @@ export type StoredPlanConfig = {
   subjects?: StoredSubjectConfig[];
   /** Preferred session start hour (e.g. 9 = 09:00), set by the strategy agent from behavioral data. */
   preferredStartHour?: number;
+  /** Focused weekly minutes the scheduler sizes the workload from (see scheduler.ts). */
+  workloadBasisWeeklyMinutes?: number;
+  /** Daily start, "HH:MM". */
+  startTime?: string;
+  rhythm?: "balanced" | "sprint" | "deep";
+  /** How the Lernphase begins, and how many focus days a subject gets (see scheduler.ts). */
+  lernphaseStart?: "recommended" | "focus" | "mixed";
+  focusDays?: number;
+  /** First day of the plan, "YYYY-MM-DD" — workload and focus days count from here. */
+  planStart?: string;
+  /** Initial focus days the scheduler planned: "YYYY-MM-DD" → subject. Moves respect them. */
+  focusDates?: Record<string, string>;
 };
 
 /** A custom study plan created by the user via the plan wizard. */
@@ -128,6 +159,20 @@ export const userPlans = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index().on(t.userId)],
+);
+
+/** How far the student says a subject's cheatsheet is — the latest report counts. */
+export const cheatsheetReports = pgTable(
+  "cheatsheet_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userPlanId: uuid("user_plan_id").notNull().references(() => userPlans.id, { onDelete: "cascade" }),
+    subject: text("subject").notNull(),
+    percent: integer("percent").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userPlanId, t.subject), check("cheatsheet_percent", sql`${t.percent} between 0 and 100`)],
 );
 
 export const plans = pgTable("plans", {
@@ -168,9 +213,17 @@ export const sessions = pgTable(
     planId: text("plan_id").references(() => plans.id, { onDelete: "set null" }),
     userPlanId: uuid("user_plan_id").references(() => userPlans.id, { onDelete: "set null" }),
     type: sessionType("type").notNull(),
+    activity: blockActivity("activity"),
     blocksStudy: boolean("blocks_study").notNull().default(false),
     calendarOrder: integer("calendar_order"),
-    subject: text("subject").notNull(),
+    /** The academic subject; null for breaks and buffers, which belong to none. */
+    subject: text("subject"),
+    /** Cheatsheet milestone (cumulative %) a session should reach — the plan, not the student's progress. */
+    cheatsheetTarget: integer("cheatsheet_target"),
+    /** Minutes of the session reserved for the cheatsheet: all of a cheatsheet session, part of a combined one. */
+    cheatsheetMinutes: integer("cheatsheet_minutes"),
+    /** Moved by hand in the calendar: regenerating the plan keeps it where feasible. */
+    movedManually: boolean("moved_manually").notNull().default(false),
     title: text("title").notNull(),
     detail: text("detail"),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
@@ -279,10 +332,101 @@ export const examScores = pgTable(
   (t) => [index().on(t.userId), index().on(t.userPlanId)],
 );
 
+export type ChallengeStatus = "pending" | "accepted" | "declined" | "completed";
+
+/**
+ * "Beat this": a user dares a friend to do one of their completed sessions.
+ * Accepting copies the session into the friend's day (`responseSessionId`);
+ * completing that copy completes the challenge.
+ */
+export const challenges = pgTable(
+  "challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    challengerId: uuid("challenger_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    challengeeId: uuid("challengee_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    /** The challenger's completed session the friend has to match. */
+    sourceSessionId: uuid("source_session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+    /** The challengee's copy, created on accept. */
+    responseSessionId: uuid("response_session_id").references(() => sessions.id, { onDelete: "set null" }),
+    message: text("message"),
+    status: text("status").$type<ChallengeStatus>().notNull().default("pending"),
+    createdAt: createdAt(),
+    respondedAt: timestamp("responded_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    index().on(t.challengeeId, t.status),
+    index().on(t.challengerId),
+    uniqueIndex("challenges_response_session_index").on(t.responseSessionId),
+    // One open dare per session per friend; once answered, it can be sent again.
+    uniqueIndex("challenges_open_index")
+      .on(t.sourceSessionId, t.challengeeId)
+      .where(sql`status in ('pending', 'accepted')`),
+    check("challenges_not_self", sql`${t.challengerId} <> ${t.challengeeId}`),
+    check("challenges_status", sql`${t.status} in ('pending', 'accepted', 'declined', 'completed')`),
+  ],
+);
+
+/** A browser's Web Push subscription. A user has one per device they enabled push on. */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    endpoint: text("endpoint").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId)],
+);
+
+/**
+ * Everything we've pushed (or tried to) to a user. Doubles as the in-app inbox
+ * and, through `dedupeKey`, keeps scheduled nudges to one per user per day.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    /** Where tapping it leads, e.g. /community?tab=challenges. */
+    url: text("url").notNull().default("/"),
+    dedupeKey: text("dedupe_key").unique(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId, t.createdAt)],
+);
+
 /** The original starter example, kept for /api/items. */
 export const items = pgTable("items", {
   id: uuid("id").primaryKey().defaultRandom(),
   title: text("title").notNull(),
   done: boolean("done").notNull().default(false),
   createdAt: createdAt(),
+});
+
+export type CourseProfileTopic = { id: string; name: string };
+
+/**
+ * One row per ETH course, shared across all users. Topics are fetched from the
+ * VVZ (Vorlesungsverzeichnis) and stored here so every student's plan benefits
+ * from the real course structure rather than three hardcoded fallback topics.
+ */
+export const courseProfiles = pgTable("course_profiles", {
+  /** URL-safe slug, e.g. "diskrete-mathematik". Primary match key. */
+  slug: text("slug").primaryKey(),
+  name: text("name").notNull(),
+  /** Official ETH course code, e.g. "252-0025-01". */
+  courseCode: text("course_code"),
+  /** Additional slugs for the same course (e.g. English alias "discrete-mathematics"). */
+  aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
+  topics: jsonb("topics").$type<CourseProfileTopic[]>().notNull().default([]),
+  description: text("description"),
+  sourceUrl: text("source_url"),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
 });

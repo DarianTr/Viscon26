@@ -183,6 +183,13 @@ src/
 | PUT    | `/api/tasks/:id/tags` | `{ userIds }`        | `204`             |
 | GET    | `/api/people?q=` | – (no `q`: friends and pending requests) | `{ people: [] }`  |
 | PUT / DELETE | `/api/users/:id/friend` | –            | `{ status }`      |
+| GET    | `/api/challenges` | –                        | `{ received: [], sent: [] }` |
+| POST   | `/api/challenges` | `{ sessionId, friendIds, message? }` | `201 { sent }` |
+| PATCH  | `/api/challenges/:id` | `{ accept }`         | `204`             |
+| DELETE | `/api/challenges/:id` | –                    | `204`             |
+| PUT    | `/api/push/subscription` | a `PushSubscription` | `204`          |
+| DELETE | `/api/push/subscription` | `{ endpoint }`    | `204`             |
+| POST   | `/api/push/test` | –                         | `204`             |
 
 Friendships are mutual: `PUT /api/users/:id/friend` sends a request (or
 accepts theirs, if they asked first) and the other person has to accept before
@@ -198,6 +205,36 @@ On your own completed sessions you can add up to 4 photos (JPEG, PNG or WebP,
 at most 5 MB each; the app shrinks them before uploading) and tag up to 10
 friends you studied with. Photos are stored in Postgres and served only to
 people who can see the activity.
+
+### Challenges and push notifications
+
+On your own completed session, ⚔️ challenges friends to match it (a hard mock
+exam, a long problem set…), with an optional taunt. They answer under
+Community → Challenges. Accepting adds a copy of the session to their Today
+list; finishing it completes the challenge, and the challenger hears who won:
+focus decides when both sessions were tracked, otherwise time. The challenger
+can withdraw a challenge until it's answered.
+
+Each step is pushed to the other person with Web Push, and stored in the
+`notifications` table. Users turn push on per device under Profile → Settings
+(`public/sw.js` is the service worker; on iPhone it needs the app on the home
+screen). Push needs a VAPID key pair in `VAPID_PUBLIC_KEY` /
+`VAPID_PRIVATE_KEY`, made with `npx web-push generate-vapid-keys`. Without the
+keys, push is off and the rest still works.
+
+For `npm run dev`, put the keys in `.env.local`; for `docker compose`, in `.env`
+next to `docker-compose.yml` (compose doesn't read `.env.local`). Use the same
+pair in both, or devices have to turn push on again after switching. Push
+works on `http://localhost` without HTTPS. The container only sends outbound
+requests to the browsers' push services, so it needs no extra ports.
+
+**Daily nudges.** `src/instrumentation.ts` starts a timer on each server that
+runs at 18:00 and 21:00 Zurich time. Everyone with push on who hasn't finished
+a session that day gets one line, built from their friends' real numbers
+("Lena did 3 sessions today. Where are you at?") or their streak at 21:00. The
+tone is set in Settings: savage (default), gentle or off. Each nudge is
+deduplicated in the database, so several servers or restarts never send it
+twice. Set `NUDGES=off` to stop them on a server.
 
 ### Users and tasks
 
@@ -273,23 +310,42 @@ In the app, each custom plan has three knowledge pages, linked from the plan car
 | Page | What it shows |
 | ---- | ------------- |
 | `/plans/:id/forecast` | Predicted grade per subject (or the plan average) as a band: the estimated level so far, the projection to the exam date, the chance of reaching the target grade |
-| `/plans/:id/topics` | Spider chart with one axis per topic, plus a progress list grouped by subject (compared with a week ago or the exam-day forecast) |
+| `/plans/:id/topics` | Spider chart (one axis per subject, or per topic for one subject), plus a progress list of every topic grouped by subject (compared with a week ago or the exam-day forecast) |
 | `/plans/:id/log` | Log a practice sheet, quiz, mock or exam (points or a grade), tick which of the subject's topics it covered, and delete data points |
 
-For now, every subject gets three hardcoded topics: a fixed list for common
-subjects (Analysis, Linear Algebra, Physics, …), otherwise "Concepts /
-Methods / Applications". Each subject's exam covers its three topics equally,
-and the plan average weights subjects equally. Grades map linearly:
+A subject's topics are the real course topics when it matches a course
+profile (`course_profiles`, filled by `npm run db:seed-courses` from the
+ETH course catalogue (VVZ), by name or alias). Otherwise they're three
+hardcoded fallback topics. The service always holds exactly the plan's
+current topics (`syncTopics` prunes the rest), so switching to real topics
+leaves no empty placeholders in the forecast. Each subject's exam covers its
+topics equally, and the plan average weights subjects equally. Grades map linearly:
 grade = 1 + 5 × score. These choices live in `src/lib/knowledge-topics.ts`.
 The app talks to the service only from the server (`src/lib/knowledge.ts`),
 after checking that the plan belongs to the user.
 
-**Demo data:** with the database and the knowledge service running,
-`npm run db:seed-knowledge` creates the plan "Basisprüfung (demo)" for the
-demo user. It logs six weeks of practice sheets, quizzes and mocks across
-four subjects. Each topic has its own hidden learning curve: a weak one, a
-fast learner, a strong one, and a barely logged subject the model stays
-unsure about. Re-running it replaces the demo data points.
+**Demo data:** with the database and the knowledge service running, run
+`npm run db:seed-courses`, then `npm run db:seed-knowledge`. Docker deploys
+run `db:seed-courses` themselves. This creates the plan "Basisprüfung (demo)"
+for the demo user with four ETH CS courses and their real topics, and logs
+a learning phase. The app is built for that time: lectures are over, the
+exams are 2–5 weeks away, and for four weeks the student has been reviewing
+topic by topic:
+
+- topic exercises every few days;
+- short self-tests on topics reviewed earlier;
+- full old exams about every ten days;
+- one course reviewed only sporadically.
+
+Every topic follows a hidden curve: where the semester left it, a slow fade,
+and gains once reviewed. `--truth` prints the hidden levels for today, to
+compare with the model. Re-running replaces the demo
+data points. On the VM:
+
+```bash
+docker compose -p viscon --env-file /home/viscon/viscon.env run --rm \
+  -e KNOWLEDGE_URL=http://knowledge:8000 migrate npx tsx src/db/seed-knowledge.ts
+```
 
 The model, API and tests are described in
 [`services/knowledge/README.md`](services/knowledge/README.md).

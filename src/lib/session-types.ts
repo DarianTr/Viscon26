@@ -70,3 +70,17 @@ export function initials(name: string) {
     .slice(0, 2)
     .toUpperCase();
 }
+
+type Effort = { minutes: number; focus: number | null };
+
+/** Whether `attempt` beat a challenge's `target`: focus decides when both were tracked, else time. */
+export function beatChallenge(attempt: Effort, target: Effort) {
+  return attempt.focus !== null && target.focus !== null
+    ? attempt.focus >= target.focus
+    : attempt.minutes >= target.minutes;
+}
+
+/** "90 min at 82% focus", or just the time when focus wasn't tracked. */
+export function formatEffort({ minutes, focus }: Effort) {
+  return focus === null ? formatMinutes(minutes) : `${formatMinutes(minutes)} at ${focus}% focus`;
+}

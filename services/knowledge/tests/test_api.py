@@ -188,6 +188,67 @@ def test_timeline_forecasts_for_exam_dates(client):
     assert [g["id"] for g in tl["groups"]] == ["analysis", "linalg"]
 
 
+def test_recommended_topics_ranks_by_gap_and_uncertainty(client, topics):
+    user = uuid.uuid4()
+
+    # Prior only — no observations yet. All topics start ~equal; just check shape.
+    res = client.post(
+        f"/users/{user}/plans/{PLAN}/recommended-topics",
+        json={"targets": {}},
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert {t["topicId"] for t in data["topics"]} == {"analysis.limits", "analysis.series", "analysis", "linalg"}
+    assert abs(sum(t["allocation"] for t in data["topics"]) - 100) < 0.5
+
+    # Log a strong linalg score so it rises close to the 0.75 default target.
+    for day in (0, 3, 7):
+        observe(client, user, day, "quiz", 0.9, {"linalg": 1})
+    # Leave analysis.series weak (no observations).
+
+    res2 = client.post(
+        f"/users/{user}/plans/{PLAN}/recommended-topics",
+        json={"targets": {"analysis.limits": 0.75, "analysis.series": 0.75, "analysis": 0.75, "linalg": 0.75}},
+    )
+    assert res2.status_code == 200, res2.text
+    ranked = res2.json()["topics"]
+
+    # linalg is now strong — it should rank lower than the weak analysis topics.
+    linalg_alloc = next(t["allocation"] for t in ranked if t["topicId"] == "linalg")
+    series_alloc = next(t["allocation"] for t in ranked if t["topicId"] == "analysis.series")
+    assert series_alloc > linalg_alloc, "weak topic should outrank strong one"
+
+    # "weakest" tag must appear exactly once.
+    tagged_weakest = [t for t in ranked if "weakest" in t["tags"]]
+    assert len(tagged_weakest) == 1
+
+    # Allocations still sum to 100.
+    assert abs(sum(t["allocation"] for t in ranked) - 100) < 0.5
+
+
+def test_recommended_topics_exam_urgency(client):
+    plan = "focus-plan"
+    client.put(
+        f"/plans/{plan}/topics",
+        json={"topics": [
+            {"id": "focus.near", "name": "Near topic", "parentId": "focus", "examDate": "2026-10-15"},
+            {"id": "focus.far",  "name": "Far topic",  "parentId": "focus", "examDate": "2027-06-01"},
+        ]},
+    )
+    user = uuid.uuid4()
+    # Both topics equally weak — exam urgency should push the near one higher.
+    res = client.post(
+        f"/users/{user}/plans/{plan}/recommended-topics",
+        json={"targets": {"focus.near": 0.75, "focus.far": 0.75}},
+    )
+    assert res.status_code == 200, res.text
+    ranked = res.json()["topics"]
+    near_alloc = next(t["allocation"] for t in ranked if t["topicId"] == "focus.near")
+    far_alloc  = next(t["allocation"] for t in ranked if t["topicId"] == "focus.far")
+    assert near_alloc > far_alloc, "closer exam should rank higher when gap is equal"
+    assert any("exam soon" in t["tags"] for t in ranked)
+
+
 def test_parent_may_be_a_group_that_is_not_a_topic(client):
     res = client.put(
         "/plans/group-plan/topics",
@@ -198,3 +259,44 @@ def test_parent_may_be_a_group_that_is_not_a_topic(client):
     )  # fmt: skip
     assert res.status_code == 200, res.text
     assert {t["parentId"] for t in res.json()["topics"]} == {"physics"}
+
+
+def test_prune_replaces_placeholder_topics(client):
+    plan = "prune-plan"
+    placeholders = [
+        {"id": f"linalg.{x}", "name": x, "parentId": "linalg"}
+        for x in ("systems", "spaces", "eigen")
+    ]
+    assert client.put(f"/plans/{plan}/topics", json={"topics": placeholders}).status_code == 200
+    user = uuid.uuid4()
+    assert observe_in(client, plan, user, 0, {"linalg.systems": 1}).status_code == 201
+
+    real = [
+        {"id": f"lineare-algebra.{x}", "name": x, "parentId": "linalg"}
+        for x in ("vectors", "determinants", "svd", "linear-maps")
+    ]
+    # A plain PUT only adds...
+    res = client.put(f"/plans/{plan}/topics", json={"topics": real[:1]})
+    assert len(res.json()["topics"]) == 4
+    # ...prune leaves exactly the given topics.
+    res = client.put(f"/plans/{plan}/topics", params={"prune": "true"}, json={"topics": real})
+    assert [t["id"] for t in res.json()["topics"]] == [t["id"] for t in real]
+
+    tl = client.get(f"/users/{user}/plans/{plan}/timeline").json()
+    assert tl["groups"] == [{"id": "linalg", "topicIds": [t["id"] for t in real], "examDate": None}]
+    # The data point on a removed placeholder topic no longer counts.
+    assert len(tl["skipped"]) == 1 and len(tl["steps"]) == 1
+
+
+def observe_in(client, plan, user, day, weights):
+    return client.post(
+        "/observations",
+        json={
+            "userId": str(user),
+            "planId": plan,
+            "type": "quiz",
+            "observedAt": (DAY0 + timedelta(days=day)).isoformat(),
+            "score": 0.7,
+            "weights": weights,
+        },
+    )

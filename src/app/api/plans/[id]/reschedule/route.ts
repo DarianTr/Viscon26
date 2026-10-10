@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { and, asc, eq, gt, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { handle, isId, notFound } from "@/lib/http";
-import { getCurrentUser } from "@/lib/queries";
-import { createTasksBulk } from "@/lib/tasks";
-import { generateStudyPlan, CONFIDENCE_SCORE } from "@/lib/scheduler";
+import { academic, getCurrentUser } from "@/lib/queries";
+import { regeneratePlan } from "@/lib/plans";
+import { CONFIDENCE_SCORE } from "@/lib/scheduler";
 import { db, schema as s } from "@/db";
 import type { StoredSubjectConfig } from "@/db/schema";
 
@@ -38,8 +38,8 @@ function applyConfidenceDelta(current: string, delta: number): string {
 }
 
 // POST /api/plans/:id/reschedule
-// Applies the strategy agent's recommendations to stored subject configs,
-// drops all future incomplete sessions, and regenerates the schedule.
+// Applies the strategy agent's recommendations to stored subject configs and
+// regenerates the uncompleted schedule (see regeneratePlan).
 export async function POST(request: Request, ctx: Ctx) {
   return handle(async () => {
     const user = await getCurrentUser();
@@ -59,12 +59,12 @@ export async function POST(request: Request, ctx: Ctx) {
     if (!storedSubjects?.length) {
       const sessionData = await db
         .select({
-          subject: s.sessions.subject,
+          subject: sql<string>`${s.sessions.subject}`,
           examDate: sql<string | null>`min(case when ${s.sessions.type} = 'exam' then ${s.sessions.scheduledAt}::text end)`,
           examMinutes: sql<number | null>`max(case when ${s.sessions.type} = 'exam' then ${s.sessions.plannedMinutes} end)`,
         })
         .from(s.sessions)
-        .where(and(eq(s.sessions.userPlanId, id), ne(s.sessions.type, "lecture")))
+        .where(and(eq(s.sessions.userPlanId, id), academic, ne(s.sessions.type, "lecture")))
         .groupBy(s.sessions.subject)
         .orderBy(asc(s.sessions.subject));
 
@@ -107,59 +107,27 @@ export async function POST(request: Request, ctx: Ctx) {
       };
     });
 
-    const baseCfg = plan.config ?? { weeklyHours: 20, studyDays: ["Mon","Tue","Wed","Thu","Fri"], sessionLength: 90, vacationRanges: [] };
+    const baseCfg = plan.config ?? { weeklyHours: 20, studyDays: ["Mon", "Tue", "Wed", "Thu", "Fri"], sessionLength: 90, vacationRanges: [] };
 
     // Build updated plan config
     const updatedConfig = {
       ...baseCfg,
       subjects: updatedSubjects,
-      ...(preferredStartHour !== undefined ? { preferredStartHour } : {}),
+      // The agent's start hour also moves the day template's start.
+      ...(preferredStartHour !== undefined
+        ? { preferredStartHour, startTime: `${String(preferredStartHour).padStart(2, "0")}:00` }
+        : {}),
     };
 
-    // Drop all future incomplete sessions for this plan
-    await db
-      .delete(s.sessions)
-      .where(
-        and(
-          eq(s.sessions.userPlanId, id),
-          isNull(s.sessions.completedAt),
-          gt(s.sessions.scheduledAt, new Date()),
-        ),
-      );
-
-    // Regenerate sessions using the updated config.
-    // Allocations are re-normalised to sum to 100 across active subjects.
+    // Allocations are re-normalised to sum to 100; completed work stays and isn't scheduled again.
     const totalAlloc = updatedSubjects.reduce((sum, sub) => sum + sub.allocation, 0) || 100;
-    const result = generateStudyPlan({
-      planName: plan.title,
-      weeklyHours: baseCfg.weeklyHours,
-      studyDays: baseCfg.studyDays,
-      sessionLength: baseCfg.sessionLength,
-      vacationRanges: baseCfg.vacationRanges,
-      preferredStartHour: updatedConfig.preferredStartHour,
-      subjects: updatedSubjects.map((sub) => ({
-        ...sub,
-        allocation: Math.round((sub.allocation / totalAlloc) * 100),
-      })),
-    });
+    const outcome = await regeneratePlan(user.id, id, {
+      ...updatedConfig,
+      subjects: updatedSubjects.map((sub) => ({ ...sub, allocation: Math.round((sub.allocation / totalAlloc) * 100) })),
+    }, { apply: true });
+    if (!outcome) return notFound("Plan");
+    const { result } = outcome;
 
-    const tasks = result.sessions.map((sess) => ({
-      type: sess.type,
-      subject: sess.subject,
-      title: sess.title,
-      detail: sess.detail ?? null,
-      scheduledAt: sess.scheduledAt,
-      plannedMinutes: sess.plannedMinutes,
-      userId: user.id,
-      userPlanId: id,
-      shared: false as const,
-    }));
-
-    const [count] = await Promise.all([
-      createTasksBulk(tasks),
-      db.update(s.userPlans).set({ config: updatedConfig }).where(eq(s.userPlans.id, id)),
-    ]);
-
-    return Response.json({ count, breakdown: result.breakdown }, { status: 200 });
+    return Response.json({ count: result.sessions.length, breakdown: result.breakdown, warnings: result.warnings }, { status: 200 });
   });
 }
