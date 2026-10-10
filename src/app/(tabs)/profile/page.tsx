@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { logout } from "@/app/(auth)/actions";
-import { FlameIcon, SettingsIcon } from "@/components/icons";
+import { FlameIcon, PlusIcon, SettingsIcon } from "@/components/icons";
 import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { BrainEvolution } from "@/components/profile/brain-evolution";
 import { SubjectInvestment } from "@/components/profile/subject-investment";
@@ -25,7 +25,10 @@ export default async function ProfilePage() {
   const user = await getCurrentUser();
   const [profile, behavior] = await Promise.all([getProfile(user), getStudyBehavior(user.id)]);
   const weekHours = profile.week.reduce((a, b) => a + b, 0);
-  const maxDay = Math.max(...profile.week, 1);
+  const goal = profile.weeklyGoal;
+  const planned = goal.kind === "plan" ? goal.planned : null;
+  // Logged and planned bars share one scale, so a full bar means "as planned".
+  const maxDay = Math.max(...profile.week, ...(planned ?? []), 1);
   const maxSubject = Math.max(...profile.subjects.map((s) => s.hours), 1);
   const spiritAnimal = spiritAnimalDetails[profile.spiritAnimal] ?? spiritAnimalDetails.owl;
   // Only subjects with an upcoming exam get a countdown.
@@ -84,29 +87,63 @@ export default async function ProfilePage() {
         </div>
       </Card>
 
-      <SectionTitle>This week</SectionTitle>
-      <Card className="flex items-center gap-6">
-        <Ring value={weekHours / profile.weeklyGoal} size={96} stroke={10}>
-          <div className="text-center leading-none">
-            <p className="font-display text-xl font-bold">{weekHours.toFixed(1)}</p>
-            <p className="mt-1 text-[10px] text-muted">/ {profile.weeklyGoal} h</p>
-          </div>
-        </Ring>
-        <div className="flex h-28 flex-1 items-end gap-2">
-          {profile.week.map((h, i) => (
-            <div key={i} className="flex flex-1 flex-col items-center gap-1.5">
-              <div className="flex h-20 w-full items-end">
-                <div
-                  className={`w-full rounded-md ${h ? "bg-accent" : "bg-surface-2"}`}
-                  style={{ height: `${Math.max(6, (h / maxDay) * 100)}%` }}
-                  title={`${h} h`}
-                />
-              </div>
-              <span className="text-[11px] text-muted">{days[i]}</span>
+      <SectionTitle
+        action={goal.kind === "plan" && <span className="max-w-[55%] truncate text-xs text-muted">{goal.plans.join(" + ")}</span>}
+      >
+        This week
+      </SectionTitle>
+      {goal.kind === "plan" ? (
+        <Card className="flex items-center gap-6">
+          <Ring value={goal.hours > 0 ? weekHours / goal.hours : weekHours > 0 ? 1 : 0} size={96} stroke={10}>
+            <div className="text-center leading-none">
+              <p className="font-display text-xl font-bold">{weekHours.toFixed(1)}</p>
+              <p className="mt-1 text-[10px] text-muted">
+                {goal.hours > 0 ? `/ ${formatHours(goal.hours)} h` : "nothing planned"}
+              </p>
             </div>
-          ))}
-        </div>
-      </Card>
+          </Ring>
+          <div className="flex h-28 flex-1 items-end gap-2">
+            {profile.week.map((h, i) => (
+              <div key={i} className="flex flex-1 flex-col items-center gap-1.5">
+                <div className="relative flex h-20 w-full items-end">
+                  {/* What the plan schedules that day, behind what was logged */}
+                  {planned && planned[i] > 0 && (
+                    <div
+                      className="absolute inset-x-0 bottom-0 rounded-md bg-surface-2"
+                      style={{ height: `${(planned[i] / maxDay) * 100}%` }}
+                    />
+                  )}
+                  <div
+                    className={`relative w-full rounded-md ${h ? "bg-accent" : "bg-surface-2"}`}
+                    style={{ height: `${Math.max(6, (h / maxDay) * 100)}%` }}
+                    title={planned ? `${h} h of ${formatHours(planned[i])} h planned` : `${h} h`}
+                  />
+                </div>
+                <span className="text-[11px] text-muted">{days[i]}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : (
+        <Card className="flex flex-col items-center gap-3 py-8 text-center">
+          <ExpressionMascot expression="sleepy" size={96} />
+          <p className="max-w-[30ch] text-sm text-muted">
+            {goal.kind === "upcoming"
+              ? `${goal.plan} starts on ${new Date(`${goal.start}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} — your weekly goal comes from it.`
+              : "Create a study plan to set your weekly goal."}
+            {weekHours > 0 && ` You've logged ${weekHours.toFixed(1)} h this week.`}
+          </p>
+          {goal.kind === "none" && (
+            <Link
+              href="/plans/new"
+              className="mt-1 inline-flex items-center gap-1.5 rounded-full border-[2.5px] border-foreground bg-foreground px-5 py-2.5 text-sm font-bold text-background shadow-[0_3px_0_0_var(--border)] active:translate-y-[3px] active:shadow-none"
+            >
+              <PlusIcon className="size-4" />
+              Create a study plan
+            </Link>
+          )}
+        </Card>
+      )}
 
       <SectionTitle>All-time</SectionTitle>
       <div className="grid grid-cols-3 gap-3">
@@ -170,6 +207,11 @@ export default async function ProfilePage() {
 
     </>
   );
+}
+
+/** 42.5 → "42.5", 40 → "40". */
+function formatHours(hours: number) {
+  return String(Math.round(hours * 10) / 10);
 }
 
 function Count({ label, value, icon }: { label: string; value: number; icon?: boolean }) {

@@ -156,13 +156,25 @@ export type Profile = {
   friends: number;
   streak: number;
   totals: { hours: number; sessions: number; kudos: number };
-  /** Hours per day this week, Monday first. */
+  /** Hours logged per day this week, Monday first. */
   week: number[];
-  weeklyGoal: number;
+  /** This week's target, from the active study plans — see `src/lib/weekly-goal.ts`. */
+  weeklyGoal: WeeklyGoal;
   /** Academic subjects only — breaks and buffers are never subjects. */
   subjects: { name: string; hours: number; minutes: number; examHoursRemaining: number | null }[];
   badges: { emoji: string; label: string; earned: boolean }[];
 };
+
+/**
+ * The Profile's weekly target. "plan": focused hours the active plans schedule
+ * this week (`planned` per day, Monday first; null for template plans, which
+ * only have a weekly figure). "upcoming": no plan runs this week, but one
+ * starts later. "none": no active plan.
+ */
+export type WeeklyGoal =
+  | { kind: "plan"; hours: number; planned: number[] | null; plans: string[] }
+  | { kind: "upcoming"; plan: string; start: string }
+  | { kind: "none" };
 
 /** A user as returned by /api/users. */
 export type User = {

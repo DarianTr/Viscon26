@@ -7,7 +7,7 @@ import type { AuthState } from "@/app/(auth)/actions";
 const input =
   "w-full rounded-xl border-2 border-border bg-surface-2 px-3.5 py-2.5 text-sm outline-none focus:border-accent";
 
-/** The login and signup forms; signup adds a name field. */
+/** The login and signup forms; signup adds name and degree fields. */
 export function AuthForm({
   mode,
   action,
@@ -30,7 +30,19 @@ export function AuthForm({
         className={input}
       />
       {signup && (
-        <input name="name" placeholder="Full name" autoComplete="name" defaultValue={state?.name} required className={input} />
+        <>
+          <input name="name" placeholder="Full name" autoComplete="name" defaultValue={state?.name} required className={input} />
+          <label className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium">What degree are you currently pursuing?</span>
+            <input
+              name="program"
+              placeholder="e.g. BSc Computer Science, ETH Zürich"
+              defaultValue={state?.program}
+              maxLength={200}
+              className={input}
+            />
+          </label>
+        </>
       )}
       <input
         name="password"
