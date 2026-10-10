@@ -62,7 +62,14 @@ function describe(e: CalendarEvent, options: FeedOptions) {
 }
 
 export function calendarFeed(events: CalendarEvent[], options: FeedOptions) {
-  const stamp = icsDate((options.now ?? new Date()).toISOString());
+  const now = options.now ?? new Date();
+  const stamp = icsDate(now.toISOString());
+  // Blocks don't record when they last changed, so every fetch presents every
+  // event as a newer revision: some clients (Apple Calendar, Outlook) keep
+  // their cached copy of a known UID unless SEQUENCE / LAST-MODIFIED moved on.
+  // Harmless for a read-only feed. Minutes since the epoch: always increasing,
+  // and fits the 32-bit integer clients expect.
+  const sequence = Math.floor(now.getTime() / 60_000);
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -79,6 +86,8 @@ export function calendarFeed(events: CalendarEvent[], options: FeedOptions) {
       "BEGIN:VEVENT",
       `UID:${e.id}@braina`,
       `DTSTAMP:${stamp}`,
+      `LAST-MODIFIED:${stamp}`,
+      `SEQUENCE:${sequence}`,
       `DTSTART:${icsDate(e.start)}`,
       `DTEND:${icsDate(e.end)}`,
       `SUMMARY:${escapeText(e.title)}`,

@@ -41,6 +41,9 @@ describe("calendar feed", () => {
     assert.ok(lines.includes("DTEND:20261012T083000Z"));
     assert.ok(lines.includes("UID:0b6c1a52-8f4e-4a43-9a4e-2f1b0c8d9e01@braina"));
     assert.ok(lines.includes("DTSTAMP:20261010T120000Z"));
+    // A newer revision on every fetch, so clients pick up moved blocks.
+    assert.ok(lines.includes("LAST-MODIFIED:20261010T120000Z"));
+    assert.ok(lines.includes(`SEQUENCE:${Date.parse("2026-10-10T12:00:00Z") / 60_000}`));
   });
 
   it("labels events like the app and links back to their day there", () => {
