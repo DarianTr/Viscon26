@@ -23,6 +23,7 @@ export const blockActivities = [
   "mock_exam",
   "mock_review",
   "cheatsheet",
+  "exam_eve",
   "short_break",
   "lunch",
   "dinner",
@@ -30,6 +31,9 @@ export const blockActivities = [
   "exam",
 ] as const;
 export type BlockActivity = (typeof blockActivities)[number];
+
+/** A subject's preparation phase: Foundation → Build → Peak → Taper. */
+export type PrepPhaseName = "foundation" | "build" | "peak" | "taper";
 
 export type Task = {
   id: string;
@@ -78,6 +82,8 @@ export type CalendarEvent = {
   /** Minutes of the block reserved for the cheatsheet, and the milestone it aims for. */
   cheatsheetMinutes: number | null;
   cheatsheetTarget: number | null;
+  /** The subject's preparation phase at this block. */
+  prepPhase: PrepPhaseName | null;
   title: string;
   /** ISO timestamp. */
   start: string;
@@ -184,6 +190,7 @@ export type TaskRecord = {
   subject: string | null;
   cheatsheetTarget: number | null;
   cheatsheetMinutes: number | null;
+  prepPhase: PrepPhaseName | null;
   title: string;
   detail: string | null;
   scheduledAt: string;

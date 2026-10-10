@@ -8,6 +8,7 @@ import {
   dailyWindowMinutes,
   dayStartMinutes,
   generateStudyPlan,
+  immersionDays,
   mockReviewMinutes,
   mockWorkload,
   planMocks,
@@ -86,6 +87,10 @@ function timetable(list: ScheduledSession[]) {
   return blocks.map((b) => `${clock(b.start)}-${clock(b.end)} ${b.activity}`);
 }
 
+/** Study days other than Exam Eve (which deliberately looks different). */
+const regularDays = (sessions: ScheduledSession[]) =>
+  [...byDay(sessions).values()].filter((list) => !list.some((x) => x.activity === "exam_eve"));
+
 /** No two blocks of the whole plan (exams included, across days) share a minute. */
 function assertNoOverlaps(sessions: ScheduledSession[], busy: Interval[] = []) {
   const intervals = [
@@ -122,9 +127,16 @@ function assertWithinAvailability(cfg: PlanConfig, sessions: ScheduledSession[],
     assert.ok(minuteOfDay(list[0].scheduledAt) >= dayStart, `${key} starts too early`);
     assert.ok(isStudy(list[0]), `${key} starts with study`);
     const last = list[list.length - 1];
-    assert.equal(last.type, "buffer", `${key} ends with the buffer`);
-    assert.equal(last.plannedMinutes, buffer);
     assert.equal(dateKey(new Date(end(last) - 1)), key, `${key} runs past midnight`);
+    if (list.some((x) => x.activity === "exam_eve")) {
+      // Exam Eve: only the final review(s), at most 4 h, no buffer to catch up into.
+      assert.ok(list.filter(isStudy).every((x) => x.activity === "exam_eve"), `${key}: only Exam Eve`);
+      assert.ok(sum(list.filter(isStudy)) <= 240, `${key}: Exam Eve over 4 h`);
+      assert.ok(!list.some((x) => x.type === "buffer"), `${key}: no buffer on Exam Eve`);
+    } else {
+      assert.equal(last.type, "buffer", `${key} ends with the buffer`);
+      assert.equal(last.plannedMinutes, buffer);
+    }
 
     // Breaks only sit between study blocks.
     list.forEach((s, i) => {
@@ -148,7 +160,7 @@ describe("daily templates", () => {
     const cfg = tenHours();
     const { sessions } = generateStudyPlan(cfg, NOW);
     assertWithinAvailability(cfg, sessions);
-    const days = [...byDay(sessions).values()];
+    const days = regularDays(sessions);
     assert.ok(days.length > 50);
     for (const list of days) {
       assert.deepEqual(timetable(list), [
@@ -210,7 +222,7 @@ describe("daily templates", () => {
       const cfg = tenHours({ startTime });
       const { sessions } = generateStudyPlan(cfg, NOW);
       assertWithinAvailability(cfg, sessions);
-      for (const list of [...byDay(sessions).values()].slice(1)) {
+      for (const list of regularDays(sessions).slice(1)) {
         assert.equal(clock(minuteOfDay(list[0].scheduledAt)), startTime);
         assert.equal(sum(list.filter(isStudy)), 510, "a later start doesn't cost study time");
         assert.equal(list.filter((s) => s.activity === "lunch").length, 1);
@@ -503,9 +515,13 @@ describe("cheatsheets", () => {
     const t = combined.map((s) => s.cheatsheetTarget!);
     for (let i = 1; i < t.length; i++) assert.ok(t[i] >= t[i - 1], `cumulative: ${t}`);
     assert.ok(t[t.length - 1] < 100, "the finalization takes it to 100%");
-    const final = sessions.find((s) => s.title === "Analysis — Cheatsheet Finalization")!;
+    // The final pass is part of Exam Eve, the day before the exam.
+    const final = sessions.find((s) => s.title === "Analysis — Exam Eve — Final Review")!;
     assert.equal(final.cheatsheetTarget, 100);
-    assert.ok(final.scheduledAt > combined[combined.length - 1].scheduledAt && dateKey(final.scheduledAt) < "2026-12-18");
+    assert.ok(final.cheatsheetMinutes! >= 30);
+    assert.ok(final.scheduledAt > combined[combined.length - 1].scheduledAt);
+    assert.equal(dateKey(final.scheduledAt), "2026-12-17");
+    assert.ok(!sessions.some((s) => s.title === "Analysis — Cheatsheet Finalization"), "no separate finalization");
     // The cheatsheet time is inside the study time, not on top of it (phases round to whole sessions).
     assert.ok(Math.abs(studyMinutes(sessions) - studyMinutes(generateStudyPlan(plan("none"), NOW).sessions)) <= 120);
   });
@@ -515,7 +531,10 @@ describe("cheatsheets", () => {
     assert.deepEqual(cheatsheetMilestones([20, 20, 20]), [33, 67, 100]);
     assert.deepEqual(cheatsheetMilestones([15, 15], 40), [70, 100]);
     assert.deepEqual(cheatsheetMilestones([20, 60, 20]), [20, 80, 100], "a longer session moves it further");
-    const count = (examDate: string) => generateStudyPlan(plan("gradual", { examDate }), NOW).sessions.filter((s) => s.title.includes("+ Cheatsheet")).length;
+    // Distinct topics: a session split across days is still one topic.
+    // At 20 h a week, cheatsheet time stays below its cap, so it scales with the preparation.
+    const count = (examDate: string) => new Set(generateStudyPlan(plan("gradual", { examDate }, { weeklyHours: 20 }), NOW).sessions
+      .filter((s) => s.title.includes("+ Cheatsheet")).map((s) => s.title.replace(" (cont.)", ""))).size;
     assert.ok(count("2026-10-30") < count("2026-12-18"));
   });
 
@@ -524,15 +543,15 @@ describe("cheatsheets", () => {
     const { sessions } = generateStudyPlan(cfg, NOW);
     assertWithinAvailability(cfg, sessions);
     const creation = sessions.filter((s) => /Cheatsheet Creation \d/.test(s.title));
-    const final = sessions.find((s) => s.title === "Analysis — Cheatsheet Finalization")!;
+    const final = sessions.find((s) => s.title === "Analysis — Exam Eve — Final Review")!;
     assert.ok(creation.length >= 2);
     assert.ok(creation.every((s) => s.activity === "cheatsheet" && s.cheatsheetMinutes === s.plannedMinutes));
-    for (const s of [...creation, final]) {
+    for (const s of creation) {
       assert.ok(share(s) > 0.5, `${s.title} is too early`);
       assert.ok(dateKey(s.scheduledAt) < "2026-12-18", "before the exam");
     }
     assert.ok(new Set(creation.map((s) => dateKey(s.scheduledAt))).size >= 2, "not all on one day");
-    assert.ok(!creation.every((s) => dateKey(s.scheduledAt) === "2026-12-17"), "not all on the last day");
+    assert.ok(!creation.some((s) => dateKey(s.scheduledAt) === "2026-12-17"), "none on Exam Eve");
     assert.ok(creation.every((s) => s.scheduledAt < final.scheduledAt));
     const t = creation.map((s) => s.cheatsheetTarget!);
     for (let i = 1; i < t.length; i++) assert.ok(t[i] >= t[i - 1], `${t}`);
@@ -545,7 +564,7 @@ describe("cheatsheets", () => {
       const cfg = plan(mode, { confidence: "little", currentGrade: "3", targetGrade: "6" }, { weeklyHours: 70, studyDays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] });
       const { sessions } = generateStudyPlan(cfg, NOW);
       assertWithinAvailability(cfg, sessions); // ≤ 8.5 h of study a day, the buffer intact
-      for (const list of byDay(sessions).values()) {
+      for (const list of regularDays(sessions)) {
         assert.equal(sum(list.filter((s) => s.type === "buffer")), 90, `${mode}: buffer stays 1.5 h`);
         assert.ok(!list.some((s) => s.type === "buffer" && s.cheatsheetMinutes), "buffers carry no cheatsheet work");
       }
@@ -571,14 +590,17 @@ describe("cheatsheets", () => {
     assertWithinAvailability(tight, sessions);
     assert.ok(feasibility.shortfallMinutes > 0, "the plan is short");
     assert.ok(sessions.filter((s) => s.subject === "A" && /Cheatsheet Creation \d/.test(s.title)).length >= 2, "A keeps its creation sessions");
-    assert.ok(sessions.some((s) => s.title === "A — Cheatsheet Finalization"), "A keeps its finalization");
-    assert.ok(sessions.some((s) => s.title === "B — Cheatsheet Finalization"), "B keeps its finalization");
+    // Their exams are on consecutive days, so all four share one Exam Eve: too short to also
+    // hold the cheatsheet's final pass, which then stays a session of its own before it.
+    for (const name of ["A", "B"]) {
+      assert.ok(sessions.some((s) => s.subject === name && s.cheatsheetTarget === 100), `${name} keeps its finalization`);
+    }
     assert.ok(sessions.some((s) => s.title === "C — Cheatsheet Selection & Familiarization"), "C keeps its familiarization");
     // Every theory + cheatsheet session comes before the finalization, which takes it to 100%.
     for (const name of ["A", "B"]) {
       const sheet = sessions.filter((s) => s.subject === name && s.cheatsheetTarget !== undefined);
       const final = sheet[sheet.length - 1];
-      assert.match(final.title, /Cheatsheet Finalization/, `${name}: finalization is the last cheatsheet session`);
+      assert.match(final.title, /Exam Eve — Final Review|Cheatsheet Finalization/, `${name}: the finalization is the last cheatsheet session`);
       assert.equal(final.cheatsheetTarget, 100);
     }
     assert.ok(!feasibility.subjects.some((s) => s.shortfallMinutes > 0 && sessions.every((x) => x.subject !== s.name)));
@@ -647,13 +669,19 @@ describe("initial focus days", () => {
     assert.ok(days.slice(12).some(([, list]) => list.length === 2));
   });
 
-  it("recommended: foundation subjects get focus days, exam-focused ones start mixed", () => {
+  it("recommended: foundation subjects get immersion, revise & practice a short refresher, exam-focused none", () => {
     const cfg = config({ weeklyHours: 40, studyDays: ["Mon", "Tue", "Wed", "Thu", "Fri"], lernphaseStart: "recommended", subjects: four });
     const { sessions } = generateStudyPlan(cfg, NOW);
     const days = subjectsPerDay(sessions);
-    const focusRun = days.slice(0, 9).map(([, list]) => list);
-    assert.ok(focusRun.every((list) => list.length === 1));
-    assert.ok(!focusRun.flat().includes("Numerical Methods"), "exam-focused subject has no forced focus days");
+    // Analysis II and TCS: 3 days each (gaps, plenty of time); Systems Programming (revise & practice,
+    // little confidence): a 1-day refresher; Numerical Methods (exam-focused): none.
+    assert.deepEqual(days.slice(0, 7).map(([, list]) => list), [
+      ...Array(3).fill(["Analysis II"]),
+      ...Array(3).fill(["Theoretical CS"]),
+      ["Systems Programming"],
+    ]);
+    assert.ok(days[7][1].length === 2, "then mixed days");
+    assert.ok(!days.slice(0, 7).flat(2).includes("Numerical Methods"), "exam-focused subject has no forced immersion");
     // Without focus days it goes straight to past-exam style work, not a run of theory days.
     const firstNumerical = sessions.find((s) => s.subject === "Numerical Methods" && isStudy(s))!;
     assert.doesNotMatch(firstNumerical.title, /Theory/);
@@ -674,7 +702,7 @@ describe("initial focus days", () => {
     });
     const { sessions, feasibility } = generateStudyPlan(cfg, NOW);
     assertWithinAvailability(cfg, sessions);
-    assert.ok(feasibility.adjustments.some((a) => /focus day/.test(a)), JSON.stringify(feasibility.adjustments));
+    assert.ok(feasibility.adjustments.some((a) => /immersion day/.test(a)), JSON.stringify(feasibility.adjustments));
   });
 });
 
@@ -836,5 +864,178 @@ describe("feasibility report", () => {
     for (const cfg of [config(), config({ subjects: four }), config({ weeklyHours: 12, subjects: four })]) {
       check(generateStudyPlan(cfg, NOW).feasibility);
     }
+  });
+});
+
+// ─── Exam Eve ────────────────────────────────────────────────────────────────
+
+describe("Exam Eve", () => {
+  const eves = (sessions: ScheduledSession[]) => sessions.filter((s) => s.activity === "exam_eve");
+  const two = [
+    subject({ name: "Analysis", examDate: "2026-12-10", cheatsheet: "gradual", allocation: 50 }),
+    subject({ name: "Physics", examDate: "2026-12-18", allocation: 50 }),
+  ];
+
+  it("reserves the day before each exam for one 2–4 h final review of that subject only", () => {
+    const cfg = config({ weeklyHours: 60, lernphaseStart: "mixed", subjects: two });
+    const { sessions, eveDates } = generateStudyPlan(cfg, NOW);
+    assertWithinAvailability(cfg, sessions);
+    for (const [name, eveDay] of [["Analysis", "2026-12-09"], ["Physics", "2026-12-17"]]) {
+      const eve = eves(sessions).filter((s) => s.subject === name);
+      assert.equal(eve.length, 1, `${name}: one Exam Eve`);
+      assert.equal(eve[0].title, `${name} — Exam Eve — Final Review`);
+      assert.equal(dateKey(eve[0].scheduledAt), eveDay, `${name}: the day before the exam`);
+      assert.ok(eve[0].plannedMinutes >= 120 && eve[0].plannedMinutes <= 240, `${eve[0].plannedMinutes} min`);
+      assert.equal(eve[0].prepPhase, "taper");
+      assert.match(eve[0].detail, /no new topics, no full mocks/);
+      const day = byDay(sessions).get(eveDay)!;
+      assert.deepEqual([...new Set(day.filter(isStudy).map((s) => s.subject))], [name], "only that subject");
+      assert.ok(!day.some((s) => s.activity === "mock_exam" || s.activity === "mock_review"), "no mocks");
+      assert.ok(!day.some((s) => s.type === "buffer"), "no catch-up buffer");
+      assert.deepEqual(eveDates[eveDay], [name]);
+    }
+    // Analysis builds its cheatsheet gradually: the final pass is part of its eve.
+    const analysisEve = eves(sessions).find((s) => s.subject === "Analysis")!;
+    assert.equal(analysisEve.cheatsheetTarget, 100);
+    assert.match(analysisEve.detail, /Cheatsheet \(~\d+ min\): final check/);
+  });
+
+  it("uses the last study day when the day before is a day off, and says so", () => {
+    // Exam on Monday 14 Dec; Sundays are days off → eve on Saturday 12 Dec.
+    const cfg = config({ lernphaseStart: "mixed", subjects: [subject({ examDate: "2026-12-14" })] });
+    const { sessions, feasibility } = generateStudyPlan(cfg, NOW);
+    assert.equal(dateKey(eves(sessions)[0].scheduledAt), "2026-12-12");
+    assert.ok(feasibility.adjustments.some((a) => /Exam Eve is 2026-12-12/.test(a)));
+  });
+
+  it("lets consecutive exams share an eve, explicitly, within 4 h", () => {
+    const cfg = config({
+      weeklyHours: 60,
+      lernphaseStart: "mixed",
+      subjects: [
+        subject({ name: "Analysis", examDate: "2026-12-14", allocation: 50 }),
+        subject({ name: "Physics", examDate: "2026-12-15", allocation: 50 }),
+      ],
+    });
+    const { sessions, feasibility } = generateStudyPlan(cfg, NOW);
+    assertWithinAvailability(cfg, sessions);
+    const shared = eves(sessions);
+    assert.equal(new Set(shared.map((s) => dateKey(s.scheduledAt))).size, 1, "one shared eve");
+    assert.ok(sum(shared) <= 240);
+    assert.ok(feasibility.adjustments.some((a) => /share their Exam Eve/.test(a)));
+  });
+
+  it("is reserved first: a tight plan gives up regular study, never the eve", () => {
+    const cfg = config({ weeklyHours: 12, subjects: [subject({ confidence: "little", currentGrade: "3", targetGrade: "6" })] });
+    const { sessions, feasibility } = generateStudyPlan(cfg, NOW);
+    assertWithinAvailability(cfg, sessions);
+    assert.ok(feasibility.shortfallMinutes > 0, "the plan is short");
+    assert.equal(eves(sessions).length, 1);
+    assert.ok(eves(sessions)[0].plannedMinutes >= 60);
+  });
+});
+
+// ─── Foundation immersion ────────────────────────────────────────────────────
+
+describe("Foundation immersion", () => {
+  it("sizes immersion by strategy, confidence and time left", () => {
+    const foundation = { approach: "foundation", confidence: "little", currentGrade: "3.5", targetGrade: "5" };
+    assert.equal(immersionDays(foundation, 40), 3, "gaps and plenty of time");
+    assert.equal(immersionDays(foundation, 15), 2, "time is tighter");
+    assert.equal(immersionDays(foundation, 6), 1, "exam is close: a diagnostic day");
+    assert.equal(immersionDays(foundation, 2), 0);
+    assert.equal(immersionDays({ ...foundation, confidence: "very", currentGrade: "5" }, 40), 2, "few gaps");
+    assert.equal(immersionDays({ ...foundation, approach: "balanced" }, 40), 1, "revise & practice: a refresher when needed");
+    assert.equal(immersionDays({ ...foundation, approach: "balanced", confidence: "mostly" }, 40), 0);
+    assert.equal(immersionDays({ ...foundation, approach: "exam" }, 40), 0, "exam-focused: none");
+  });
+
+  const plan = () => config({
+    weeklyHours: 40,
+    studyDays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+    lernphaseStart: "recommended",
+    subjects: [
+      subject({ name: "Analysis II", examDate: "2027-01-25", approach: "foundation", confidence: "little", allocation: 50 }),
+      subject({ name: "Numerics", examDate: "2027-01-29", approach: "exam", allocation: 50 }),
+    ],
+  });
+
+  it("gives each immersion day its theme from the subject's own sessions", () => {
+    const { sessions } = generateStudyPlan(plan(), NOW);
+    const day = (n: number) => sessions.filter((s) => s.title.includes(`Immersion Day ${n}:`));
+    assert.ok(day(1).length > 0 && day(1).every((s) => /Core theory & topic map \(Theory recap \d+/.test(s.title)));
+    assert.ok(day(2).length > 0 && day(2).every((s) => /Exercises & active recall \(Exercises \d+/.test(s.title)));
+    assert.ok(day(3).length > 0 && day(3).every((s) => /Exam-style problems \(Past-exam practice \d+/.test(s.title)));
+    assert.ok([1, 2, 3].every((n) => day(n).every((s) => s.subject === "Analysis II" && s.prepPhase === "foundation")));
+    // One subject per immersion day.
+    for (const n of [1, 2, 3]) {
+      const key = dateKey(day(n)[0].scheduledAt);
+      assert.deepEqual([...new Set(byDay(sessions).get(key)!.filter(isStudy).map((s) => s.subject))], ["Analysis II"]);
+    }
+  });
+
+  it("revisits the subject with spaced retrieval after the immersion", () => {
+    const { sessions } = generateStudyPlan(plan(), NOW);
+    const lastImmersion = sessions.filter((s) => s.title.includes("Immersion Day")).at(-1)!.scheduledAt;
+    const retrieval = sessions.filter((s) => /Spaced Retrieval \d \(after immersion\)/.test(s.title));
+    assert.equal(retrieval.length, 3);
+    assert.ok(retrieval.every((s) => s.subject === "Analysis II" && s.scheduledAt > lastImmersion));
+    const daysAfter = retrieval.map((s) => Math.round((s.scheduledAt.getTime() - lastImmersion.getTime()) / 864e5));
+    for (let i = 1; i < daysAfter.length; i++) assert.ok(daysAfter[i] > daysAfter[i - 1], `spaced out: ${daysAfter}`);
+  });
+
+  it("replaces existing sessions rather than adding workload", () => {
+    const cfg = plan();
+    const required = (c: PlanConfig) => generateStudyPlan(c, NOW).feasibility.subjects.find((s) => s.name === "Analysis II")!.requiredMinutes;
+    assert.ok(Math.abs(required(cfg) - required({ ...cfg, lernphaseStart: "mixed" })) <= 30, "same workload, just arranged differently");
+  });
+
+  it("is shortened before essential work when the plan is tight", () => {
+    // Analysis II wants 3 immersion days; Numerics' exam is close and needs those days.
+    const cfg = config({
+      weeklyHours: 20,
+      studyDays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+      lernphaseStart: "recommended",
+      subjects: [
+        subject({ name: "Numerics", examDate: "2026-10-30", approach: "exam", confidence: "little", currentGrade: "3", targetGrade: "6", allocation: 70 }),
+        subject({ name: "Analysis II", examDate: "2026-12-18", approach: "foundation", confidence: "little", allocation: 30 }),
+      ],
+    });
+    const { sessions, feasibility } = generateStudyPlan(cfg, NOW);
+    assertWithinAvailability(cfg, sessions);
+    const immersion = new Set(sessions.filter((s) => s.title.includes("Immersion Day")).map((s) => dateKey(s.scheduledAt))).size;
+    assert.ok(immersion < 3, `immersion shortened to ${immersion} day(s)`);
+    assert.ok(feasibility.adjustments.some((a) => /immersion/i.test(a)), JSON.stringify(feasibility.adjustments));
+  });
+});
+
+// ─── Phases ──────────────────────────────────────────────────────────────────
+
+describe("subject phases", () => {
+  it("moves each subject through Foundation → Build → Peak → Taper on its own timeline", () => {
+    const cfg = config({
+      weeklyHours: 40,
+      studyDays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+      lernphaseStart: "recommended",
+      subjects: [
+        subject({ name: "Analysis II", examDate: "2026-12-11", approach: "foundation", confidence: "little", allocation: 50 }),
+        subject({ name: "Numerics", examDate: "2027-01-29", approach: "exam", allocation: 50 }),
+      ],
+    });
+    const { sessions, feasibility } = generateStudyPlan(cfg, NOW);
+    const order = ["foundation", "build", "peak", "taper"];
+    for (const s of feasibility.subjects) {
+      const phases = s.phases.map((p) => p.phase);
+      for (let i = 1; i < phases.length; i++) assert.ok(order.indexOf(phases[i]) > order.indexOf(phases[i - 1]), `${s.name}: ${phases}`);
+      assert.equal(phases.at(-1), "taper");
+    }
+    assert.deepEqual(feasibility.subjects.find((s) => s.name === "Analysis II")!.phases.map((p) => p.phase), order);
+    assert.ok(!feasibility.subjects.find((s) => s.name === "Numerics")!.phases.some((p) => p.phase === "foundation"), "exam-focused: no foundation");
+    // On one day, the subjects can be in different phases.
+    const analysisPeak = feasibility.subjects.find((s) => s.name === "Analysis II")!.phases.find((p) => p.phase === "peak")!;
+    const numericsThen = sessions.find((s) => s.subject === "Numerics" && dateKey(s.scheduledAt) >= analysisPeak.from && isStudy(s))!;
+    assert.equal(numericsThen.prepPhase, "build");
+    // Every study block carries its phase.
+    assert.ok(sessions.filter(isStudy).every((s) => s.prepPhase));
   });
 });

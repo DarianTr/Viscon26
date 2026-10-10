@@ -11,7 +11,7 @@ import type { EventType, TaskRecord } from "./types";
 type Row = typeof s.sessions.$inferSelect;
 
 export type NewTask = Pick<Row, "userId" | "type" | "subject" | "title" | "scheduledAt" | "plannedMinutes"> &
-  Partial<Pick<Row, "planId" | "userPlanId" | "activity" | "cheatsheetTarget" | "cheatsheetMinutes" | "detail" | "location" | "note" | "shared">>;
+  Partial<Pick<Row, "planId" | "userPlanId" | "activity" | "cheatsheetTarget" | "cheatsheetMinutes" | "prepPhase" | "detail" | "location" | "note" | "shared">>;
 
 export type TaskPatch = Partial<Omit<NewTask, "userId">> &
   Partial<Pick<Row, "actualMinutes" | "focus" | "movedManually">> & {
@@ -266,7 +266,7 @@ async function assertSchedulable(
         .filter((c) => byId.get(c.id)?.userPlanId === planId && localDay(c.start).key === dayKey)
         .map((c) => asBlock(byId.get(c.id)!, c.start, c.minutes)),
     ];
-    const problem = dayRule(blocks, config, config.focusDates?.[dayKey]);
+    const problem = dayRule(blocks, config, config.focusDates?.[dayKey], config.eveDates?.[dayKey]);
     if (problem) throw new ConflictError(problem);
   }
 }

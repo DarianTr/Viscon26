@@ -15,6 +15,7 @@ export const createTaskSchema = z.object({
   subject: z.string().trim().min(1).max(100).nullable(),
   cheatsheetTarget: z.number().int().min(0).max(100).nullable().optional(),
   cheatsheetMinutes: z.number().int().min(0).max(24 * 60).nullable().optional(),
+  prepPhase: z.enum(["foundation", "build", "peak", "taper"]).nullable().optional(),
   title: z.string().trim().min(1).max(200),
   detail: optionalText(500),
   scheduledAt: timestamp,

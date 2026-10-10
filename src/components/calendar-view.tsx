@@ -25,6 +25,7 @@ const activityLabels: Partial<Record<NonNullable<CalendarEvent["activity"]>, str
   mock_exam: "Mock exam",
   mock_review: "Mock exam review",
   cheatsheet: "Cheatsheet",
+  exam_eve: "Exam Eve — Final Review",
   short_break: "Break",
   lunch: "Lunch",
   dinner: "Dinner",
@@ -34,6 +35,8 @@ const labelOf = (e: CalendarEvent) =>
   (e.activity === "study" && e.cheatsheetMinutes ? "Theory + Cheatsheet" : undefined)
   ?? (e.activity && activityLabels[e.activity])
   ?? eventStyles[e.type].label;
+
+const phaseLabels = { foundation: "Foundation", build: "Build", peak: "Peak", taper: "Taper" } as const;
 
 /** Study blocks carry their subject's colour on the left edge, cheatsheet work included. */
 const subjectEdge = (e: CalendarEvent) =>
@@ -177,13 +180,14 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
       return;
     }
     const { study, buffer } = await response.json();
-    const toEvent = (t: { id: string; type: CalendarEvent["type"]; activity: CalendarEvent["activity"]; subject: string | null; cheatsheetMinutes: number | null; cheatsheetTarget: number | null; title: string; scheduledAt: string; plannedMinutes: number; calendarOrder: number | null }): CalendarEvent => ({
+    const toEvent = (t: { id: string; type: CalendarEvent["type"]; activity: CalendarEvent["activity"]; subject: string | null; cheatsheetMinutes: number | null; cheatsheetTarget: number | null; prepPhase: CalendarEvent["prepPhase"]; title: string; scheduledAt: string; plannedMinutes: number; calendarOrder: number | null }): CalendarEvent => ({
       id: t.id,
       type: t.type,
       activity: t.activity,
       subject: t.subject,
       cheatsheetMinutes: t.cheatsheetMinutes,
       cheatsheetTarget: t.cheatsheetTarget,
+      prepPhase: t.prepPhase,
       title: t.title,
       start: t.scheduledAt,
       end: new Date(new Date(t.scheduledAt).getTime() + t.plannedMinutes * 60_000).toISOString(),
@@ -423,6 +427,9 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
                   <Card className="relative flex-1 p-4" style={subjectEdge(e)}>
                     <span className={`absolute top-5 -left-[0.8125rem] size-2.5 rounded-full ring-4 ring-background ${style.color}`} />
                     <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${style.soft}`}>{labelOf(e)}</span>
+                    {e.prepPhase && (
+                      <span className="ml-2 text-[11px] font-medium text-muted">{phaseLabels[e.prepPhase]} phase</span>
+                    )}
                     <p className="mt-1.5 font-semibold">{e.title}</p>
                     <p className="mt-1 flex items-center gap-1.5 text-xs text-muted">
                       <ClockIcon className="size-3.5" />

@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { cheatsheetProgress } from "@/lib/plan-progress";
 import { handle, isId, notFound } from "@/lib/http";
 import { academic, getCurrentUser } from "@/lib/queries";
@@ -87,6 +87,19 @@ export async function GET(_request: Request, ctx: Ctx) {
       return [sub.name, { available, done, planned, reserve: Math.max(0, available - done - planned) }];
     }));
 
-    return Response.json({ title: plan.title, subjects, scores, cheatsheet, mocks, config: plan.config ?? null });
+    // Each subject's current phase: the phase of its next (or ongoing) uncompleted block.
+    const upcoming = await db
+      .selectDistinctOn([s.sessions.subject], { subject: s.sessions.subject, phase: s.sessions.prepPhase })
+      .from(s.sessions)
+      .where(and(
+        eq(s.sessions.userPlanId, id),
+        isNull(s.sessions.completedAt),
+        isNotNull(s.sessions.prepPhase),
+        sql`${s.sessions.scheduledAt} + ${s.sessions.plannedMinutes} * interval '1 minute' > now()`,
+      ))
+      .orderBy(s.sessions.subject, asc(s.sessions.scheduledAt));
+    const phases = Object.fromEntries(upcoming.map((r) => [r.subject, r.phase]));
+
+    return Response.json({ title: plan.title, subjects, scores, cheatsheet, mocks, phases, config: plan.config ?? null });
   });
 }

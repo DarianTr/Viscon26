@@ -309,6 +309,7 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
       subject: s.sessions.subject,
       cheatsheetMinutes: s.sessions.cheatsheetMinutes,
       cheatsheetTarget: s.sessions.cheatsheetTarget,
+      prepPhase: s.sessions.prepPhase,
       title: s.sessions.title,
       start: s.sessions.scheduledAt,
       minutes: s.sessions.plannedMinutes,
