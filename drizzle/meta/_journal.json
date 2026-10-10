@@ -155,6 +155,13 @@
       "when": 1791720001007,
       "tag": "0019_course_resources",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791720001008,
+      "tag": "0020_plan_archive",
+      "breakpoints": true
     }
   ]
 }

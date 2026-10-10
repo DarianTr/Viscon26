@@ -7,7 +7,7 @@ import { emptyStateLines } from "@/lib/mascot";
 import { getActivePlan, getCurrentUser, getUserCustomPlans } from "@/lib/queries";
 import { sessionTypes } from "@/lib/session-types";
 import type { ActivePlan } from "@/lib/types";
-import { CustomPlanCard } from "@/components/plans/plan-card";
+import { PlansDashboard } from "@/components/plans/plans-dashboard";
 
 export const metadata: Metadata = { title: "Plans" };
 
@@ -24,36 +24,23 @@ export default async function PlansPage() {
 
       {activePlan && <ActivePlanOverview activePlan={activePlan} />}
 
-      <SectionTitle>My plans</SectionTitle>
       {customPlans.length === 0 ? (
-        <Card className="flex flex-col items-center gap-3 py-8 text-center">
-          <ExpressionMascot expression="sleepy" size={96} />
-          <p className="max-w-[26ch] text-sm text-muted">{emptyStateLines.noPlan}</p>
-          <Link
-            href="/plans/new"
-            className="mt-1 inline-flex items-center gap-1.5 rounded-full border-[2.5px] border-foreground bg-foreground px-5 py-2.5 text-sm font-bold text-background shadow-[0_3px_0_0_var(--border)] active:translate-y-[3px] active:shadow-none"
-          >
-            <PlusIcon className="size-4" />
-            Create new plan
-          </Link>
-        </Card>
-      ) : (
         <>
-          <div className="space-y-3">
-            {customPlans.map((plan) => (
-              <CustomPlanCard key={plan.id} plan={plan} />
-            ))}
-          </div>
-          <div className="mt-4 flex justify-center">
+          <SectionTitle>Current Plans</SectionTitle>
+          <Card className="flex flex-col items-center gap-3 py-8 text-center">
+            <ExpressionMascot expression="sleepy" size={96} />
+            <p className="max-w-[26ch] text-sm text-muted">{emptyStateLines.noPlan}</p>
             <Link
               href="/plans/new"
-              className="inline-flex items-center gap-1.5 rounded-full border-[2.5px] border-foreground bg-foreground px-5 py-2.5 text-sm font-bold text-background shadow-[0_3px_0_0_var(--border)] active:translate-y-[3px] active:shadow-none"
+              className="mt-1 inline-flex items-center gap-1.5 rounded-full border-[2.5px] border-foreground bg-foreground px-5 py-2.5 text-sm font-bold text-background shadow-[0_3px_0_0_var(--border)] active:translate-y-[3px] active:shadow-none"
             >
               <PlusIcon className="size-4" />
               Create new plan
             </Link>
-          </div>
+          </Card>
         </>
+      ) : (
+        <PlansDashboard plans={customPlans} />
       )}
     </>
   );

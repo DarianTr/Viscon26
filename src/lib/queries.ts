@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, schema as s, TIME_ZONE } from "@/db";
+import { latestExamDate } from "./plan-status";
 import { requireUser, type SessionUser } from "./auth";
 import { initials } from "./session-types";
 import { isActiveInWeek, planSpan, plannedMinutes, weekBounds } from "./weekly-goal";
@@ -179,11 +180,21 @@ export type CustomPlan = {
   lastDate: string | null;
   /** Where "Continue plan" goes: the ongoing or next uncompleted study block. */
   next: { title: string; start: string; ongoing: boolean } | null;
+  /** The plan's last exam, "YYYY-MM-DD" — whether it is current or finished follows from it (lib/plan-status.ts). */
+  latestExamDate: string | null;
+  /** When the student archived the plan, if they did. */
+  archivedAt: string | null;
 };
 
 export async function getUserCustomPlans(userId: string): Promise<CustomPlan[]> {
   const plans = await db
-    .select({ id: s.userPlans.id, title: s.userPlans.title, createdAt: s.userPlans.createdAt })
+    .select({
+      id: s.userPlans.id,
+      title: s.userPlans.title,
+      createdAt: s.userPlans.createdAt,
+      config: s.userPlans.config,
+      archivedAt: s.userPlans.archivedAt,
+    })
     .from(s.userPlans)
     .where(eq(s.userPlans.userId, userId))
     .orderBy(desc(s.userPlans.createdAt));
@@ -224,6 +235,18 @@ export async function getUserCustomPlans(userId: string): Promise<CustomPlan[]> 
     ))
     .orderBy(s.sessions.userPlanId, asc(s.sessions.scheduledAt));
   const nextByPlanId = new Map(upcoming.map((r) => [r.userPlanId, r]));
+
+  // Plans that never stored their subjects' exam dates fall back to their exam
+  // sessions, as calendar dates where the student is.
+  const examDays = await db
+    .select({
+      userPlanId: s.sessions.userPlanId,
+      latest: sql<string | null>`max((${s.sessions.scheduledAt} at time zone ${tz})::date)::text`,
+    })
+    .from(s.sessions)
+    .where(and(inArray(s.sessions.userPlanId, planIds), eq(s.sessions.type, "exam")))
+    .groupBy(s.sessions.userPlanId);
+  const examDayByPlanId = new Map(examDays.map((r) => [r.userPlanId, r.latest]));
   const now = Date.now();
 
   return plans.map((p) => {
@@ -239,6 +262,10 @@ export async function getUserCustomPlans(userId: string): Promise<CustomPlan[]> 
       firstDate: st?.firstDate ?? null,
       lastDate: st?.lastDate ?? null,
       next: next ? { title: next.title, start: next.start.toISOString(), ongoing: next.start.getTime() <= now } : null,
+      latestExamDate: p.config?.subjects?.length
+        ? latestExamDate(p.config.subjects.map((sub) => sub.examDate))
+        : latestExamDate([examDayByPlanId.get(p.id)]),
+      archivedAt: p.archivedAt?.toISOString() ?? null,
     };
   });
 }
@@ -463,7 +490,8 @@ export async function getWeeklyGoal(userId: string): Promise<WeeklyGoal> {
     })
     .from(s.userPlans)
     .leftJoin(s.sessions, eq(s.sessions.userPlanId, s.userPlans.id))
-    .where(eq(s.userPlans.userId, userId))
+    // Archived plans are past plans: they set no goal.
+    .where(and(eq(s.userPlans.userId, userId), isNull(s.userPlans.archivedAt)))
     .groupBy(s.userPlans.id)
     .orderBy(asc(s.userPlans.createdAt));
 
