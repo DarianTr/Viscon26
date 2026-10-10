@@ -435,6 +435,36 @@ export const courseProfiles = pgTable("course_profiles", {
   aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
   topics: jsonb("topics").$type<CourseProfileTopic[]>().notNull().default([]),
   description: text("description"),
+  /** What students should be able to do after the course (VVZ "Lernziel" section). */
+  learningObjectives: text("learning_objectives"),
+  /** Textbook references from VVZ "Literatur" section. */
+  literature: text("literature"),
+  /** Official course website URL, extracted from VVZ links section. */
+  websiteUrl: text("website_url"),
+  /** VVZ search/detail page URL where this data was fetched from. */
   sourceUrl: text("source_url"),
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type CourseResourceType = "script" | "exercises" | "slides" | "exam" | "solution" | "website" | "other";
+
+/**
+ * Course materials (PDFs, exercise sheets, scripts, etc.) discovered from
+ * course websites. Stored server-side so quiz generation can use them for all
+ * students studying the same course.
+ */
+export const courseResources = pgTable("course_resources", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  courseSlug: text("course_slug")
+    .notNull()
+    .references(() => courseProfiles.slug, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  /** Broad category for filtering in quiz generation. */
+  type: text("type").$type<CourseResourceType>().notNull().default("other"),
+  /** Canonical URL of the resource (PDF, HTML page, etc.). */
+  url: text("url").notNull().unique(),
+  /** Extracted plain text content, capped at ~100 k chars. Null if not yet fetched or PDF. */
+  content: text("content"),
+  contentFetchedAt: timestamp("content_fetched_at", { withTimezone: true }),
+  createdAt: createdAt(),
 });
