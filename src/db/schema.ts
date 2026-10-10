@@ -286,3 +286,24 @@ export const items = pgTable("items", {
   done: boolean("done").notNull().default(false),
   createdAt: createdAt(),
 });
+
+export type CourseProfileTopic = { id: string; name: string };
+
+/**
+ * One row per ETH course, shared across all users. Topics are fetched from the
+ * VVZ (Vorlesungsverzeichnis) and stored here so every student's plan benefits
+ * from the real course structure rather than three hardcoded fallback topics.
+ */
+export const courseProfiles = pgTable("course_profiles", {
+  /** URL-safe slug, e.g. "diskrete-mathematik". Primary match key. */
+  slug: text("slug").primaryKey(),
+  name: text("name").notNull(),
+  /** Official ETH course code, e.g. "252-0025-01". */
+  courseCode: text("course_code"),
+  /** Additional slugs for the same course (e.g. English alias "discrete-mathematics"). */
+  aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
+  topics: jsonb("topics").$type<CourseProfileTopic[]>().notNull().default([]),
+  description: text("description"),
+  sourceUrl: text("source_url"),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+});

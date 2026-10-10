@@ -92,6 +92,13 @@
       "when": 1791578330000,
       "tag": "0011_user_plan_config",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791720000000,
+      "tag": "0012_course_profiles",
+      "breakpoints": true
     }
   ]
 }

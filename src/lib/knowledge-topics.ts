@@ -60,8 +60,23 @@ export function subtopicsFor(name: string): string[] {
   return SUBTOPICS.find(([re]) => re.test(slug))?.[1] ?? FALLBACK;
 }
 
-/** Subjects with unique ids and their topics, in plan order; nameless subjects are dropped. */
-export function toKnowledgeSubjects(subjects: Subject[]): KnowledgeSubject[] {
+/**
+ * Injected course profile. Server-side callers load this from the DB and pass
+ * it in; the type lives here so knowledge-topics stays free of server imports.
+ */
+export type CourseProfile = {
+  topics: { id: string; name: string }[];
+};
+
+/**
+ * Subjects with unique ids and their topics, in plan order; nameless subjects
+ * are dropped. When `profiles` is supplied (keyed by subject slug or alias),
+ * the stored VVZ topics replace the hardcoded fallback for that subject.
+ */
+export function toKnowledgeSubjects(
+  subjects: Subject[],
+  profiles?: Map<string, CourseProfile>,
+): KnowledgeSubject[] {
   const used = new Set<string>();
   return subjects
     .filter((x) => x.name?.trim())
@@ -69,11 +84,13 @@ export function toKnowledgeSubjects(subjects: Subject[]): KnowledgeSubject[] {
       let id = topicSlug(x.name);
       for (let i = 2; used.has(id); i++) id = `${topicSlug(x.name)}-${i}`;
       used.add(id);
-      return {
-        ...x,
-        id,
-        topics: subtopicsFor(x.name).map((name) => ({ id: `${id}.${topicSlug(name)}`, name })),
-      };
+
+      const profile = profiles?.get(id);
+      const topics = profile
+        ? profile.topics.map((t) => ({ ...t }))
+        : subtopicsFor(x.name).map((name) => ({ id: `${id}.${topicSlug(name)}`, name }));
+
+      return { ...x, id, topics };
     });
 }
 

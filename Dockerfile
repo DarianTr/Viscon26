@@ -21,7 +21,8 @@ FROM deps AS migrate
 COPY drizzle.config.ts tsconfig.json ./
 COPY drizzle ./drizzle
 COPY src/db ./src/db
-CMD ["sh", "-c", "npx drizzle-kit migrate && if [ \"$SEED_DEMO_DATA\" = true ]; then npx tsx src/db/seed.ts --if-empty; fi"]
+COPY src/lib ./src/lib
+CMD ["sh", "-c", "npx drizzle-kit migrate && npx tsx src/db/seed-courses.ts && if [ \"$SEED_DEMO_DATA\" = true ]; then npx tsx src/db/seed.ts --if-empty; fi"]
 
 # --- Runtime: only the standalone server and static assets -------------------
 FROM base AS runner
