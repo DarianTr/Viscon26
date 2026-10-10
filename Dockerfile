@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Production image for the app. `docker compose up` builds and runs it along
 # with Postgres — see docker-compose.yml.
 

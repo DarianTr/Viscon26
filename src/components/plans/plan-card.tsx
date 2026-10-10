@@ -545,89 +545,6 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
       {/* Expanded content */}
       {expanded && (
         <div className="space-y-5 border-t border-border px-4 pt-4 pb-4">
-          {loading ? (
-            <p className="py-4 text-center text-sm text-muted">Loading…</p>
-          ) : details ? (
-            <>
-              {/* Per-subject progress */}
-              <div>
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">Subject progress</p>
-                  <button
-                    onClick={() => setShowWizard(true)}
-                    className="text-xs font-semibold text-accent hover:opacity-80"
-                  >
-                    + Add subject
-                  </button>
-                </div>
-                <ul className="space-y-2.5">
-                  {details.subjects.map((s) => {
-                    const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : 0;
-                    const color = subjectColor(subjectNames, s.subject);
-                    return (
-                      <li key={s.subject}>
-                        <div className="mb-1 flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1.5 text-sm font-medium">
-                            <span className="size-2 shrink-0 rounded-full" style={{ background: color }} />
-                            {s.subject}
-                          </span>
-                          <span className="text-xs text-muted tabular-nums">
-                            {details.phases?.[s.subject] && (
-                              <span className="mr-2 font-medium capitalize text-foreground">{details.phases[s.subject]}</span>
-                            )}
-                            {s.done}/{s.total} sessions
-                          </span>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
-                          <div
-                            className="h-full rounded-full transition-[width] duration-500"
-                            style={{ width: `${pct}%`, background: color }}
-                          />
-                        </div>
-                        {(details.mocks?.[s.subject]?.available ?? 0) > 0 && (
-                          <p className="mt-1 text-[11px] text-muted">
-                            Mocks: {details.mocks[s.subject].done} done · {details.mocks[s.subject].planned} planned
-                            {details.mocks[s.subject].reserve > 0 && ` · ${details.mocks[s.subject].reserve} in reserve`}
-                          </p>
-                        )}
-                        {details.cheatsheet?.[s.subject] && (
-                          <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
-                            <span>
-                              Cheatsheet: {details.cheatsheet[s.subject].actual}% {details.cheatsheet[s.subject].reported ? "reported" : "done"}
-                              {" · "}{details.cheatsheet[s.subject].planned}% planned by now
-                            </span>
-                            {reporting?.subject === s.subject ? (
-                              <span className="flex items-center gap-1">
-                                <input
-                                  aria-label={`${s.subject} cheatsheet progress in percent`}
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  value={reporting.percent}
-                                  onChange={(e) => setReporting({ subject: s.subject, percent: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })}
-                                  className="w-14 rounded-md border border-border bg-background px-1.5 py-0.5"
-                                />
-                                %
-                                <button onClick={() => void reportCheatsheet()} disabled={savingReport} className="font-semibold text-accent disabled:opacity-50">
-                                  {savingReport ? "Saving…" : "Save"}
-                                </button>
-                                <button onClick={() => setReporting(null)}>Cancel</button>
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => setReporting({ subject: s.subject, percent: details.cheatsheet[s.subject].actual })}
-                                className="font-semibold text-accent"
-                              >
-                                Update progress
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
           {/* Tab bar */}
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -654,15 +571,18 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
           </div>
 
           {/* Tab content */}
-          {knowledgeLoading ? (
+          {knowledgeLoading && (
             <p className="py-4 text-center text-sm text-muted">Loading…</p>
-          ) : knowledgeError ? (
+          )}
+          {!knowledgeLoading && knowledgeError && (
             <p className="text-xs text-red-500">{knowledgeError}</p>
-          ) : knowledge ? (
-            tab === "forecast"
-              ? <ForecastChart timeline={knowledge.timeline} subjects={knowledge.subjects} />
-              : <TopicProfile timeline={knowledge.timeline} subjects={knowledge.subjects} />
-          ) : null}
+          )}
+          {!knowledgeLoading && !knowledgeError && knowledge && tab === "forecast" && (
+            <ForecastChart timeline={knowledge.timeline} subjects={knowledge.subjects} />
+          )}
+          {!knowledgeLoading && !knowledgeError && knowledge && tab === "subjects" && (
+            <TopicProfile timeline={knowledge.timeline} subjects={knowledge.subjects} />
+          )}
 
           {/* AI Strategy */}
           {details && (
