@@ -1,7 +1,8 @@
 import "server-only";
 import { cache } from "react";
-import { and, eq, notInArray } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { db, schema as s } from "@/db";
+import { academic } from "./queries";
 import {
   type KnowledgeSubject,
   parseGrade,
@@ -121,9 +122,9 @@ export const getOwnedPlan = cache(async (userId: string, planId: string): Promis
   if (subjects.length === 0) {
     // Older plans have no stored subject configs: fall back to their sessions' subjects.
     const rows = await db
-      .selectDistinct({ subject: s.sessions.subject })
+      .selectDistinct({ subject: sql<string>`${s.sessions.subject}` })
       .from(s.sessions)
-      .where(and(eq(s.sessions.userPlanId, planId), notInArray(s.sessions.type, ["lecture", "buffer"])));
+      .where(and(eq(s.sessions.userPlanId, planId), academic, ne(s.sessions.type, "lecture")));
     subjects = rows.map((r) => ({ name: r.subject, examDate: null, targetGrade: null, currentGrade: null }));
   }
 

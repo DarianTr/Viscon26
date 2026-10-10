@@ -3,8 +3,51 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { dailyBufferMinutes, dailyWindowMinutes, generateStudyPlan } from "@/lib/scheduler";
-import type { PlanConfig, ScheduleResult } from "@/lib/scheduler";
+import {
+    DEFAULT_FOCUS_DAYS,
+    DEFAULT_START_TIME,
+    RHYTHMS,
+    dailyBufferMinutes,
+    dailyWindowMinutes,
+    generateStudyPlan,
+    previewDay,
+} from "@/lib/scheduler";
+import type { LernphaseStart, PlanConfig, PlanFeasibility, ScheduleResult, StudyRhythm } from "@/lib/scheduler";
+import type { StoredPlanConfig } from "@/db/schema";
+
+/** What step 7 shows, for a new plan or a managed (regenerated) one. */
+type Summary = {
+    count: number;
+    firstDate: Date | null;
+    lastDate: Date | null;
+    breakdown: Record<string, number>;
+    warnings: string[];
+    feasibility: PlanFeasibility;
+    /** Managing an existing plan: uncompleted blocks replaced, completed ones kept. */
+    replaced?: number;
+    kept?: number;
+    /** Blocks moved by hand: kept in place, or replaced because the new settings rule them out. */
+    manualKept?: number;
+    manualReplaced?: number;
+};
+
+const lernphaseOptions: { value: LernphaseStart; title: string; description: string }[] = [
+    {
+        value: "recommended",
+        title: "Recommended",
+        description: "Focus days for subjects that need substantial theory revision; the rest rotate from day one.",
+    },
+    {
+        value: "focus",
+        title: "Dedicated focus days",
+        description: "Start with one subject at a time, then switch to mixed days.",
+    },
+    {
+        value: "mixed",
+        title: "Mixed preparation",
+        description: "Rotate subjects from the beginning.",
+    },
+];
 
 type StudyApproach = "foundation" | "balanced" | "exam" | "custom";
 
@@ -57,6 +100,44 @@ const studyPhases = [
 
 const formatHours = (minutes: number) => `${Math.round(minutes / 60)} h`;
 
+/** Minutes after midnight → "HH:MM". */
+const clock = (minutes: number) =>
+    `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+/** Per subject: how many of the available mocks are planned, and how many wait in reserve. */
+function MockPlanList({ subjects }: { subjects: PlanFeasibility["subjects"] }) {
+    const withMocks = subjects.filter((s) => s.mocks.available > 0);
+    if (withMocks.length === 0) return null;
+    return (
+        <div className="space-y-2 rounded-xl bg-surface-2 p-4">
+            <p className="text-sm font-semibold">Mock exams</p>
+            {withMocks.map((s) => (
+                <div key={s.name} className="text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                        <span>{s.name}</span>
+                        <span className="tabular-nums text-muted">
+                            {s.mocks.planned} of {s.mocks.available} planned
+                            {s.mocks.reserve > 0 && ` · ${s.mocks.reserve} in reserve`}
+                        </span>
+                    </div>
+                    <p className="text-xs text-muted">{s.mocks.reason}</p>
+                </div>
+            ))}
+            <p className="text-xs text-muted">
+                Reserve mocks are added if your results show you need more practice.
+            </p>
+        </div>
+    );
+}
+
+const segmentLabels: Record<string, string> = {
+    study: "Study",
+    short_break: "Break",
+    lunch: "Lunch",
+    dinner: "Dinner",
+    buffer: "Buffer / catch-up",
+};
+
 const subjectColors = [
     "#F2A7C4", // Braina pink
     "#D6D6B1", // Pearl beige
@@ -84,6 +165,10 @@ function NewPlanForm() {
     // Navigation
     const [step, setStep] = useState(1);
 
+    // "Manage plan": /plans/new?edit=<id> loads that plan's answers into this form.
+    const editId = searchParams.get("edit");
+    const [loadingPlan, setLoadingPlan] = useState(!!editId);
+
     // The open subject lives in the URL (?subject=N) so the browser
     // back button returns to the subject overview.
     const subjectParam = searchParams.get("subject");
@@ -91,10 +176,13 @@ function NewPlanForm() {
 
     // Form state is not persisted, so drop a stale ?subject on reload.
     useEffect(() => {
-        if (new URLSearchParams(window.location.search).has("subject")) {
-            window.history.replaceState(null, "", window.location.pathname);
+        const params = new URLSearchParams(window.location.search);
+        if (params.has("subject")) {
+            params.delete("subject");
+            window.history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`);
         }
     }, []);
+
 
     // STEP 1
     const [planName, setPlanName] = useState("");
@@ -105,7 +193,12 @@ function NewPlanForm() {
     const [studyDays, setStudyDays] = useState<string[]>([
         "Mon", "Tue", "Wed", "Thu", "Fri", "Sat",
     ]);
-    const [sessionLength, setSessionLength] = useState(90);
+    const [startTime, setStartTime] = useState(DEFAULT_START_TIME);
+    const [rhythm, setRhythm] = useState<StudyRhythm>("balanced");
+    const [lernphaseStart, setLernphaseStart] = useState<LernphaseStart>("recommended");
+    const [focusDays, setFocusDays] = useState(DEFAULT_FOCUS_DAYS);
+    // Regular sessions are one block of the chosen rhythm.
+    const sessionLength = RHYTHMS[rhythm].block;
     const [vacationRanges, setVacationRanges] = useState<VacationRange[]>([]);
 
     // STEPS 3-5
@@ -118,6 +211,14 @@ function NewPlanForm() {
     // Each study day ends with a buffer that isn't focused study.
     const dailyBufferHours =
         dailyBufferMinutes(dailyWindowMinutes({ weeklyHours, studyDays })) / 60;
+
+    // What a standard study day looks like with these settings.
+    const dayPreview = studyDays.length
+        ? previewDay({ weeklyHours, studyDays, startTime, rhythm, sessionLength })
+        : null;
+    const pauseMinutes = dayPreview?.segments
+        .filter((seg) => seg.activity !== "study" && seg.activity !== "buffer")
+        .reduce((total, seg) => total + seg.minutes, 0) ?? 0;
 
     const validVacationRanges = vacationRanges.every(
         (r) => r.start && r.end && r.end >= r.start
@@ -152,9 +253,54 @@ function NewPlanForm() {
     const [generationError, setGenerationError] = useState<string | null>(null);
     // Saved once the user accepts the plan (straight away when it fits).
     const [planSaved, setPlanSaved] = useState(false);
+    const [summary, setSummary] = useState<Summary | null>(null);
+    // "Continue anyway" on a plan that needs more time.
+    const [acceptedShortfall, setAcceptedShortfall] = useState(false);
     // The workload is sized from the first generation's hours, so adjusting
     // availability afterwards actually closes a gap.
     const [workloadBasis, setWorkloadBasis] = useState<number | null>(null);
+
+    // Managing a plan: fill the form with its stored answers and start at availability.
+    useEffect(() => {
+        if (!editId) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const response = await fetch(`/api/plans/${editId}`);
+                if (!response.ok) throw new Error(`Couldn't load this plan (HTTP ${response.status})`);
+                const { title, config } = (await response.json()) as { title: string; config: StoredPlanConfig | null };
+                if (cancelled) return;
+                if (!config?.subjects?.length) throw new Error("This plan was created before plans stored their settings, so it can't be edited here.");
+                setPlanName(title);
+                setSubjectCount(String(config.subjects.length));
+                setWeeklyHours(config.weeklyHours);
+                setStudyDays(config.studyDays);
+                setStartTime(config.startTime ?? (config.preferredStartHour !== undefined
+                    ? `${String(config.preferredStartHour).padStart(2, "0")}:00`
+                    : DEFAULT_START_TIME));
+                setRhythm(config.rhythm ?? "balanced");
+                setLernphaseStart(config.lernphaseStart ?? "recommended");
+                setFocusDays(config.focusDays ?? DEFAULT_FOCUS_DAYS);
+                setVacationRanges(config.vacationRanges);
+                setSubjects(config.subjects.map((stored) => ({
+                    ...createSubject(),
+                    ...stored,
+                    approach: stored.approach as StudyApproach,
+                    completed: true,
+                })));
+                // Keep the stored split: no "recommended" baseline means it counts as customised.
+                setDistribution(config.subjects.map((stored) => stored.allocation));
+                setRecommendedDistribution([]);
+                setWorkloadBasis(config.workloadBasisWeeklyMinutes ?? null);
+                setStep(2);
+            } catch (err) {
+                if (!cancelled) setGenerationError(err instanceof Error ? err.message : "Unknown error");
+            } finally {
+                if (!cancelled) setLoadingPlan(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [editId]);
 
 
     // Update a single subject without losing other subjects' answers.
@@ -186,7 +332,7 @@ function NewPlanForm() {
     }
 
     function openSubject(index: number) {
-        window.history.pushState(null, "", `?subject=${index}`);
+        window.history.pushState(null, "", `?${editId ? `edit=${editId}&` : ""}subject=${index}`);
         window.scrollTo({ top: 0 });
     }
 
@@ -335,35 +481,126 @@ function NewPlanForm() {
     }
 
     // Build the schedule; save it right away unless the goals need more time.
-    function generatePlan() {
-        setScheduleResult(null);
-        setGenerationError(null);
-        setPlanSaved(false);
-        setStep(7);
-
-        const config: PlanConfig = {
-            planName,
+    /** The plan's settings, as stored with the plan. */
+    function storedConfig(basis: number | null): StoredPlanConfig {
+        return {
             weeklyHours,
             studyDays,
             sessionLength,
+            startTime,
+            rhythm,
+            lernphaseStart,
+            focusDays,
             vacationRanges,
-            ...(workloadBasis !== null ? { workloadBasisWeeklyMinutes: workloadBasis } : {}),
-            subjects: subjects.map((subject, index) => ({
+            ...(basis !== null ? { workloadBasisWeeklyMinutes: basis } : {}),
+            subjects: subjects.map(({ completed: _, ...subject }, index) => ({
                 ...subject,
                 allocation: distribution[index] ?? 0,
             })),
         };
+    }
 
-        const result = generateStudyPlan(config);
-        setWorkloadBasis(result.workloadBasisWeeklyMinutes);
-        setScheduleResult(result);
+    // Build the schedule; save it right away unless the goals need more time
+    // or an existing plan's remaining schedule would be replaced.
+    async function generatePlan() {
+        setScheduleResult(null);
+        setSummary(null);
+        setGenerationError(null);
+        setPlanSaved(false);
+        setAcceptedShortfall(false);
+        setIsGenerating(true);
+        setStep(7);
 
-        if (!result.feasibility.needsMoreTime) void savePlan(result);
+        try {
+            if (editId) {
+                // Managing a plan: the server regenerates around completed work. Preview first.
+                const preview = await regenerate(false);
+                setSummary(preview);
+                setIsGenerating(false);
+                return;
+            }
+
+            const config: PlanConfig = { planName, ...storedConfig(workloadBasis), subjects: storedConfig(workloadBasis).subjects! };
+            // Schedule around what's already on the calendar (e.g. other plans).
+            const lastExam = subjects.reduce((max, s) => (s.examDate > max ? s.examDate : max), "");
+            const params = new URLSearchParams({
+                from: new Date().toISOString(),
+                to: new Date(`${lastExam}T23:59:59`).toISOString(),
+            });
+            const response = await fetch(`/api/tasks/busy?${params}`);
+            if (!response.ok) throw new Error(`Couldn't load your calendar (HTTP ${response.status})`);
+            const { busy } = await response.json();
+            const result = generateStudyPlan(config, new Date(), { busy });
+
+            setWorkloadBasis(result.workloadBasisWeeklyMinutes);
+            setScheduleResult(result);
+            setSummary({
+                count: result.sessions.length,
+                firstDate: result.firstDate,
+                lastDate: result.lastDate,
+                breakdown: result.breakdown,
+                warnings: result.warnings,
+                feasibility: result.feasibility,
+            });
+
+            if (result.feasibility.needsMoreTime) setIsGenerating(false);
+            else void savePlan(result);
+        } catch (err) {
+            setGenerationError(err instanceof Error ? err.message : "Unknown error");
+            setIsGenerating(false);
+        }
+    }
+
+    /** Regenerates the managed plan on the server: a preview, or for real. */
+    async function regenerate(apply: boolean): Promise<Summary> {
+        const response = await fetch(`/api/plans/${editId}/regenerate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: planName, config: storedConfig(workloadBasis), apply }),
+        });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error ?? `HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        return {
+            count: data.created,
+            firstDate: data.firstDate ? new Date(data.firstDate) : null,
+            lastDate: data.lastDate ? new Date(data.lastDate) : null,
+            breakdown: data.breakdown,
+            warnings: data.warnings,
+            feasibility: data.feasibility,
+            replaced: data.replaced,
+            kept: data.kept,
+            manualKept: data.manualKept,
+            manualReplaced: data.manualReplaced,
+        };
+    }
+
+    // Managing a plan: replace its uncompleted schedule after the user confirmed.
+    async function applyChanges() {
+        setIsGenerating(true);
+        setGenerationError(null);
+        try {
+            setSummary(await regenerate(true));
+            setPlanSaved(true);
+        } catch (err) {
+            setGenerationError(err instanceof Error ? err.message : "Unknown error");
+        } finally {
+            setIsGenerating(false);
+        }
+    }
+
+    // "Continue anyway": keep the best-effort schedule.
+    function continueAnyway() {
+        setAcceptedShortfall(true);
+        if (!editId && scheduleResult) void savePlan(scheduleResult);
     }
 
     // Back to the availability step with every answer kept.
     function adjustPlan() {
         setScheduleResult(null);
+        setSummary(null);
         setGenerationError(null);
         setStep(2);
         window.scrollTo({ top: 0 });
@@ -380,15 +617,9 @@ function NewPlanForm() {
                 body: JSON.stringify({
                     planTitle: planName,
                     planConfig: {
-                        weeklyHours,
-                        studyDays,
-                        sessionLength,
-                        vacationRanges,
-                        workloadBasisWeeklyMinutes: result.workloadBasisWeeklyMinutes,
-                        subjects: subjects.map(({ completed: _, ...subject }, index) => ({
-                            ...subject,
-                            allocation: distribution[index] ?? 0,
-                        })),
+                        ...storedConfig(result.workloadBasisWeeklyMinutes),
+                        planStart: result.planStart,
+                        focusDates: result.focusDates,
                     },
                     tasks: result.sessions.map((s) => ({
                         type: s.type,
@@ -397,6 +628,9 @@ function NewPlanForm() {
                         detail: s.detail,
                         scheduledAt: s.scheduledAt.toISOString(),
                         plannedMinutes: s.plannedMinutes,
+                        activity: s.activity,
+                        cheatsheetTarget: s.cheatsheetTarget ?? null,
+                        cheatsheetMinutes: s.cheatsheetMinutes ?? null,
                         shared: false,
                     })),
                 }),
@@ -430,17 +664,30 @@ function NewPlanForm() {
             {/* Page heading */}
             <div>
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted">
-                    Custom study plan
+                    {editId ? "Manage plan" : "Custom study plan"}
                 </p>
 
                 <h1 className="mt-2 text-3xl font-bold">
-                    Let&apos;s create your study plan
+                    {editId ? (planName || "Your study plan") : <>Let&apos;s create your study plan</>}
                 </h1>
 
                 <p className="mt-2 text-sm text-muted">
-                    Build your personalized exam preparation schedule.
+                    {editId
+                        ? "Change any of your answers. Completed sessions and logged results stay; only the remaining schedule is rebuilt."
+                        : "Build your personalized exam preparation schedule."}
                 </p>
             </div>
+
+            {editId && loadingPlan && (
+                <div className={cardClass}>
+                    <p className="text-sm text-muted">Loading your plan…</p>
+                </div>
+            )}
+            {editId && !loadingPlan && generationError && step !== 7 && (
+                <div className={cardClass}>
+                    <p className="text-sm text-red-600">{generationError}</p>
+                </div>
+            )}
 
 
             {/* STEP 1 — GENERAL INFORMATION */}
@@ -565,27 +812,84 @@ function NewPlanForm() {
 
                     {/* Session length */}
                     <div>
+                        <label htmlFor="startTime" className="mb-2 block text-sm font-semibold">
+                            When do you want to start studying?
+                        </label>
+                        <input
+                            id="startTime"
+                            type="time"
+                            value={startTime}
+                            onChange={(e) => setStartTime(e.target.value || DEFAULT_START_TIME)}
+                            className={inputClass}
+                        />
+                    </div>
+
+                    {/* Study rhythm */}
+                    <div>
                         <p className="mb-3 text-sm font-semibold">
-                            Preferred study session length
+                            Preferred study rhythm
                         </p>
 
                         <div className="space-y-3">
-                            {[45, 60, 90, 120].map((minutes) => (
+                            {(Object.keys(RHYTHMS) as StudyRhythm[]).map((key) => (
                                 <label
-                                    key={minutes}
-                                    className="flex items-center gap-3 text-sm"
+                                    key={key}
+                                    className="flex items-start gap-3 text-sm"
                                 >
                                     <input
                                         type="radio"
-                                        name="sessionLength"
-                                        checked={sessionLength === minutes}
-                                        onChange={() => setSessionLength(minutes)}
-                                        className="accent-foreground"
+                                        name="rhythm"
+                                        checked={rhythm === key}
+                                        onChange={() => setRhythm(key)}
+                                        className="mt-1 accent-foreground"
                                     />
-                                    {minutes} minutes
+                                    <span>
+                                        <span className="font-medium">{RHYTHMS[key].label}</span>
+                                        <span className="block text-xs text-muted">
+                                            {RHYTHMS[key].blurb} Lunch and dinner are added when your day runs through them.
+                                        </span>
+                                    </span>
                                 </label>
                             ))}
                         </div>
+                    </div>
+
+                    {/* How the Lernphase starts */}
+                    <div>
+                        <p className="mb-3 text-sm font-semibold">
+                            How would you like to start your Lernphase?
+                        </p>
+                        <div className="space-y-3">
+                            {lernphaseOptions.map((option) => (
+                                <label key={option.value} className="flex items-start gap-3 text-sm">
+                                    <input
+                                        type="radio"
+                                        name="lernphaseStart"
+                                        checked={lernphaseStart === option.value}
+                                        onChange={() => setLernphaseStart(option.value)}
+                                        className="mt-1 accent-foreground"
+                                    />
+                                    <span>
+                                        <span className="font-medium">{option.title}</span>
+                                        <span className="block text-xs text-muted">{option.description}</span>
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                        {lernphaseStart !== "mixed" && (
+                            <label className="mt-4 flex items-center gap-3 text-sm">
+                                <span>Focus days per subject</span>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={10}
+                                    value={focusDays}
+                                    onChange={(e) => setFocusDays(Math.min(10, Math.max(1, Number(e.target.value) || DEFAULT_FOCUS_DAYS)))}
+                                    className="w-20 rounded-xl border border-border bg-background px-3 py-2 text-sm"
+                                />
+                                <span className="text-xs text-muted">study days, skipping days off and vacations</span>
+                            </label>
+                        )}
                     </div>
 
                     {/* Average hours */}
@@ -606,9 +910,26 @@ function NewPlanForm() {
                                 <>
                                     {" "}— {(averageHoursPerDay - dailyBufferHours).toFixed(1)}h
                                     focused study + {dailyBufferHours.toFixed(1)}h buffer / catch-up time
+                                    {pauseMinutes > 0 && <>, plus {(pauseMinutes / 60).toFixed(1)}h of breaks and meals</>}
                                 </>
                             )}
                         </p>
+
+                        {/* A typical day — every block can still be moved in the calendar later. */}
+                        {dayPreview && dayPreview.segments.length > 0 && (
+                            <ol className="mt-4 space-y-1 text-xs">
+                                {dayPreview.segments.map((seg) => (
+                                    <li key={seg.start} className="flex gap-3">
+                                        <span className="w-24 shrink-0 font-mono tabular-nums text-muted">
+                                            {clock(seg.start)}–{clock(seg.start + seg.minutes)}
+                                        </span>
+                                        <span className={seg.activity === "study" ? "font-medium" : "text-muted"}>
+                                            {segmentLabels[seg.activity] ?? seg.activity}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ol>
+                        )}
                     </div>
 
                     {/* Vacation periods */}
@@ -1332,7 +1653,7 @@ function NewPlanForm() {
                         /* Loading */
                         <div className="flex flex-col items-center gap-4 py-8 text-center">
                             <div className="size-10 animate-spin rounded-full border-4 border-border border-t-foreground" />
-                            <p className="font-semibold">Saving your schedule…</p>
+                            <p className="font-semibold">Building your schedule…</p>
                             <p className="text-sm text-muted">
                                 Scheduling sessions with spacing, interleaving, and exam practice.
                             </p>
@@ -1350,7 +1671,7 @@ function NewPlanForm() {
                                 ← Go back
                             </button>
                         </div>
-                    ) : scheduleResult && !planSaved && scheduleResult.feasibility.needsMoreTime ? (
+                    ) : summary && !planSaved && summary.feasibility.needsMoreTime && !acceptedShortfall ? (
                         /* Goals need more time than the plan has */
                         <div className="space-y-6">
                             <div>
@@ -1358,25 +1679,25 @@ function NewPlanForm() {
                                     Before we save
                                 </p>
                                 <h2 className="mt-2 text-2xl font-bold">
-                                    Your study goals need a little more time
+                                    Your study goals need more time
                                 </h2>
                                 <p className="mt-2 text-sm text-muted">
-                                    Based on your target grades, exam dates, and available study
-                                    hours, your current plan may not provide enough time to reach
-                                    your goals.
+                                    Based on your current goals, exam dates and availability, your
+                                    study plan may require more time than you&apos;ve allocated.
                                 </p>
                             </div>
 
                             <div className="grid grid-cols-3 gap-3 text-center">
                                 {([
-                                    ["Needed (approx.)", scheduleResult.feasibility.requiredMinutes],
-                                    ["Available", scheduleResult.feasibility.availableMinutes],
-                                    ["Short by", scheduleResult.feasibility.shortfallMinutes],
-                                ] as const).map(([label, minutes]) => (
+                                    ["Needed (approx.)", formatHours(summary.feasibility.requiredMinutes)],
+                                    ["Available", formatHours(summary.feasibility.availableMinutes)],
+                                    // Only a real overall gap is a shortage; deadlines are explained below.
+                                    summary.feasibility.overallShortfallMinutes > 0
+                                        ? ["Short overall", formatHours(summary.feasibility.overallShortfallMinutes)]
+                                        : ["Overall", "Enough"],
+                                ] as const).map(([label, value]) => (
                                     <div key={label} className="rounded-xl bg-surface-2 p-3">
-                                        <p className="text-xl font-bold tabular-nums">
-                                            {formatHours(minutes)}
-                                        </p>
+                                        <p className="text-xl font-bold tabular-nums">{value}</p>
                                         <p className="mt-1 text-xs text-muted">{label}</p>
                                     </div>
                                 ))}
@@ -1384,30 +1705,59 @@ function NewPlanForm() {
                             <p className="text-xs text-muted">
                                 Focused study hours before your last exam, without buffer time.
                                 &quot;Needed&quot; is an estimate from your target grades, confidence,
-                                and mock exams.
+                                and the mock exams planned for you.
                             </p>
 
-                            {/* Subjects under the most time pressure */}
-                            <div className="space-y-2">
-                                <p className="text-sm font-semibold">Where time is tightest</p>
-                                {scheduleResult.feasibility.subjects
-                                    .filter((s) => s.shortfallMinutes > 0)
-                                    .map((s) => (
-                                        <div key={s.name} className="flex items-center justify-between gap-3 text-sm">
-                                            <span>{s.name}</span>
-                                            <span className="tabular-nums text-muted">
-                                                {formatHours(s.shortfallMinutes)} short of{" "}
-                                                {formatHours(s.requiredMinutes)}
-                                            </span>
-                                        </div>
-                                    ))}
-                            </div>
+                            {/* Deadlines: work due before an exam whose days are already full */}
+                            {summary.feasibility.deadlineShortfallMinutes > 0 && (
+                                <div className="space-y-2">
+                                    <p className="text-sm font-semibold">Tight before exam dates</p>
+                                    <p className="text-xs text-muted">
+                                        {summary.feasibility.overallShortfallMinutes > 0
+                                            ? `On top of that, about ${formatHours(summary.feasibility.deadlineShortfallMinutes)} of study falls due before an exam whose days are already full:`
+                                            : `There are enough hours in total, but about ${formatHours(summary.feasibility.deadlineShortfallMinutes)} of study falls due before an exam whose days are already full:`}
+                                    </p>
+                                    {summary.feasibility.subjects
+                                        .filter((s) => s.shortfallMinutes > 0)
+                                        .map((s) => (
+                                            <div key={s.name} className="text-sm">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span>{s.name}</span>
+                                                    <span className="tabular-nums text-muted">{formatHours(s.shortfallMinutes)} don&apos;t fit</span>
+                                                </div>
+                                                <p className="text-xs text-muted">
+                                                    Needs about {formatHours(s.requiredMinutes)} before its exam on{" "}
+                                                    {new Date(`${s.examDate}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short" })};{" "}
+                                                    {formatHours(s.availableBeforeExamMinutes)} of study time exist before then, shared with your other subjects.
+                                                </p>
+                                            </div>
+                                        ))}
+                                </div>
+                            )}
+                            {summary.feasibility.deadlineShortfallMinutes === 0 && (
+                                <div className="space-y-2">
+                                    <p className="text-sm font-semibold">Where time is tightest</p>
+                                    {summary.feasibility.subjects
+                                        .filter((s) => s.shortfallMinutes > 0)
+                                        .map((s) => (
+                                            <div key={s.name} className="flex items-center justify-between gap-3 text-sm">
+                                                <span>{s.name}</span>
+                                                <span className="tabular-nums text-muted">
+                                                    {formatHours(s.shortfallMinutes)} short of{" "}
+                                                    {formatHours(s.requiredMinutes)}
+                                                </span>
+                                            </div>
+                                        ))}
+                                </div>
+                            )}
 
-                            {scheduleResult.feasibility.suggestions.length > 0 && (
+                            <MockPlanList subjects={summary.feasibility.subjects} />
+
+                            {summary.feasibility.suggestions.length > 0 && (
                                 <div className="space-y-2 rounded-xl bg-surface-2 p-4">
                                     <p className="text-sm font-semibold">What would help</p>
                                     <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
-                                        {scheduleResult.feasibility.suggestions.map((suggestion) => (
+                                        {summary.feasibility.suggestions.map((suggestion) => (
                                             <li key={suggestion}>{suggestion}</li>
                                         ))}
                                     </ul>
@@ -1424,71 +1774,129 @@ function NewPlanForm() {
                                 </button>
                                 <button
                                     type="button"
-                                    disabled={scheduleResult.feasibility.scheduledMinutes === 0}
-                                    onClick={() => void savePlan(scheduleResult)}
+                                    disabled={summary.feasibility.scheduledMinutes === 0}
+                                    onClick={continueAnyway}
                                     className={`${secondaryButton} w-full disabled:opacity-50`}
                                 >
-                                    Continue with current plan
+                                    Continue anyway
                                 </button>
                                 <p className="text-center text-xs text-muted">
                                     Your answers are kept — adjusting takes you back to your
-                                    availability, then through your subjects. Continuing keeps
-                                    every session within your study days and hours; your targets
-                                    may just be ambitious.
+                                    availability, then through your subjects. Continuing keeps a
+                                    best-effort schedule within your study days and hours, and
+                                    lists what it couldn&apos;t fit.
                                 </p>
                             </div>
                         </div>
-                    ) : scheduleResult && planSaved ? (
+                    ) : summary && !planSaved && editId ? (
+                        /* Managing a plan: confirm before replacing the remaining schedule */
+                        <div className="space-y-6">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-widest text-muted">
+                                    Confirm changes
+                                </p>
+                                <h2 className="mt-2 text-2xl font-bold">
+                                    Replace your remaining schedule?
+                                </h2>
+                                <p className="mt-2 text-sm text-muted">
+                                    {summary.replaced} upcoming or missed block{summary.replaced === 1 ? "" : "s"} will
+                                    be replaced by {summary.count} new ones. Your {summary.kept} completed
+                                    session{summary.kept === 1 ? "" : "s"} and logged exam results stay as they are,
+                                    and their work isn&apos;t scheduled again.
+                                </p>
+                                {!!summary.manualKept && (
+                                    <p className="mt-2 text-sm text-muted">
+                                        {summary.manualKept} block{summary.manualKept === 1 ? "" : "s"} you moved by hand
+                                        stay{summary.manualKept === 1 ? "s" : ""} where you put {summary.manualKept === 1 ? "it" : "them"}.
+                                    </p>
+                                )}
+                                {!!summary.manualReplaced && (
+                                    <p className="mt-2 text-sm font-semibold text-accent">
+                                        {summary.manualReplaced} block{summary.manualReplaced === 1 ? "" : "s"} you moved by hand
+                                        no longer fit{summary.manualReplaced === 1 ? "s" : ""} your new settings (day off, vacation or after
+                                        the exam) and will be replaced.
+                                    </p>
+                                )}
+                            </div>
+                            {summary.feasibility.adjustments.length > 0 && (
+                                <ul className="list-disc space-y-1 rounded-xl bg-surface-2 p-4 pl-8 text-xs text-muted">
+                                    {summary.feasibility.adjustments.map((note) => <li key={note}>{note}</li>)}
+                                </ul>
+                            )}
+                            <div className="space-y-3">
+                                <button type="button" onClick={() => void applyChanges()} className={`${primaryButton} w-full`}>
+                                    Replace schedule
+                                </button>
+                                <button type="button" onClick={adjustPlan} className={`${secondaryButton} w-full`}>
+                                    Back to my settings
+                                </button>
+                            </div>
+                        </div>
+                    ) : summary && planSaved ? (
                         /* Success */
                         <div className="space-y-6">
                             <div>
                                 <p className="text-xs font-semibold uppercase tracking-widest text-muted">
-                                    Plan ready
+                                    {editId ? "Plan updated" : "Plan ready"}
                                 </p>
                                 <h2 className="mt-2 text-2xl font-bold">
                                     {planName}
                                 </h2>
                                 <p className="mt-1 text-sm text-muted">
-                                    {scheduleResult.sessions.length} sessions scheduled
-                                    {scheduleResult.firstDate && scheduleResult.lastDate && (
+                                    {summary.count} sessions scheduled
+                                    {summary.firstDate && summary.lastDate && (
                                         <> from{" "}
-                                            {scheduleResult.firstDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                                            {summary.firstDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                                             {" "}to{" "}
-                                            {scheduleResult.lastDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                                            {summary.lastDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                                         </>
                                     )}
                                 </p>
                             </div>
 
-                            {scheduleResult.feasibility.needsMoreTime && (
-                                <p className="rounded-xl bg-surface-2 p-4 text-sm text-muted">
-                                    Your targets are ambitious: about{" "}
-                                    {formatHours(scheduleResult.feasibility.shortfallMinutes)} of the
-                                    study they need didn&apos;t fit into your available time.
-                                </p>
+                            {summary.feasibility.needsMoreTime && (
+                                <div className="space-y-2 rounded-xl bg-surface-2 p-4 text-sm text-muted">
+                                    <p>
+                                        Your targets are ambitious: about{" "}
+                                        {formatHours(summary.feasibility.shortfallMinutes)} of the
+                                        study they need didn&apos;t fit into your available time.
+                                        Not scheduled:
+                                    </p>
+                                    <ul className="list-disc space-y-1 pl-5 text-xs">
+                                        {summary.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                                    </ul>
+                                </div>
                             )}
 
-                            {scheduleResult.feasibility.unusedMinutes >= 60 && (
+                            {summary.feasibility.adjustments.length > 0 && (
+                                <ul className="list-disc space-y-1 rounded-xl bg-surface-2 p-4 pl-8 text-xs text-muted">
+                                    {summary.feasibility.adjustments.map((note) => <li key={note}>{note}</li>)}
+                                </ul>
+                            )}
+
+                            {summary.feasibility.unusedMinutes >= 60 && (
                                 <p className="rounded-xl bg-surface-2 p-4 text-sm text-muted">
-                                    About {formatHours(scheduleResult.feasibility.unusedMinutes)} of
+                                    About {formatHours(summary.feasibility.unusedMinutes)} of
                                     your available study time is left free: your goals don&apos;t need
                                     it, so we didn&apos;t pad it with extra tasks. Those days simply
                                     end earlier.
                                 </p>
                             )}
 
-                            {!scheduleResult.feasibility.needsMoreTime && scheduleResult.warnings.length > 0 && (
+                            {!summary.feasibility.needsMoreTime && summary.warnings.length > 0 && (
                                 <ul className="list-disc space-y-1 rounded-xl bg-surface-2 p-4 pl-8 text-xs text-muted">
-                                    {scheduleResult.warnings.map((warning) => (
+                                    {summary.warnings.map((warning) => (
                                         <li key={warning}>{warning}</li>
                                     ))}
                                 </ul>
                             )}
 
+                            <MockPlanList subjects={summary.feasibility.subjects} />
+
                             {/* Per-subject breakdown */}
                             <div className="space-y-2">
                                 <p className="text-sm font-semibold">Sessions per subject</p>
-                                {Object.entries(scheduleResult.breakdown).map(([name, count], i) => (
+                                {Object.entries(summary.breakdown).map(([name, count], i) => (
                                     <div key={name} className="flex items-center gap-3">
                                         <span
                                             className="size-3 shrink-0 rounded-full"
@@ -1516,7 +1924,7 @@ function NewPlanForm() {
                                     </li>
                                     <li>
                                         <span className="font-medium text-foreground">Interleaving</span>
-                                        {" "}— subjects are mixed across each day&apos;s slots; no two consecutive sessions cover the same subject.
+                                        {" "}— subjects rotate across days, at most two a day and each grouped together; your Lernphase can open with focus days on one subject.
                                     </li>
                                     <li>
                                         <span className="font-medium text-foreground">Exam practice</span>
@@ -1525,6 +1933,10 @@ function NewPlanForm() {
                                     <li>
                                         <span className="font-medium text-foreground">Your availability</span>
                                         {" "}— sessions only fall on your selected days, never during vacations, and never exceed your daily hours; each study day ends with buffer / catch-up time.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Cheatsheet</span>
+                                        {" "}— time for it comes out of each subject&apos;s study as you chose: inside theory sessions with milestones, in dedicated sessions near the exam, or a short re-read.
                                     </li>
                                     <li>
                                         <span className="font-medium text-foreground">Hours formula</span>

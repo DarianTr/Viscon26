@@ -47,8 +47,24 @@ type StrategyResult = {
 type PlanDetails = {
   subjects: SubjectStat[];
   scores: ExamScore[];
+  /** Per subject: cheatsheet % confirmed by completed sessions, and % planned by now. */
+  cheatsheet: Record<string, { done: number; planned: number }>;
+  /** Per subject: past/mock exams available, done, still planned, and held in reserve. */
+  mocks: Record<string, { available: number; done: number; planned: number; reserve: number }>;
   config: StoredConfig;
 };
+
+/** A change to how many mocks a subject should do, after a new result. */
+type MockChange = { subject: string; from: number; to: number; reason: string };
+
+/** Where "Continue plan" leads: today's board for today's work, else the calendar on that day. */
+function continueHref(start: string) {
+  const at = new Date(start);
+  const today = new Date();
+  if (at.toDateString() === today.toDateString()) return "/";
+  const key = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+  return `/calendar?date=${key}`;
+}
 
 const PALETTE = [
   "#6366f1",
@@ -578,6 +594,8 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
     } catch { return null; }
   });
   const [strategyLoading, setStrategyLoading] = useState(false);
+  const [mockChanges, setMockChanges] = useState<MockChange[] | null>(null);
+  const [updatingMocks, setUpdatingMocks] = useState(false);
   const [strategyError, setStrategyError] = useState<string | null>(null);
 
   const progress = plan.totalSessions > 0 ? plan.doneSessions / plan.totalSessions : 0;
@@ -607,6 +625,43 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
     // Invalidate cached strategy so the user is prompted to refresh
     setStrategy(null);
     localStorage.removeItem(`strategy-${plan.id}`);
+    void reassessMocks();
+  }
+
+  // A new result can change how many mocks are worth doing: preview the plan, and
+  // offer to update the schedule if the mock plan would change.
+  async function reassessMocks() {
+    if (!details?.config) return;
+    const res = await fetch(`/api/plans/${plan.id}/regenerate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config: details.config, apply: false }),
+    });
+    if (!res.ok) return;
+    const preview: { feasibility: { subjects: { name: string; mocks: { planned: number; reason: string } }[] } } = await res.json();
+    const changes = preview.feasibility.subjects
+      .map((s) => ({ subject: s.name, from: details.mocks?.[s.name]?.planned ?? 0, to: s.mocks.planned, reason: s.mocks.reason }))
+      .filter((c) => c.from !== c.to);
+    setMockChanges(changes.length ? changes : null);
+  }
+
+  async function applyMockChanges() {
+    if (!details?.config) return;
+    setUpdatingMocks(true);
+    try {
+      const res = await fetch(`/api/plans/${plan.id}/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: details.config, apply: true }),
+      });
+      if (res.ok) {
+        setMockChanges(null);
+        setDetails(null);
+        await fetchDetails();
+      }
+    } finally {
+      setUpdatingMocks(false);
+    }
   }
 
   async function fetchStrategy() {
@@ -677,6 +732,27 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
         />
       </div>
 
+      {/* Continue / manage */}
+      <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
+        {plan.next ? (
+          <Link
+            href={continueHref(plan.next.start)}
+            title={plan.next.title}
+            className="rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white"
+          >
+            {plan.next.ongoing ? "Continue plan · now" : `Continue plan · ${new Date(plan.next.start).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`}
+          </Link>
+        ) : (
+          <span className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold text-muted">Nothing left to do</span>
+        )}
+        <Link
+          href={`/plans/new?edit=${plan.id}`}
+          className="rounded-full border border-border px-4 py-2 text-xs font-semibold"
+        >
+          Manage plan
+        </Link>
+      </div>
+
       {/* Knowledge pages: always visible, no need to expand the card */}
       <div className="flex flex-wrap gap-2 px-4 pt-3 pb-4">
         <Link
@@ -732,6 +808,19 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
                             style={{ width: `${pct}%`, background: color }}
                           />
                         </div>
+                        {(details.mocks?.[s.subject]?.available ?? 0) > 0 && (
+                          <p className="mt-1 text-[11px] text-muted">
+                            Mocks: {details.mocks[s.subject].done} done · {details.mocks[s.subject].planned} planned
+                            {details.mocks[s.subject].reserve > 0 && ` · ${details.mocks[s.subject].reserve} in reserve`}
+                          </p>
+                        )}
+                        {details.cheatsheet?.[s.subject] && (
+                          <p className="mt-1 text-[11px] text-muted">
+                            Cheatsheet {details.cheatsheet[s.subject].done}% done
+                            {details.cheatsheet[s.subject].planned > details.cheatsheet[s.subject].done &&
+                              ` · ${details.cheatsheet[s.subject].planned}% planned by now`}
+                          </p>
+                        )}
                       </li>
                     );
                   })}
@@ -751,6 +840,32 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
                     </button>
                   )}
                 </div>
+
+                {mockChanges && (
+                  <div className="mb-3 space-y-2 rounded-2xl bg-surface-2 p-3 text-xs">
+                    <p className="font-semibold">Your result changes your mock plan</p>
+                    <ul className="space-y-1 text-muted">
+                      {mockChanges.map((c) => (
+                        <li key={c.subject}>
+                          <span className="font-medium text-foreground">{c.subject}</span>: {c.from} → {c.to} planned mock{c.to === 1 ? "" : "s"}. {c.reason}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => void applyMockChanges()}
+                        disabled={updatingMocks}
+                        className="rounded-full bg-accent px-3 py-1.5 font-semibold text-white disabled:opacity-50"
+                      >
+                        {updatingMocks ? "Updating…" : "Update schedule"}
+                      </button>
+                      <button onClick={() => setMockChanges(null)} className="rounded-full px-3 py-1.5 font-semibold text-muted">
+                        Not now
+                      </button>
+                    </div>
+                    <p className="text-muted">Updating rebuilds your remaining schedule; completed sessions and results stay.</p>
+                  </div>
+                )}
 
                 {showForm && (
                   <LogScoreForm

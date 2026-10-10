@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { blockActivities } from "@/lib/types";
 
-const taskType = z.enum(["deep", "intervals", "tempo", "recovery", "lecture", "exam", "buffer"]);
+const taskType = z.enum(["deep", "intervals", "tempo", "recovery", "lecture", "exam", "buffer", "break"]);
 const timestamp = z.iso.datetime({ offset: true }).transform((v) => new Date(v));
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 
@@ -9,7 +10,11 @@ export const createTaskSchema = z.object({
   userId: z.uuid().optional(),
   planId: z.string().min(1).nullable().optional(),
   type: taskType,
-  subject: z.string().trim().min(1).max(100),
+  activity: z.enum(blockActivities).nullable().optional(),
+  /** Null only for breaks and buffers, which belong to no subject. */
+  subject: z.string().trim().min(1).max(100).nullable(),
+  cheatsheetTarget: z.number().int().min(0).max(100).nullable().optional(),
+  cheatsheetMinutes: z.number().int().min(0).max(24 * 60).nullable().optional(),
   title: z.string().trim().min(1).max(200),
   detail: optionalText(500),
   scheduledAt: timestamp,
@@ -19,6 +24,12 @@ export const createTaskSchema = z.object({
   shared: z.boolean().optional(),
   calendarOrder: z.number().int().min(0).nullable().optional(),
 });
+
+/** A new block: everything except breaks and buffers needs a subject. */
+export const newTaskSchema = createTaskSchema.refine(
+  (task) => task.subject !== null || task.type === "buffer" || task.type === "break",
+  { message: "A subject is required", path: ["subject"] },
+);
 
 export const updateTaskSchema = createTaskSchema
   .omit({ userId: true })

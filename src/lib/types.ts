@@ -11,8 +11,25 @@ export type Item = {
 export type SessionType = "deep" | "intervals" | "tempo" | "recovery";
 
 /** Everything the calendar can show. */
-/** "buffer" is the daily catch-up block — on the calendar, but not focused study. */
-export type EventType = SessionType | "lecture" | "exam" | "buffer";
+/**
+ * "buffer" is the daily catch-up block and "break" covers breaks and meals —
+ * on the calendar, but not focused study.
+ */
+export type EventType = SessionType | "lecture" | "exam" | "buffer" | "break";
+
+/** What a calendar block is for; null for entries created before activities existed. */
+export const blockActivities = [
+  "study",
+  "mock_exam",
+  "mock_review",
+  "cheatsheet",
+  "short_break",
+  "lunch",
+  "dinner",
+  "buffer",
+  "exam",
+] as const;
+export type BlockActivity = (typeof blockActivities)[number];
 
 export type Task = {
   id: string;
@@ -55,9 +72,14 @@ export type ActivePlan = {
 export type CalendarEvent = {
   id: string;
   type: EventType;
+  activity: BlockActivity | null;
+  /** Null for breaks and buffers. */
+  subject: string | null;
   title: string;
   /** ISO timestamp. */
   start: string;
+  /** ISO timestamp: start + minutes. */
+  end: string;
   minutes: number;
   calendarOrder: number | null;
 };
@@ -128,7 +150,8 @@ export type Profile = {
   /** Hours per day this week, Monday first. */
   week: number[];
   weeklyGoal: number;
-  subjects: { name: string; hours: number; examHoursRemaining: number | null }[];
+  /** Academic subjects only — breaks and buffers are never subjects. */
+  subjects: { name: string; hours: number; minutes: number; examHoursRemaining: number | null }[];
   badges: { emoji: string; label: string; earned: boolean }[];
 };
 
@@ -153,7 +176,11 @@ export type TaskRecord = {
   userId: string;
   planId: string | null;
   type: EventType;
-  subject: string;
+  activity: BlockActivity | null;
+  /** Null for breaks and buffers. */
+  subject: string | null;
+  cheatsheetTarget: number | null;
+  cheatsheetMinutes: number | null;
   title: string;
   detail: string | null;
   scheduledAt: string;

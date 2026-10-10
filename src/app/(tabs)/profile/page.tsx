@@ -38,7 +38,8 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
   const maxDay = Math.max(...profile.week, 1);
   const maxSubject = Math.max(...profile.subjects.map((s) => s.hours), 1);
   const spiritAnimal = spiritAnimalDetails[profile.spiritAnimal] ?? spiritAnimalDetails.owl;
-  const examSubjects = profile.subjects;
+  // Only subjects with an upcoming exam get a countdown.
+  const examSubjects = profile.subjects.filter((subject) => subject.examHoursRemaining !== null);
 
   return (
     <>
@@ -129,27 +130,20 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
 
       <SectionTitle>Exam countdowns</SectionTitle>
       {examSubjects.length === 0 ? (
-        <Card className="text-sm text-muted">No subjects yet.</Card>
+        <Card className="text-sm text-muted">No upcoming exams.</Card>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {examSubjects.map((subject) => (
             <Card key={subject.name} className="border-l-4 p-4" style={{ borderLeftColor: subjectColor(subject.name).value }}>
               <p className={`truncate text-sm font-medium ${subjectColor(subject.name).text}`} title={subject.name}>{subject.name}</p>
-              {subject.examHoursRemaining === null ? (
-                <p className="mt-2 text-sm text-muted">No exam date set</p>
-              ) : (
-                <ExamCountdown hours={subject.examHoursRemaining} color={subjectColor(subject.name).value} />
-              )}
+              <ExamCountdown hours={subject.examHoursRemaining!} color={subjectColor(subject.name).value} />
             </Card>
           ))}
         </div>
       )}
 
       <SectionTitle>Time investment</SectionTitle>
-      <SubjectInvestment
-        subjects={profile.subjects.slice(0, 4).map((subject) => subject.name)}
-        userKey={profile.handle}
-      />
+      <SubjectInvestment subjects={profile.subjects} />
 
       <SectionTitle>Study behavior</SectionTitle>
       <StudyBehaviorCard behavior={behavior} />
