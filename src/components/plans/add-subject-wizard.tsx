@@ -417,7 +417,7 @@ export function AddSubjectWizard({
   );
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ count: number; breakdown: Record<string, number> } | null>(null);
+  const [result, setResult] = useState<{ count: number; breakdown: Record<string, number>; warnings?: string[] } | null>(null);
 
   function update<K extends keyof SubjectForm>(k: K, v: SubjectForm[K]) {
     setSubject((prev) => ({ ...prev, [k]: v }));
@@ -543,6 +543,11 @@ export function AddSubjectWizard({
                 ))}
               </ul>
             </div>
+            {!!result.warnings?.length && (
+              <ul className="space-y-1 rounded-2xl bg-red-500/10 p-4 text-left text-sm text-red-600">
+                {result.warnings.map((w) => <li key={w}>{w}</li>)}
+              </ul>
+            )}
             <button
               onClick={onDone}
               className="rounded-full bg-accent px-8 py-3 font-semibold text-white"

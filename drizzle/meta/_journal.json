@@ -92,6 +92,48 @@
       "when": 1791578330000,
       "tag": "0011_user_plan_config",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791720000000,
+      "tag": "0012_course_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791720000001,
+      "tag": "0013_buffer_session_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791720000002,
+      "tag": "0014_block_activity",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791720000003,
+      "tag": "0015_cheatsheet_and_subjectless_blocks",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791720000004,
+      "tag": "0016_moved_manually",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791720000005,
+      "tag": "0017_cheatsheet_progress",
+      "breakpoints": true
     }
   ]
 }

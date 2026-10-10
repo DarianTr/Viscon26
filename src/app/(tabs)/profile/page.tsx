@@ -3,10 +3,11 @@ import Link from "next/link";
 import { logout } from "@/app/(auth)/actions";
 import { ActivityCard } from "@/components/community/activity-card";
 import { FlameIcon, SettingsIcon } from "@/components/icons";
-import { Brain, STAGE_LABEL, type BrainStage } from "@/components/mascot/brain";
+import { Brain } from "@/components/mascot/brain";
+import { ExpressionMascot } from "@/components/mascot/expression-mascot";
+import { BrainEvolution } from "@/components/profile/brain-evolution";
 import { SubjectInvestment } from "@/components/profile/subject-investment";
 import { Avatar, Button, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
-import { mascotStageFromHours } from "@/lib/mascot";
 import { getCurrentUser, getFeed, getProfile, getStudyBehavior } from "@/lib/queries";
 import type { HourlyBucket } from "@/lib/queries";
 import { subjectColor } from "@/lib/session-types";
@@ -38,7 +39,8 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
   const maxDay = Math.max(...profile.week, 1);
   const maxSubject = Math.max(...profile.subjects.map((s) => s.hours), 1);
   const spiritAnimal = spiritAnimalDetails[profile.spiritAnimal] ?? spiritAnimalDetails.owl;
-  const examSubjects = profile.subjects;
+  // Only subjects with an upcoming exam get a countdown.
+  const examSubjects = profile.subjects.filter((subject) => subject.examHoursRemaining !== null);
 
   return (
     <>
@@ -129,27 +131,20 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
 
       <SectionTitle>Exam countdowns</SectionTitle>
       {examSubjects.length === 0 ? (
-        <Card className="text-sm text-muted">No subjects yet.</Card>
+        <Card className="text-sm text-muted">No upcoming exams.</Card>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {examSubjects.map((subject) => (
             <Card key={subject.name} className="border-l-4 p-4" style={{ borderLeftColor: subjectColor(subject.name).value }}>
               <p className={`truncate text-sm font-medium ${subjectColor(subject.name).text}`} title={subject.name}>{subject.name}</p>
-              {subject.examHoursRemaining === null ? (
-                <p className="mt-2 text-sm text-muted">No exam date set</p>
-              ) : (
-                <ExamCountdown hours={subject.examHoursRemaining} color={subjectColor(subject.name).value} />
-              )}
+              <ExamCountdown hours={subject.examHoursRemaining!} color={subjectColor(subject.name).value} />
             </Card>
           ))}
         </div>
       )}
 
       <SectionTitle>Time investment</SectionTitle>
-      <SubjectInvestment
-        subjects={profile.subjects.slice(0, 4).map((subject) => subject.name)}
-        userKey={profile.handle}
-      />
+      <SubjectInvestment subjects={profile.subjects} />
 
       <SectionTitle>Study behavior</SectionTitle>
       <StudyBehaviorCard behavior={behavior} />
@@ -187,7 +182,7 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
       <SectionTitle>Your posts</SectionTitle>
       {posts.length === 0 ? (
         <Card className="flex flex-col items-center gap-3 py-8 text-center">
-          <Brain expression="sleepy" size={72} />
+          <ExpressionMascot expression="sleepy" size={96} />
           <p className="text-sm text-muted">Finish a session and it shows up here.</p>
         </Card>
       ) : (
@@ -229,32 +224,6 @@ function Total({ label, value }: { label: string; value: number | string }) {
     <Card className="p-4">
       <p className="font-display text-2xl font-bold tabular-nums">{value}</p>
       <p className="text-xs text-muted">{label}</p>
-    </Card>
-  );
-}
-
-const STAGES: BrainStage[] = [1, 2, 3, 4, 5];
-
-/** A purely decorative read-out of existing all-time hours — not a new progress system. */
-function BrainEvolution({ hours }: { hours: number }) {
-  const current = mascotStageFromHours(hours);
-  return (
-    <Card>
-      <div className="flex items-center gap-4">
-        <Brain stage={current} expression={current >= 4 ? "proud" : "happy"} size={72} />
-        <div>
-          <p className="font-display text-lg font-bold">{STAGE_LABEL[current]}</p>
-          <p className="text-sm text-muted">{hours} hours logged all-time</p>
-        </div>
-      </div>
-      <div className="mt-5 flex items-center justify-between border-t-2 border-border pt-4">
-        {STAGES.map((s) => (
-          <div key={s} className={`flex flex-col items-center gap-1 ${s === current ? "" : "opacity-35"}`}>
-            <Brain stage={s} expression="happy" size={36} idle={s === current} />
-            <span className="text-[10px] font-bold text-muted">{s}</span>
-          </div>
-        ))}
-      </div>
     </Card>
   );
 }

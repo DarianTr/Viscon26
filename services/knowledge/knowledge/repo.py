@@ -44,10 +44,21 @@ def list_topics(conn: Connection, plan_id: str) -> list[dict[str, Any]]:
     ).fetchall()
 
 
-def upsert_topics(conn: Connection, plan_id: str, topics: Iterable[dict[str, Any]]) -> None:
-    """Insert or update topics; parents may be given in the same call, in any order."""
+def upsert_topics(
+    conn: Connection, plan_id: str, topics: Iterable[dict[str, Any]], prune: bool = False
+) -> None:
+    """Insert or update topics; parents may be given in the same call, in any order.
+
+    With `prune`, the plan's topics not in `topics` are deleted. Observations
+    keep their weights; the model ignores weights on topics that no longer exist.
+    """
     topics = list(topics)
     with conn.transaction():
+        if prune:
+            conn.execute(
+                "delete from topics where plan_id = %s and not (id = any(%s))",
+                [plan_id, [t["id"] for t in topics]],
+            )
         # Insert without parents first so the self-reference holds in any order.
         for t in topics:
             conn.execute(

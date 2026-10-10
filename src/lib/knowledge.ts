@@ -1,14 +1,17 @@
 import "server-only";
 import { cache } from "react";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, ne, sql } from "drizzle-orm";
 import { db, schema as s } from "@/db";
+import { academic } from "./queries";
 import {
   type KnowledgeSubject,
   parseGrade,
+  profileMap,
   type Subject,
   toKnowledgeSubjects,
   topicsPayload,
 } from "./knowledge-topics";
+import { fromGrade } from "./grades";
 
 /*
  * Client for the knowledge service (services/knowledge), which estimates each
@@ -121,19 +124,28 @@ export const getOwnedPlan = cache(async (userId: string, planId: string): Promis
   if (subjects.length === 0) {
     // Older plans have no stored subject configs: fall back to their sessions' subjects.
     const rows = await db
-      .selectDistinct({ subject: s.sessions.subject })
+      .selectDistinct({ subject: sql<string>`${s.sessions.subject}` })
       .from(s.sessions)
-      .where(and(eq(s.sessions.userPlanId, planId), ne(s.sessions.type, "lecture")));
+      .where(and(eq(s.sessions.userPlanId, planId), academic, ne(s.sessions.type, "lecture")));
     subjects = rows.map((r) => ({ name: r.subject, examDate: null, targetGrade: null, currentGrade: null }));
   }
 
-  return { id: plan.id, title: plan.title, subjects: toKnowledgeSubjects(subjects) };
+  const profileRows = await db
+    .select({ slug: s.courseProfiles.slug, aliases: s.courseProfiles.aliases, topics: s.courseProfiles.topics })
+    .from(s.courseProfiles);
+
+  return { id: plan.id, title: plan.title, subjects: toKnowledgeSubjects(subjects, profileMap(profileRows)) };
 });
 
 /** Make the service's topics match the plan's subjects (an idempotent upsert). */
 export async function syncTopics(plan: OwnedPlan) {
   if (plan.subjects.length === 0) return;
-  await call(`/plans/${plan.id}/topics`, { method: "PUT", body: JSON.stringify(topicsPayload(plan.subjects)) });
+  // Prune: when a subject switches to its real course topics, the old ones must go,
+  // or the subject's forecast would still average in empty placeholder topics.
+  await call(`/plans/${plan.id}/topics?prune=true`, {
+    method: "PUT",
+    body: JSON.stringify(topicsPayload(plan.subjects)),
+  });
 }
 
 
@@ -169,4 +181,43 @@ export async function deleteObservation(userId: string, planId: string, id: stri
 
 export function getTimeline(userId: string, planId: string) {
   return call<Timeline>(`/users/${userId}/plans/${encodeURIComponent(planId)}/timeline`);
+}
+
+// --- Study focus / topic recommendations ------------------------------------
+
+export type TopicRecommendation = {
+  topicId: string;
+  topicName: string;
+  subjectId: string | null;
+  /** 0–100: share of the next session this topic should receive. */
+  allocation: number;
+  currentMean: number;
+  currentSd: number;
+  gap: number;
+  daysToExam: number | null;
+  tags: string[]; // "weakest" | "least certain" | "exam soon"
+};
+
+export type StudyFocus = {
+  userId: string;
+  planId: string;
+  asOf: string;
+  topics: TopicRecommendation[];
+};
+
+const clampFraction = (x: number) => Math.min(0.95, Math.max(0.05, x));
+
+/** Fetch per-topic study recommendations for the learner's next session. */
+export function getRecommendedTopics(userId: string, plan: OwnedPlan): Promise<StudyFocus> {
+  const targets: Record<string, number> = {};
+  for (const subject of plan.subjects) {
+    if (subject.targetGrade !== null) {
+      const t = clampFraction(fromGrade(subject.targetGrade));
+      for (const topic of subject.topics) targets[topic.id] = t;
+    }
+  }
+  return call<StudyFocus>(
+    `/users/${userId}/plans/${encodeURIComponent(plan.id)}/recommended-topics`,
+    { method: "POST", body: JSON.stringify({ targets }) },
+  );
 }

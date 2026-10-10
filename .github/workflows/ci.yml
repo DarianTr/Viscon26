@@ -25,6 +25,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - run: npm test
       # The DB client connects lazily, so the build needs no database.
       - run: npm run build
 
