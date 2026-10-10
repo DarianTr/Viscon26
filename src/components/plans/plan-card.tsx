@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { Card } from "@/components/ui/primitives";
 import { CombinedChart } from "@/components/knowledge/combined-chart";
+import { PlanMethodInfo } from "@/components/plans/plan-method-info";
 import { SubjectSummary } from "@/components/plans/subject-summary";
 import type { CustomPlan } from "@/lib/queries";
 import type { KnowledgeSubject, Timeline } from "@/lib/knowledge";
@@ -606,7 +607,10 @@ export function CustomPlanCard({
             /* The detailed grade prediction model */
             <div className="space-y-5" id={`prediction-model-${plan.id}`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted">Grade prediction model</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">Grade prediction model</p>
+                  <PlanMethodInfo />
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowModel(false)}
