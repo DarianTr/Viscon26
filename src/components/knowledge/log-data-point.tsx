@@ -16,10 +16,19 @@ const TYPES: { value: DataPointType; label: string; hint: string }[] = [
 
 const today = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Zurich" }).format(new Date());
 
-export function LogDataPointForm({ planId, subjects }: { planId: string; subjects: KnowledgeSubject[] }) {
+export function LogDataPointForm({
+  planId,
+  subjects,
+  initialSubjectId,
+}: {
+  planId: string;
+  subjects: KnowledgeSubject[];
+  /** The subject to start with, e.g. the one studied today; the first subject otherwise. */
+  initialSubjectId?: string;
+}) {
   const router = useRouter();
   const [type, setType] = useState<DataPointType>("practice");
-  const [subjectId, setSubjectId] = useState(subjects[0]?.id ?? "");
+  const [subjectId, setSubjectId] = useState(initialSubjectId ?? subjects[0]?.id ?? "");
   const subject = subjects.find((x) => x.id === subjectId) ?? subjects[0];
   const [covered, setCovered] = useState<Set<string>>(() => new Set(subject?.topics.map((t) => t.id)));
   const [mode, setMode] = useState<"points" | "grade">("points");

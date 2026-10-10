@@ -160,13 +160,6 @@
       "idx": 22,
       "version": "7",
       "when": 1791720001008,
-      "tag": "0021_user_course_materials",
-      "breakpoints": true
-    },
-    {
-      "idx": 22,
-      "version": "7",
-      "when": 1791720001008,
       "tag": "0020_calendar_feed",
       "breakpoints": true
     },
@@ -175,6 +168,20 @@
       "version": "7",
       "when": 1791720001009,
       "tag": "0021_proxy_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791720001010,
+      "tag": "0021_user_course_materials",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791720001011,
+      "tag": "0021_plan_archive",
       "breakpoints": true
     }
   ]

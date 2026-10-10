@@ -1,9 +1,11 @@
+import { LogDataSection } from "@/components/today/log-data-section";
 import { TodayBoard } from "@/components/today/today-board";
 import { TIME_ZONE } from "@/db";
 import { getCurrentUser, getStreak, getTodaysTasks } from "@/lib/queries";
 
-export default async function TodayPage() {
+export default async function TodayPage({ searchParams }: PageProps<"/">) {
   const user = await getCurrentUser();
+  const { log } = await searchParams;
   const [tasks, streak] = await Promise.all([getTodaysTasks(user.id), getStreak(user.id)]);
 
   // Rendered on the server, so pin the time zone to the users' (Zurich).
@@ -14,12 +16,15 @@ export default async function TodayPage() {
   const date = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone });
 
   return (
-    <TodayBoard
-      initialTasks={tasks}
-      streak={streak}
-      greeting={greeting}
-      date={date}
-      firstName={user.name.split(" ")[0]}
-    />
+    <>
+      <TodayBoard
+        initialTasks={tasks}
+        streak={streak}
+        greeting={greeting}
+        date={date}
+        firstName={user.name.split(" ")[0]}
+      />
+      <LogDataSection userId={user.id} open={typeof log === "string" ? log : undefined} />
+    </>
   );
 }

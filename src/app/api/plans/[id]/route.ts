@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { and, asc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { cheatsheetProgress } from "@/lib/plan-progress";
 import { handle, isId, notFound } from "@/lib/http";
@@ -101,5 +102,24 @@ export async function GET(_request: Request, ctx: Ctx) {
     const phases = Object.fromEntries(upcoming.map((r) => [r.subject, r.phase]));
 
     return Response.json({ title: plan.title, subjects, scores, cheatsheet, mocks, phases, config: plan.config ?? null });
+  });
+}
+
+const patchSchema = z.object({ archived: z.boolean() });
+
+// PATCH /api/plans/:id — { archived } moves your plan to Past Plans or back.
+// (Plans also become past on their own once their last exam is over — see lib/plan-status.ts.)
+export async function PATCH(request: Request, ctx: Ctx) {
+  return handle(async () => {
+    const user = await getCurrentUser();
+    const { id } = await ctx.params;
+    if (!isId(id)) return notFound("Plan");
+    const { archived } = patchSchema.parse(await request.json());
+    const [plan] = await db
+      .update(s.userPlans)
+      .set({ archivedAt: archived ? new Date() : null })
+      .where(and(eq(s.userPlans.id, id), eq(s.userPlans.userId, user.id)))
+      .returning({ archivedAt: s.userPlans.archivedAt });
+    return plan ? Response.json({ archivedAt: plan.archivedAt?.toISOString() ?? null }) : notFound("Plan");
   });
 }

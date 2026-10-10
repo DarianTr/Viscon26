@@ -8,7 +8,6 @@ export function KnowledgeNav({ planId }: { planId: string }) {
   const links = [
     { href: `/plans/${planId}/forecast`, label: "Grade forecast" },
     { href: `/plans/${planId}/topics`, label: "Subjects" },
-    { href: `/plans/${planId}/log`, label: "Log data" },
   ];
   return (
     <nav aria-label="Knowledge" className="mb-5 flex gap-1 overflow-x-auto rounded-2xl bg-surface-2 p-1">

@@ -159,6 +159,8 @@ export const userPlans = pgTable(
     title: text("title").notNull(),
     config: jsonb("config").$type<StoredPlanConfig>(),
     createdAt: createdAt(),
+    /** Set when the student archives the plan. Otherwise its status follows its exam dates (lib/plan-status.ts). */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
   (t) => [index().on(t.userId)],
 );

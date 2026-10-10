@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Card } from "@/components/ui/primitives";
-import { AddSubjectWizard } from "@/components/plans/add-subject-wizard";
 import { ForecastChart } from "@/components/knowledge/forecast-chart";
 import { TopicProfile } from "@/components/knowledge/topic-profile";
 import type { CustomPlan } from "@/lib/queries";
@@ -322,11 +321,28 @@ function StrategySection({
 
 // ─── Main card ───────────────────────────────────────────────────────────────
 
-export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
+/** "14 Dec 2026" from "2026-12-14", without time-zone shifts. */
+function formatExamDate(date: string) {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+
+export function CustomPlanCard({
+  plan,
+  variant = "current",
+  status,
+  onArchiveChange,
+}: {
+  plan: CustomPlan;
+  /** Past plans (finished or archived) get a compact card without Continue / Manage. */
+  variant?: "current" | "past";
+  status?: "finished" | "archived";
+  /** Called with the new archive time (or null) after archiving or restoring the plan. */
+  onArchiveChange?: (planId: string, archivedAt: string | null) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [details, setDetails] = useState<PlanDetails | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showWizard, setShowWizard] = useState(false);
   const [strategy, setStrategy] = useState<StrategyResult | null>(() => {
     if (typeof window === "undefined") return null;
     try {
@@ -379,6 +395,21 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
       setKnowledgeError("Network error — please try again.");
     } finally {
       setKnowledgeLoading(false);
+    }
+  }
+
+  const [archiving, setArchiving] = useState(false);
+  async function setArchived(archived: boolean) {
+    setArchiving(true);
+    try {
+      const res = await fetch(`/api/plans/${plan.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived }),
+      });
+      if (res.ok) onArchiveChange?.(plan.id, (await res.json()).archivedAt);
+    } finally {
+      setArchiving(false);
     }
   }
 
@@ -474,89 +505,83 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
 
   return (
     <>
-    {showWizard && (
-      <AddSubjectWizard
-        planId={plan.id}
-        storedConfig={details?.config ?? null}
-        onClose={() => setShowWizard(false)}
-        onDone={async () => {
-          setShowWizard(false);
-          setDetails(null);
-          await fetchDetails();
-        }}
-      />
-    )}
-
     <Card className="overflow-hidden p-0">
-      {/* Header — always visible, click to expand */}
-      <button
-        onClick={handleToggle}
-        className="flex w-full items-start justify-between gap-3 p-4 text-left"
-      >
-        <div className="min-w-0">
-          <p className="font-semibold">{plan.title}</p>
+      {/* Header: name on the left; Continue, Manage and the expand chevron on the right */}
+      <div className={`flex flex-wrap items-start gap-x-3 gap-y-2 ${variant === "past" ? "p-3" : "p-4"}`}>
+        <button
+          onClick={handleToggle}
+          aria-expanded={expanded}
+          className="min-w-0 flex-1 basis-48 text-left"
+        >
+          <p className={`font-semibold ${variant === "past" ? "text-sm" : ""}`}>{plan.title}</p>
           {plan.subjects.length > 0 && (
             <p className="mt-0.5 text-xs text-muted">{plan.subjects.join(" · ")}</p>
           )}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
+          {status && (
+            <p className="mt-1 text-xs text-muted">
+              {status === "archived" ? "Archived" : "Finished"}
+              {plan.latestExamDate && ` · last exam ${formatExamDate(plan.latestExamDate)}`}
+            </p>
+          )}
+        </button>
+        {/* On phones Continue / Manage get their own row; the chevron stays beside the name. */}
+        {variant === "current" && (
+          <div className="order-last flex w-full flex-wrap items-center gap-2 sm:order-none sm:w-auto sm:justify-end">
+              {plan.next ? (
+                <Link
+                  href={continueHref(plan.next.start)}
+                  title={plan.next.title}
+                  className="rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white"
+                >
+                  {plan.next.ongoing ? "Continue plan · now" : `Continue plan · ${new Date(plan.next.start).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`}
+                </Link>
+              ) : (
+                <span className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold text-muted">Nothing left to do</span>
+              )}
+              <Link
+                href={`/plans/new?edit=${plan.id}`}
+                className="rounded-full border-2 border-border px-4 py-1.5 text-xs font-semibold"
+              >
+                Manage plan
+              </Link>
+          </div>
+        )}
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           <span className="text-xs font-semibold tabular-nums text-muted">{progressPct}%</span>
-          <svg
-            viewBox="0 0 16 16" className={`size-4 text-muted transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
-            fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+          <button
+            onClick={handleToggle}
+            aria-expanded={expanded}
+            aria-label={expanded ? "Hide plan details" : "Show plan details"}
+            className="grid size-8 place-items-center rounded-full hover:bg-surface-2"
           >
-            <polyline points="4 6 8 10 12 6" />
-          </svg>
+            <svg
+              viewBox="0 0 16 16" className={`size-4 text-muted transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+              fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+            >
+              <polyline points="4 6 8 10 12 6" />
+            </svg>
+          </button>
         </div>
-      </button>
+      </div>
 
       {/* Overall progress bar */}
-      <div className="mx-4 h-1 overflow-hidden rounded-full bg-surface-2">
+      <div className={`mx-4 h-1 overflow-hidden rounded-full bg-surface-2 ${expanded ? "" : variant === "past" ? "mb-3" : "mb-4"}`}>
         <div
           className="h-full rounded-full bg-accent transition-[width] duration-500"
           style={{ width: `${progressPct}%` }}
         />
       </div>
 
-      {/* Continue / manage */}
-      <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
-        {plan.next ? (
-          <Link
-            href={continueHref(plan.next.start)}
-            title={plan.next.title}
-            className="rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white"
-          >
-            {plan.next.ongoing ? "Continue plan · now" : `Continue plan · ${new Date(plan.next.start).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`}
-          </Link>
-        ) : (
-          <span className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold text-muted">Nothing left to do</span>
-        )}
-        <Link
-          href={`/plans/new?edit=${plan.id}`}
-          className="rounded-full border border-border px-4 py-2 text-xs font-semibold"
-        >
-          Manage plan
-        </Link>
-      </div>
-
       {/* Expanded content */}
       {expanded && (
-        <div className="space-y-5 border-t border-border px-4 pt-4 pb-4">
+        <div className="mt-4 space-y-5 border-t border-border px-4 pt-4 pb-4">
           {loading ? (
             <p className="py-4 text-center text-sm text-muted">Loading…</p>
           ) : details ? (
             <>
               {/* Per-subject progress */}
               <div>
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">Subject progress</p>
-                  <button
-                    onClick={() => setShowWizard(true)}
-                    className="text-xs font-semibold text-accent hover:opacity-80"
-                  >
-                    + Add subject
-                  </button>
-                </div>
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Subject progress</p>
                 <ul className="space-y-2.5">
                   {details.subjects.map((s) => {
                     const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : 0;
@@ -644,15 +669,6 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
             >
               Subjects
             </button>
-            <Link href={`/plans/${plan.id}/log`} className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold">
-              Log data
-            </Link>
-            <button
-              onClick={() => setShowWizard(true)}
-              className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold hover:opacity-80"
-            >
-              + Add subject
-            </button>
           </div>
 
           {/* Tab content */}
@@ -684,6 +700,25 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
                 await fetchDetails();
               }}
             />
+          )}
+
+          {variant === "current" && (
+            <button
+              onClick={() => void setArchived(true)}
+              disabled={archiving}
+              className="text-xs font-semibold text-muted hover:text-foreground disabled:opacity-50"
+            >
+              Archive plan
+            </button>
+          )}
+          {status === "archived" && (
+            <button
+              onClick={() => void setArchived(false)}
+              disabled={archiving}
+              className="text-xs font-semibold text-accent disabled:opacity-50"
+            >
+              Move back to current plans
+            </button>
           )}
         </div>
       )}
