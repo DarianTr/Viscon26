@@ -32,7 +32,13 @@ export default async function PlansPage() {
         }
       />
 
-      {activePlan && <ActivePlanOverview activePlan={activePlan} />}
+      {activePlan ? (
+        <ActivePlanOverview activePlan={activePlan} />
+      ) : (
+        <Card className="py-10 text-center text-sm text-muted">
+          You&apos;re not following a plan yet — create a custom one.
+        </Card>
+      )}
 
       <SectionTitle>My plans</SectionTitle>
       {customPlans.length === 0 ? (
@@ -69,22 +75,6 @@ function CustomPlanCard({ plan }: { plan: CustomPlan }) {
         <span className="shrink-0 text-xs font-semibold tabular-nums text-muted">
           {progressPct}%
         </span>
-      </div>
-
-      {plan.totalSessions > 0 && (
-        <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
-          <div
-            className="h-full rounded-full bg-foreground transition-all"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
-      )}
-
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
-        <span>{plan.doneSessions} / {plan.totalSessions} sessions done</span>
-        {plan.firstDate && plan.lastDate && (
-          <span>{fmt(plan.firstDate)} → {fmt(plan.lastDate)}</span>
-        )}
       </div>
     </Card>
   );
