@@ -134,9 +134,55 @@ body::before {
     transform: scale(1.1);
   }
 }
+@keyframes braina-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.025);
+  }
+}
+@keyframes braina-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+@keyframes braina-lamp-glow {
+  0%,
+  100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+@keyframes braina-settle {
+  0% {
+    transform: scale(0.85) rotate(-3deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.04) rotate(1deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
 
 .mascot-idle {
   animation: braina-bob 3.4s ease-in-out infinite;
+}
+.mascot-breathe {
+  animation: braina-breathe 3.6s ease-in-out infinite;
+  transform-origin: 50% 85%;
 }
 .mascot-pop {
   animation: braina-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -144,14 +190,31 @@ body::before {
 .mascot-sparkle {
   animation: braina-twinkle 1.8s ease-in-out infinite;
 }
+.mascot-float {
+  animation: braina-float 4.5s ease-in-out infinite;
+}
+.mascot-float-slow {
+  animation: braina-float 6.5s ease-in-out infinite;
+}
+.lamp-glow {
+  animation: braina-lamp-glow 5s ease-in-out infinite;
+}
+.sticker-settle {
+  animation: braina-settle 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
 .hover-wiggle:hover {
   animation: braina-wiggle 0.4s ease-in-out;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .mascot-idle,
+  .mascot-breathe,
   .mascot-pop,
   .mascot-sparkle,
+  .mascot-float,
+  .mascot-float-slow,
+  .lamp-glow,
+  .sticker-settle,
   .hover-wiggle:hover {
     animation: none !important;
   }

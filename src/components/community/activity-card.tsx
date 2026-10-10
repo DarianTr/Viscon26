@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { BrainIcon, CameraIcon, CommentIcon, EditIcon, MapPinIcon, UsersIcon, XIcon } from "@/components/icons";
+import { WashiTape } from "@/components/mascot/doodles";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Avatar, Button, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
@@ -124,8 +125,15 @@ export function ActivityCard({ activity }: { activity: Activity }) {
     });
   }
 
+  // A tiny, stable (not re-randomized on re-render) scrapbook tilt per post.
+  const tilt = (activity.id.charCodeAt(0) + activity.id.charCodeAt(activity.id.length - 1)) % 2 === 0;
+
   return (
-    <Card className="p-0">
+    <Card className={`relative overflow-visible p-0 ${tilt ? "sm:-rotate-[0.5deg]" : "sm:rotate-[0.5deg]"}`}>
+      <WashiTape
+        color={tilt ? "var(--pink)" : "var(--gold)"}
+        className={`sticker-settle absolute -top-3 left-6 ${tilt ? "-rotate-3" : "rotate-3"}`}
+      />
       {confirmDialog}
       {activity.mine && (
         <input
@@ -155,7 +163,9 @@ export function ActivityCard({ activity }: { activity: Activity }) {
             )}
           </p>
         </div>
-        <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${type.soft}`}>{type.label}</span>
+        <span className={`-rotate-1 rounded-full border-2 border-current px-2.5 py-0.5 text-[11px] font-bold ${type.soft}`}>
+          {type.label}
+        </span>
       </div>
 
       <div className="px-4 pt-3">

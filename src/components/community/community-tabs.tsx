@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Brain } from "@/components/mascot/brain";
+import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { Avatar, Card } from "@/components/ui/primitives";
 import { emptyStateLines } from "@/lib/mascot";
 import type { Activity, LeaderboardEntry, Person } from "@/lib/types";
@@ -98,7 +99,7 @@ function ActivityList({
   if (activities.length === 0) {
     return (
       <Card className="flex flex-col items-center gap-3 py-8 text-center">
-        <Brain expression={mood} size={72} />
+        {mood === "sleepy" ? <ExpressionMascot expression="sleepy" size={96} /> : <Brain expression="confused" size={72} />}
         <p className="max-w-[28ch] text-sm text-muted">{empty}</p>
       </Card>
     );

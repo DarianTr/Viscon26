@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Brain } from "./mascot/brain";
+import { EvolutionMascot } from "./mascot/evolution-mascot";
 import {
   CalendarIcon,
   CommunityIcon,
@@ -67,7 +67,7 @@ export function SideNav({ plan }: { plan: PlanSummary | null }) {
   return (
     <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r-2 border-border px-4 py-6 md:flex">
       <Link href="/" className="mb-8 flex items-center gap-2 px-3">
-        <Brain size={36} stage={1} expression="happy" idle={false} />
+        <EvolutionMascot stage={1} size={36} />
         <span className="font-display text-xl font-extrabold tracking-tight">Braina</span>
       </Link>
       <ul className="flex flex-col gap-1">

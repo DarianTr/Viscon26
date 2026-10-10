@@ -1,5 +1,4 @@
 import { TodayBoard } from "@/components/today/today-board";
-import { PageHeader } from "@/components/ui/primitives";
 import { TIME_ZONE } from "@/db";
 import { getCurrentUser, getStreak, getTodaysTasks } from "@/lib/queries";
 
@@ -15,9 +14,12 @@ export default async function TodayPage() {
   const date = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone });
 
   return (
-    <>
-      <PageHeader eyebrow={date} title={`${greeting}, ${user.name.split(" ")[0]}`} />
-      <TodayBoard initialTasks={tasks} streak={streak} />
-    </>
+    <TodayBoard
+      initialTasks={tasks}
+      streak={streak}
+      greeting={greeting}
+      date={date}
+      firstName={user.name.split(" ")[0]}
+    />
   );
 }
