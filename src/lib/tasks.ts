@@ -8,7 +8,7 @@ import type { EventType, TaskRecord } from "./types";
 type Row = typeof s.sessions.$inferSelect;
 
 export type NewTask = Pick<Row, "userId" | "type" | "subject" | "title" | "scheduledAt" | "plannedMinutes"> &
-  Partial<Pick<Row, "planId" | "detail" | "location" | "note" | "shared">>;
+  Partial<Pick<Row, "planId" | "userPlanId" | "detail" | "location" | "note" | "shared">>;
 
 export type TaskPatch = Partial<Omit<NewTask, "userId">> &
   Partial<Pick<Row, "actualMinutes" | "focus">> & {
@@ -64,6 +64,12 @@ export async function getTask(id: string): Promise<TaskRecord | undefined> {
 export async function createTask(data: NewTask): Promise<TaskRecord> {
   const [row] = await db.insert(s.sessions).values(data).returning();
   return toTask(row);
+}
+
+export async function createTasksBulk(items: NewTask[]): Promise<number> {
+  if (items.length === 0) return 0;
+  const rows = await db.insert(s.sessions).values(items).returning({ id: s.sessions.id });
+  return rows.length;
 }
 
 export async function updateTask(

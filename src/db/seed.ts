@@ -10,9 +10,12 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { sql } from "drizzle-orm";
 import postgres from "postgres";
 import * as s from "./schema";
+import { hashPassword } from "./password";
 
 const TZ = "Europe/Zurich";
 const DEMO_HANDLE = process.env.DEMO_USER_HANDLE ?? "tprazak";
+/** Every seeded user gets this password; the demo user is also an admin. */
+const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? "stride";
 
 const client = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
 const db = drizzle(client, { schema: s });
@@ -72,7 +75,7 @@ const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000);
 
 type StudyType = "deep" | "intervals" | "tempo" | "recovery";
 
-const subjects = ["Analysis II", "Linear Algebra", "Algorithms", "Physics"];
+const subjects = ["DiskMath", "Linear Algebra", "Algorithms", "EProg"];
 const locations = ["ETH Main Library", "HG E 41", "CAB Study Room", "Home", "Polyterrasse", "LEE Library"];
 
 const templates: Record<StudyType, { title: string; minutes: [number, number] }[]> = {
@@ -148,44 +151,49 @@ async function main() {
   console.log("Clearing tables…");
   await db.execute(sql`
     truncate table
-      comments, kudos, sessions, enrollments, club_members, clubs,
-      user_badges, badges, follows, plans, users, items
+      session_photos, session_tags, comments, kudos, sessions, enrollments,
+      user_badges, badges, friendships, plans, auth_sessions, users, items
     restart identity cascade
   `);
 
   // --- Users --------------------------------------------------------------
+  const passwordHash = await hashPassword(DEMO_PASSWORD);
   const [me, lena, jonas, aisha, marco, ...classmates] = await db
     .insert(s.users)
     .values([
-      { handle: DEMO_HANDLE, name: "Tomas P.", hue: 200, program: "BSc Computer Science · Semester 3", weeklyGoalHours: 25 },
-      { handle: "lena", name: "Lena Meier", hue: 260, program: "BSc Mathematics" },
-      { handle: "jonas", name: "Jonas Keller", hue: 160, program: "BSc Physics" },
-      { handle: "aisha", name: "Aisha Rahman", hue: 20, program: "BSc Computer Science" },
-      { handle: "marco", name: "Marco Bianchi", hue: 320, program: "BSc Chemistry" },
+      { handle: DEMO_HANDLE, name: "Tomas P.", hue: 200, spiritAnimal: "fox", program: "BSc Computer Science · Semester 3", weeklyGoalHours: 25, isAdmin: true },
+      { handle: "lena", name: "Lena Meier", hue: 260, spiritAnimal: "owl", program: "BSc Mathematics" },
+      { handle: "jonas", name: "Jonas Keller", hue: 160, spiritAnimal: "wolf", program: "BSc Physics" },
+      { handle: "aisha", name: "Aisha Rahman", hue: 20, spiritAnimal: "deer", program: "BSc Computer Science" },
+      { handle: "marco", name: "Marco Bianchi", hue: 320, spiritAnimal: "tortoise", program: "BSc Chemistry" },
       ...classmateNames.map((name, i) => ({
         handle: name.toLowerCase().replace(/[^a-z]+/g, "."),
         name,
         hue: (i * 47) % 360,
         program: pick(["BSc Computer Science", "BSc Mathematics", "BSc Physics"]),
       })),
-    ])
+    ].map((u) => ({ ...u, passwordHash })))
     .returning();
   const friends = [lena, jonas, aisha, marco];
   const everyone = [me, ...friends, ...classmates];
 
-  await db.insert(s.follows).values([
-    ...friends.map((f) => ({ followerId: me.id, followeeId: f.id })),
-    ...[...friends, ...classmates.slice(0, 14)].map((f) => ({ followerId: f.id, followeeId: me.id })),
-    ...friends.flatMap((a) =>
-      friends.filter((b) => b !== a).map((b) => ({ followerId: a.id, followeeId: b.id })),
+  // The four friends know each other and the demo user; a few classmates have
+  // sent the demo user requests, and the demo user has sent one.
+  const accepted = new Date();
+  await db.insert(s.friendships).values([
+    ...friends.map((f) => ({ requesterId: f.id, addresseeId: me.id, acceptedAt: accepted })),
+    ...friends.flatMap((a, i) =>
+      friends.slice(i + 1).map((b) => ({ requesterId: a.id, addresseeId: b.id, acceptedAt: accepted })),
     ),
+    ...classmates.slice(0, 3).map((c) => ({ requesterId: c.id, addresseeId: me.id })),
+    { requesterId: me.id, addresseeId: classmates[3].id },
   ]);
 
   // --- Plans --------------------------------------------------------------
   await db.insert(s.plans).values([
     {
-      id: "analysis-exam",
-      title: "Analysis II Exam Prep",
+      id: "diskmath-exam",
+      title: "DiskMath Exam Prep",
       subject: "Mathematics",
       goal: "Pass the session exam with a 5+",
       weeks: 8,
@@ -245,14 +253,14 @@ async function main() {
     },
   ]);
 
-  // The demo user is in week 3 of the Analysis plan.
+  // The demo user is in week 3 of the DiskMath plan.
   const mondayOffset = -weekday(0);
   const planStart = mondayOffset - 14;
   await db.insert(s.enrollments).values([
-    { userId: me.id, planId: "analysis-exam", startedOn: day(planStart), examDate: day(42) },
+    { userId: me.id, planId: "diskmath-exam", startedOn: day(planStart), examDate: day(42) },
     ...[...friends, ...classmates].map((u) => ({
       userId: u.id,
-      planId: pick(["analysis-exam", "basisjahr", "couch-to-focus", "algo-sprint"]),
+      planId: pick(["diskmath-exam", "basisjahr", "couch-to-focus", "algo-sprint"]),
       startedOn: day(-between(0, 40)),
     })),
   ]);
@@ -270,7 +278,7 @@ async function main() {
     for (const time of times) {
       mine.push(
         completed(me.id, d, time, pick(studyTypes), {
-          planId: d >= planStart ? "analysis-exam" : null,
+          planId: d >= planStart ? "diskmath-exam" : null,
         }),
       );
     }
@@ -279,7 +287,7 @@ async function main() {
   // Today: one session done, three to go.
   mine.push(
     {
-      userId: me.id, planId: "analysis-exam", type: "intervals", subject: "Linear Algebra",
+      userId: me.id, planId: "diskmath-exam", type: "intervals", subject: "Linear Algebra",
       title: "4 × 25 min eigenvalue drills", detail: "Series 6, exercises 1–8 · 5 min breaks",
       scheduledAt: at(0, "09:00"), plannedMinutes: 115,
       completedAt: at(0, "10:55"), actualMinutes: 115, focus: 91,
@@ -287,17 +295,17 @@ async function main() {
       location: "ETH Main Library",
     },
     {
-      userId: me.id, planId: "analysis-exam", type: "deep", subject: "Analysis II",
+      userId: me.id, planId: "diskmath-exam", type: "deep", subject: "DiskMath",
       title: "Long block: Fubini & change of variables", detail: "Lecture 11–12 notes, no phone",
       scheduledAt: at(0, "13:30"), plannedMinutes: 90,
     },
     {
-      userId: me.id, planId: "analysis-exam", type: "tempo", subject: "Physics",
+      userId: me.id, planId: "diskmath-exam", type: "tempo", subject: "EProg",
       title: "Past paper HS24, Q1–Q3", detail: "Exam pace: 20 min per question",
       scheduledAt: at(0, "16:00"), plannedMinutes: 60,
     },
     {
-      userId: me.id, planId: "analysis-exam", type: "recovery", subject: "Algorithms",
+      userId: me.id, planId: "diskmath-exam", type: "recovery", subject: "Algorithms",
       title: "Flashcards: graph algorithms", detail: "Anki deck · 60 due cards",
       scheduledAt: at(0, "21:00"), plannedMinutes: 20,
     },
@@ -305,27 +313,27 @@ async function main() {
 
   // Upcoming plan sessions.
   const upcoming: [number, StudyType, string, string, string, number][] = [
-    [1, "intervals", "Analysis II", "Analysis II reps", "09:30", 100],
+    [1, "intervals", "DiskMath", "DiskMath reps", "09:30", 100],
     [2, "deep", "Algorithms", "Algorithms long block", "10:00", 150],
     [4, "tempo", "Linear Algebra", "Mock exam: Linear Algebra", "09:00", 120],
     [4, "recovery", "Linear Algebra", "Review mistakes", "17:00", 30],
-    [5, "intervals", "Physics", "Physics reps", "13:00", 75],
-    [7, "deep", "Analysis II", "Analysis II long block", "09:00", 180],
-    [9, "tempo", "Physics", "Past paper HS23", "14:00", 90],
-    [11, "recovery", "Analysis II", "Formula sheet review", "19:00", 30],
-    [15, "deep", "Analysis II", "Analysis II long block", "09:00", 180],
+    [5, "intervals", "EProg", "EProg reps", "13:00", 75],
+    [7, "deep", "DiskMath", "DiskMath long block", "09:00", 180],
+    [9, "tempo", "EProg", "Past paper HS23", "14:00", 90],
+    [11, "recovery", "DiskMath", "Formula sheet review", "19:00", 30],
+    [15, "deep", "DiskMath", "DiskMath long block", "09:00", 180],
     [18, "intervals", "Algorithms", "Dynamic programming reps", "10:00", 100],
-    [22, "tempo", "Analysis II", "Past paper FS25", "09:00", 120],
+    [22, "tempo", "DiskMath", "Past paper FS25", "09:00", 120],
   ];
   for (const [d, type, subject, title, time, minutes] of upcoming) {
-    mine.push({ userId: me.id, planId: "analysis-exam", type, subject, title, scheduledAt: at(d, time), plannedMinutes: minutes });
+    mine.push({ userId: me.id, planId: "diskmath-exam", type, subject, title, scheduledAt: at(d, time), plannedMinutes: minutes });
   }
 
   // Weekly lectures, and an exam.
   const lectures: [number, string, string][] = [
     [0, "10:15", "Algorithms lecture"],
-    [1, "13:15", "Analysis II lecture"],
-    [3, "14:15", "Physics lecture"],
+    [1, "13:15", "DiskMath lecture"],
+    [3, "14:15", "EProg lecture"],
   ];
   for (let week = -6; week <= 8; week++) {
     for (const [wd, time, title] of lectures) {
@@ -419,29 +427,26 @@ async function main() {
     ),
   );
 
-  // --- Clubs and badges ---------------------------------------------------------
-  const clubRows = await db
-    .insert(s.clubs)
-    .values([
-      { name: "D-INFK First Years", emoji: "💻" },
-      { name: "Analysis Survivors", emoji: "∫" },
-      { name: "5am Library Club", emoji: "🌅" },
-    ])
-    .returning();
-  await db.insert(s.clubMembers).values([
-    { clubId: clubRows[1].id, userId: me.id },
-    ...clubRows.flatMap((club) =>
-      sample([...friends, ...classmates], between(6, 18)).map((u) => ({ clubId: club.id, userId: u.id })),
-    ),
-  ]);
+  // Some recent posts by the friend group were studied together. Everyone in
+  // the group is friends with everyone else, so any of them can be tagged.
+  const group = [me, ...friends];
+  const tagRows = recent
+    .filter((post) => group.some((u) => u.id === post.userId))
+    .flatMap((post) =>
+      sample(group.filter((u) => u.id !== post.userId), pick([0, 0, 1, 2])).map((u) => ({
+        sessionId: post.id,
+        userId: u.id,
+      })),
+    );
+  if (tagRows.length > 0) await db.insert(s.sessionTags).values(tagRows);
 
+  // --- Badges ---------------------------------------------------------------------
   await db.insert(s.badges).values([
     { id: "streak-10", emoji: "🔥", label: "10-day streak", position: 1 },
     { id: "early-bird", emoji: "🌅", label: "Early bird", position: 2 },
     { id: "deep-3h", emoji: "🧠", label: "3 h deep block", position: 3 },
     { id: "hours-100", emoji: "🏔️", label: "100 h club", position: 4 },
     { id: "plan-finisher", emoji: "🏁", label: "Plan finisher", position: 5 },
-    { id: "club-first", emoji: "👑", label: "Club #1", position: 6 },
   ]);
   await db.insert(s.userBadges).values(
     ["streak-10", "early-bird", "deep-3h"].map((badgeId) => ({ userId: me.id, badgeId })),
@@ -454,7 +459,7 @@ async function main() {
 
   console.log(
     `Seeded ${everyone.length} users, ${inserted.length} sessions, ${kudosRows.length} kudos. ` +
-      `Demo user: @${DEMO_HANDLE}`,
+      `Log in as @${DEMO_HANDLE} (admin) or any other handle, password "${DEMO_PASSWORD}".`,
   );
 }
 

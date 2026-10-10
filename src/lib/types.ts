@@ -19,7 +19,10 @@ export type Task = {
   subject: string;
   title: string;
   detail: string | null;
+  /** Planned duration in minutes. */
   minutes: number;
+  /** Actual minutes studied — null until the session is completed. */
+  actualMinutes: number | null;
   /** Start time, "HH:MM" in the users' time zone. */
   time: string;
   done: boolean;
@@ -55,6 +58,7 @@ export type CalendarEvent = {
   /** ISO timestamp. */
   start: string;
   minutes: number;
+  calendarOrder: number | null;
 };
 
 export type UserSummary = { id: string; name: string; initials: string; hue: number };
@@ -75,27 +79,55 @@ export type Activity = {
   kudoed: boolean;
   comments: number;
   note: string | null;
+  /** URLs of the post's photos, oldest first. */
+  photos: { id: string; url: string }[];
+  /** Friends the author studied with. */
+  tagged: UserSummary[];
   mine: boolean;
+  /** False for private sessions, which only their author sees. */
+  shared: boolean;
+};
+
+export type Comment = {
+  id: string;
+  user: UserSummary;
+  body: string;
+  postedAgo: string;
+  /** The current user wrote it. */
+  mine: boolean;
+  /** The current user may delete it: their own comment, or one on their activity. */
+  canDelete: boolean;
+};
+
+/**
+ * Where someone stands with you: friends, a request you sent, a request they
+ * sent you, or nothing yet.
+ */
+export type FriendStatus = "friends" | "sent" | "received" | "none";
+
+/** Someone in friend search. */
+export type Person = UserSummary & {
+  handle: string;
+  program: string | null;
+  status: FriendStatus;
 };
 
 export type LeaderboardEntry = UserSummary & { hours: number; you: boolean };
-
-export type Club = { id: string; name: string; emoji: string; members: number; joined: boolean };
 
 export type Profile = {
   name: string;
   initials: string;
   hue: number;
+  spiritAnimal: string;
   handle: string;
   program: string | null;
-  followers: number;
-  following: number;
+  friends: number;
   streak: number;
   totals: { hours: number; sessions: number; kudos: number };
   /** Hours per day this week, Monday first. */
   week: number[];
   weeklyGoal: number;
-  subjects: { name: string; hours: number }[];
+  subjects: { name: string; hours: number; examHoursRemaining: number | null }[];
   badges: { emoji: string; label: string; earned: boolean }[];
 };
 
@@ -105,6 +137,7 @@ export type User = {
   handle: string;
   name: string;
   hue: number;
+  spiritAnimal: string;
   program: string | null;
   weeklyGoalHours: number;
   createdAt: string;

@@ -38,6 +38,7 @@ services:
     environment:
       DATABASE_URL: *database-url
       DEMO_USER_HANDLE: ${DEMO_USER_HANDLE:-tprazak}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-stride}
       # Set to false to start with an empty database.
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
     depends_on:
@@ -50,7 +51,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: *database-url
-      DEMO_USER_HANDLE: ${DEMO_USER_HANDLE:-tprazak}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
       KNOWLEDGE_URL: http://knowledge:8000
     ports:
       - "${APP_PORT:-3000}:3000"

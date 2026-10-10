@@ -1,5 +1,7 @@
 import { DrizzleQueryError } from "drizzle-orm/errors";
+import { unstable_rethrow } from "next/navigation";
 import { z, ZodError } from "zod";
+import { getSessionUser } from "./auth";
 
 /** Shape every error response shares, so the frontend can rely on it. */
 export type ApiError = { error: string; details?: unknown };
@@ -32,12 +34,15 @@ function pgError(err: unknown): { code?: string; detail?: string } | null {
 
 /**
  * Wrap a route handler body so validation and unexpected errors turn into
- * consistent JSON instead of an opaque 500.
+ * consistent JSON instead of an opaque 500. Also requires a logged-in user:
+ * every endpoint that uses this answers 401 without a valid session.
  */
 export async function handle(fn: () => Promise<Response>): Promise<Response> {
   try {
+    if (!(await getSessionUser())) return jsonError(401, "Not logged in");
     return await fn();
   } catch (err) {
+    unstable_rethrow(err);
     if (err instanceof ZodError) {
       return jsonError(400, "Invalid request", err.issues);
     }

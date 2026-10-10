@@ -1,5 +1,8 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
+  customType,
   date,
   index,
   integer,
@@ -10,6 +13,7 @@ import {
   real,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -36,25 +40,98 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   /** Avatar gradient hue, 0–360. */
   hue: integer("hue").notNull().default(200),
+  /** The student's chosen personal spirit animal. */
+  spiritAnimal: text("spirit_animal").notNull().default("owl"),
   program: text("program"),
   weeklyGoalHours: integer("weekly_goal_hours").notNull().default(20),
+  /** scrypt hash from `src/db/password.ts`; null means the user can't log in. */
+  passwordHash: text("password_hash"),
+  /** Admins can open /admin and edit the database directly. */
+  isAdmin: boolean("is_admin").notNull().default(false),
   createdAt: createdAt(),
 });
 
-export const follows = pgTable(
-  "follows",
+/** Login sessions. The cookie holds a random token; only its SHA-256 is stored. */
+export const authSessions = pgTable(
+  "auth_sessions",
   {
-    followerId: uuid("follower_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-    followeeId: uuid("followee_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     createdAt: createdAt(),
   },
-  (t) => [primaryKey({ columns: [t.followerId, t.followeeId] }), index().on(t.followeeId)],
+  (t) => [index().on(t.userId)],
+);
+
+/**
+ * One row per pair of users. Pending until the addressee accepts the request;
+ * declining, cancelling or unfriending deletes the row.
+ */
+export const friendships = pgTable(
+  "friendships",
+  {
+    requesterId: uuid("requester_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    addresseeId: uuid("addressee_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+    /** Null while the request is pending. */
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.requesterId, t.addresseeId] }),
+    index().on(t.addresseeId),
+    // At most one row per pair, whichever way round the request went.
+    uniqueIndex("friendships_pair_index").on(
+      sql`least(${t.requesterId}, ${t.addresseeId})`,
+      sql`greatest(${t.requesterId}, ${t.addresseeId})`,
+    ),
+    check("friendships_not_self", sql`${t.requesterId} <> ${t.addresseeId}`),
+  ],
 );
 
 export type PlanPhase = { name: string; weeks: number };
 
+export type StoredSubjectConfig = {
+  name: string;
+  examDate: string;
+  examDuration: string;
+  targetGrade: string;
+  currentGrade: string;
+  confidence: string;
+  approach: string;
+  customPhases: string[];
+  mockCount: string;
+  allocation: number;
+  materials: string[];
+  cheatsheet: string;
+  comments: string;
+};
+
+export type StoredPlanConfig = {
+  weeklyHours: number;
+  studyDays: string[];
+  sessionLength: number;
+  vacationRanges: { start: string; end: string }[];
+  /** Per-subject configs persisted at creation time and updated by the strategy agent. */
+  subjects?: StoredSubjectConfig[];
+  /** Preferred session start hour (e.g. 9 = 09:00), set by the strategy agent from behavioral data. */
+  preferredStartHour?: number;
+};
+
+/** A custom study plan created by the user via the plan wizard. */
+export const userPlans = pgTable(
+  "user_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    config: jsonb("config").$type<StoredPlanConfig>(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId)],
+);
+
 export const plans = pgTable("plans", {
-  /** Readable slug, e.g. "analysis-exam". */
+  /** Readable plan slug. */
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   subject: text("subject").notNull(),
@@ -89,7 +166,10 @@ export const sessions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     planId: text("plan_id").references(() => plans.id, { onDelete: "set null" }),
+    userPlanId: uuid("user_plan_id").references(() => userPlans.id, { onDelete: "set null" }),
     type: sessionType("type").notNull(),
+    blocksStudy: boolean("blocks_study").notNull().default(false),
+    calendarOrder: integer("calendar_order"),
     subject: text("subject").notNull(),
     title: text("title").notNull(),
     detail: text("detail"),
@@ -111,6 +191,7 @@ export const sessions = pgTable(
   (t) => [
     index().on(t.userId, t.scheduledAt),
     index().on(t.completedAt),
+    index().on(t.userPlanId),
   ],
 );
 
@@ -124,6 +205,33 @@ export const kudos = pgTable(
   (t) => [primaryKey({ columns: [t.sessionId, t.userId] })],
 );
 
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
+
+/** Photos on a session's post, stored in the database so the app needs no file storage. */
+export const sessionPhotos = pgTable(
+  "session_photos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+    /** Sniffed from the bytes on upload: image/jpeg, image/png or image/webp. */
+    contentType: text("content_type").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.sessionId, t.createdAt)],
+);
+
+/** Friends the author studied with, tagged on the session's post. */
+export const sessionTags = pgTable(
+  "session_tags",
+  {
+    sessionId: uuid("session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.sessionId, t.userId] }), index().on(t.userId)],
+);
+
 export const comments = pgTable(
   "comments",
   {
@@ -134,23 +242,6 @@ export const comments = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index().on(t.sessionId)],
-);
-
-export const clubs = pgTable("clubs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  emoji: text("emoji").notNull(),
-  createdAt: createdAt(),
-});
-
-export const clubMembers = pgTable(
-  "club_members",
-  {
-    clubId: uuid("club_id").notNull().references(() => clubs.id, { onDelete: "cascade" }),
-    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [primaryKey({ columns: [t.clubId, t.userId] }), index().on(t.userId)],
 );
 
 export const badges = pgTable("badges", {
@@ -168,6 +259,24 @@ export const userBadges = pgTable(
     earnedAt: timestamp("earned_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.badgeId] })],
+);
+
+/** Exam scores logged by the user for mock or past exams. */
+export const examScores = pgTable(
+  "exam_scores",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userPlanId: uuid("user_plan_id").references(() => userPlans.id, { onDelete: "set null" }),
+    subject: text("subject").notNull(),
+    /** Swiss grade scale 1–6. */
+    score: real("score").notNull(),
+    examType: text("exam_type").$type<"mock" | "past">().notNull().default("mock"),
+    takenAt: date("taken_at").notNull(),
+    notes: text("notes"),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId), index().on(t.userPlanId)],
 );
 
 /** The original starter example, kept for /api/items. */

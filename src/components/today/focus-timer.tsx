@@ -3,23 +3,27 @@
 import { useEffect, useState } from "react";
 import { PauseIcon, PlayIcon, XIcon } from "@/components/icons";
 import { Ring } from "@/components/ui/primitives";
-import { sessionTypes } from "@/lib/session-types";
+import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
 import type { Task } from "@/lib/types";
 
 /** Full-screen session recorder — the study version of hitting "Start run". */
 export function FocusTimer({
   task,
+  initialElapsed = 0,
   onClose,
   onFinish,
 }: {
   task: Task;
-  onClose: () => void;
-  /** Called with the minutes actually studied (at least 1). */
+  /** Seconds already accumulated in earlier runs of this session. */
+  initialElapsed?: number;
+  /** Called with seconds elapsed so the parent can persist progress. */
+  onClose: (elapsed: number) => void;
+  /** Called with the total minutes actually studied (at least 1). */
   onFinish: (minutes: number) => void;
 }) {
   // Intervals run as 25-minute reps; everything else as one block.
   const blockSeconds = (task.type === "intervals" ? 25 : task.minutes) * 60;
-  const [elapsed, setElapsed] = useState(0);
+  const [elapsed, setElapsed] = useState(initialElapsed);
   const [paused, setPaused] = useState(false);
 
   useEffect(() => {
@@ -35,21 +39,36 @@ export function FocusTimer({
   const ss = String(remaining % 60).padStart(2, "0");
   const type = sessionTypes[task.type];
 
+  const isResumed = initialElapsed > 0;
+  const totalMinutes = Math.max(1, Math.round(elapsed / 60));
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-background px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
       <div className="flex items-center justify-between">
-        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${type.soft}`}>
-          {type.label}
-          {task.type === "intervals" && ` · Rep ${rep}`}
-        </span>
-        <button onClick={onClose} aria-label="Close" className="grid size-10 place-items-center rounded-full bg-surface-2">
+        <div className="flex items-center gap-2">
+          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${type.soft}`}>
+            {type.label}
+            {task.type === "intervals" && ` · Rep ${rep}`}
+          </span>
+          {isResumed && (
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+              Resumed
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => onClose(elapsed)}
+          aria-label="Pause and leave"
+          className="grid size-10 place-items-center rounded-full bg-surface-2"
+        >
           <XIcon className="size-5" />
         </button>
       </div>
 
       <div className="flex flex-1 flex-col items-center justify-center text-center">
-        <p className="text-sm text-muted">{task.subject}</p>
+        <p className={`text-sm font-medium ${subjectColor(task.subject).text}`}>{task.subject}</p>
         <h2 className="mt-1 max-w-sm text-xl font-bold">{task.title}</h2>
+
         <div className="mt-10">
           <Ring value={inBlock / blockSeconds} size={260} stroke={14}>
             <div>
@@ -60,6 +79,14 @@ export function FocusTimer({
             </div>
           </Ring>
         </div>
+
+        {isResumed && (
+          <p className="mt-6 text-sm text-muted">
+            Total studied:{" "}
+            <span className="font-semibold text-foreground">{formatMinutes(totalMinutes)}</span>
+            {" "}(incl. earlier run)
+          </p>
+        )}
       </div>
 
       <div className="flex items-center justify-center gap-4">
@@ -71,7 +98,7 @@ export function FocusTimer({
           {paused ? <PlayIcon className="size-6" /> : <PauseIcon className="size-6" />}
         </button>
         <button
-          onClick={() => onFinish(Math.max(1, Math.round(elapsed / 60)))}
+          onClick={() => onFinish(totalMinutes)}
           className="h-16 rounded-full bg-accent px-8 text-base font-semibold text-white shadow-lg shadow-accent/30 transition-transform active:scale-95"
         >
           Finish &amp; save
