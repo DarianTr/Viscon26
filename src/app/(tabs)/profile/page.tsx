@@ -1,20 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { logout } from "@/app/(auth)/actions";
-import { ActivityCard } from "@/components/community/activity-card";
 import { FlameIcon, SettingsIcon } from "@/components/icons";
 import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { BrainEvolution } from "@/components/profile/brain-evolution";
 import { SubjectInvestment } from "@/components/profile/subject-investment";
 import { Avatar, Button, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
-import { getCurrentUser, getFeed, getProfile, getStudyBehavior } from "@/lib/queries";
+import { getCurrentUser, getProfile, getStudyBehavior } from "@/lib/queries";
 import type { HourlyBucket } from "@/lib/queries";
 import { subjectColor } from "@/lib/session-types";
 
 export const metadata: Metadata = { title: "Profile" };
 
 const days = ["M", "T", "W", "T", "F", "S", "S"];
-const POSTS_STEP = 10;
 const spiritAnimalDetails: Record<string, { name: string; emoji: string }> = {
   owl: { name: "Owl", emoji: "🦉" },
   fox: { name: "Fox", emoji: "🦊" },
@@ -23,17 +21,9 @@ const spiritAnimalDetails: Record<string, { name: string; emoji: string }> = {
   deer: { name: "Deer", emoji: "🦌" },
 };
 
-export default async function ProfilePage({ searchParams }: PageProps<"/profile">) {
+export default async function ProfilePage() {
   const user = await getCurrentUser();
-  // ?posts=N shows the latest N posts; "Show more" bumps it.
-  const requested = Number((await searchParams).posts);
-  const shown = Number.isInteger(requested) ? Math.min(Math.max(requested, POSTS_STEP), 200) : POSTS_STEP;
-  const [profile, posts, behavior] = await Promise.all([
-    getProfile(user),
-    getFeed(user.id, { mineOnly: true, limit: shown + 1 }),
-    getStudyBehavior(user.id),
-  ]);
-  const hasMore = posts.length > shown;
+  const [profile, behavior] = await Promise.all([getProfile(user), getStudyBehavior(user.id)]);
   const weekHours = profile.week.reduce((a, b) => a + b, 0);
   const maxDay = Math.max(...profile.week, 1);
   const maxSubject = Math.max(...profile.subjects.map((s) => s.hours), 1);
@@ -178,30 +168,6 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
         ))}
       </ul>
 
-      <SectionTitle>Your posts</SectionTitle>
-      {posts.length === 0 ? (
-        <Card className="flex flex-col items-center gap-3 py-8 text-center">
-          <ExpressionMascot expression="sleepy" size={96} />
-          <p className="text-sm text-muted">Finish a session and it shows up here.</p>
-        </Card>
-      ) : (
-        <ul className="flex flex-col gap-4">
-          {posts.slice(0, shown).map((activity) => (
-            <li key={activity.id}>
-              <ActivityCard activity={activity} />
-            </li>
-          ))}
-        </ul>
-      )}
-      {hasMore && (
-        <Link
-          href={`/profile?posts=${shown + POSTS_STEP}`}
-          scroll={false}
-          className="mt-4 block rounded-full border-2 border-border bg-surface-2 py-3 text-center text-sm font-bold"
-        >
-          Show more
-        </Link>
-      )}
     </>
   );
 }

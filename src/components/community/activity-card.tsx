@@ -1,7 +1,18 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { BrainIcon, CameraIcon, CommentIcon, EditIcon, MapPinIcon, SwordsIcon, UsersIcon, XIcon } from "@/components/icons";
+import {
+  BrainIcon,
+  CameraIcon,
+  CommentIcon,
+  EditIcon,
+  GlobeIcon,
+  LockIcon,
+  MapPinIcon,
+  SwordsIcon,
+  UsersIcon,
+  XIcon,
+} from "@/components/icons";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Avatar, Button, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
@@ -41,6 +52,9 @@ export function ActivityCard({ activity }: { activity: Activity }) {
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
+  const [shared, setShared] = useState(activity.shared);
+  const [sharedError, setSharedError] = useState<string | null>(null);
+
   function startEdit() {
     setTitleDraft(title);
     setNoteDraft(note ?? "");
@@ -79,6 +93,17 @@ export function ActivityCard({ activity }: { activity: Activity }) {
     const next = !liked;
     setLiked(next);
     api.setKudos(activity.id, next).catch(() => setLiked(!next));
+  }
+
+  /** Flip between shared (friends can see it) and private (only you). */
+  function toggleShared() {
+    const next = !shared;
+    setShared(next);
+    setSharedError(null);
+    api.setActivityShared(activity.id, next).catch((err: Error) => {
+      setShared(!next);
+      setSharedError(err.message);
+    });
   }
 
   function toggleComments() {
@@ -149,7 +174,20 @@ export function ActivityCard({ activity }: { activity: Activity }) {
           <p className="font-semibold">{activity.user.name}</p>
           <p className="flex items-center gap-1 truncate text-xs text-muted">
             {activity.postedAgo}
-            {!activity.shared && " · Only you"}
+            {activity.mine && (
+              <>
+                {" · "}
+                <button
+                  onClick={toggleShared}
+                  aria-pressed={!shared}
+                  className="inline-flex items-center gap-1 rounded-full font-semibold transition-colors hover:text-foreground"
+                  title={shared ? "Visible to friends — tap to make private" : "Private — tap to share with friends"}
+                >
+                  {shared ? <GlobeIcon className="size-3" /> : <LockIcon className="size-3" />}
+                  {shared ? "Public" : "Private"}
+                </button>
+              </>
+            )}
             {activity.location && (
               <>
                 {" · "}
@@ -254,18 +292,12 @@ export function ActivityCard({ activity }: { activity: Activity }) {
         )
       )}
       {photoError && <p className="px-4 pt-2 text-sm text-tempo">{photoError}</p>}
+      {sharedError && <p className="px-4 pt-2 text-sm text-tempo">Couldn&apos;t update: {sharedError}</p>}
 
-      <dl className="grid grid-cols-3 gap-2 px-4 pt-4">
+      <dl className="grid grid-cols-2 gap-2 px-4 pt-4 pb-2">
         <Metric label="Subject" value={activity.subject} className={subjectColor(activity.subject).text} />
         <Metric label="Time" value={formatMinutes(activity.minutes)} />
-        <Metric label="Focus" value={activity.focus === null ? "–" : `${activity.focus}%`} />
       </dl>
-
-      {activity.trace && activity.trace.length > 1 ? (
-        <FocusTrace values={activity.trace} />
-      ) : (
-        <div className="h-2" />
-      )}
 
       <div className="flex items-center gap-1 border-t-2 border-border px-2 py-1.5">
         <button
@@ -413,19 +445,3 @@ function Metric({ label, value, className = "" }: { label: string; value: string
   );
 }
 
-/** Focus-over-time sparkline — a quiet footnote, not the headline of the post. */
-function FocusTrace({ values }: { values: number[] }) {
-  const w = 300;
-  const h = 24;
-  const step = w / (values.length - 1);
-  const points = values.map((v, i) => `${i * step},${h - v * (h - 4)}`);
-  const line = `M${points.join(" L")}`;
-  return (
-    <div className="mx-4 mt-3 mb-2 text-muted" title="Focus over the session">
-      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-6 w-full opacity-60" aria-label="Focus over the session">
-        <path d={`${line} L${w},${h} L0,${h} Z`} fill="currentColor" opacity={0.08} />
-        <path d={line} fill="none" stroke="currentColor" strokeWidth={1.25} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-      </svg>
-    </div>
-  );
-}
