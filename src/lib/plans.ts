@@ -154,6 +154,7 @@ export async function regeneratePlan(
     workloadBasisWeeklyMinutes: result.workloadBasisWeeklyMinutes,
     planStart: result.planStart,
     focusDates: result.focusDates,
+    eveDates: result.eveDates,
   };
 
   const replaced = await db.$count(s.sessions, replaceable(planId, keepIds));
@@ -173,6 +174,7 @@ export async function regeneratePlan(
         plannedMinutes: sess.plannedMinutes,
         cheatsheetTarget: sess.cheatsheetTarget ?? null,
         cheatsheetMinutes: sess.cheatsheetMinutes ?? null,
+        prepPhase: sess.prepPhase ?? null,
         shared: false,
       }));
       for (let i = 0; i < items.length; i += 1000) {

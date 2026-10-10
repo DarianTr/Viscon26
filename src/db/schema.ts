@@ -32,12 +32,16 @@ export const sessionType = pgEnum("session_type", [
   "break",
 ]);
 
+/** Where a subject's preparation is when a block happens — see PrepPhase in lib/scheduler.ts. */
+export const prepPhase = pgEnum("prep_phase", ["foundation", "build", "peak", "taper"]);
+
 /** What a scheduled block is for — see blockActivities in lib/types.ts. */
 export const blockActivity = pgEnum("block_activity", [
   "study",
   "mock_exam",
   "mock_review",
   "cheatsheet",
+  "exam_eve",
   "short_break",
   "lunch",
   "dinner",
@@ -142,6 +146,8 @@ export type StoredPlanConfig = {
   planStart?: string;
   /** Initial focus days the scheduler planned: "YYYY-MM-DD" → subject. Moves respect them. */
   focusDates?: Record<string, string>;
+  /** Exam Eve days: "YYYY-MM-DD" → subject(s). Nothing else is moved onto them. */
+  eveDates?: Record<string, string[]>;
 };
 
 /** A custom study plan created by the user via the plan wizard. */
@@ -220,6 +226,8 @@ export const sessions = pgTable(
     cheatsheetMinutes: integer("cheatsheet_minutes"),
     /** Moved by hand in the calendar: regenerating the plan keeps it where feasible. */
     movedManually: boolean("moved_manually").notNull().default(false),
+    /** The subject's preparation phase at this block: foundation, build, peak or taper. */
+    prepPhase: prepPhase("prep_phase"),
     title: text("title").notNull(),
     detail: text("detail"),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),

@@ -49,6 +49,8 @@ type PlanDetails = {
   scores: ExamScore[];
   /** Per subject: cheatsheet % the plan expects by now, and actual progress (reported, else completed sessions). */
   cheatsheet: Record<string, { planned: number; actual: number; reported: boolean }>;
+  /** Per subject: the preparation phase it is in now. */
+  phases?: Record<string, "foundation" | "build" | "peak" | "taper">;
   /** Per subject: past/mock exams available, done, still planned, and held in reserve. */
   mocks: Record<string, { available: number; done: number; planned: number; reserve: number }>;
   config: StoredConfig;
@@ -826,6 +828,9 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
                             {s.subject}
                           </span>
                           <span className="text-xs text-muted tabular-nums">
+                            {details.phases?.[s.subject] && (
+                              <span className="mr-2 font-medium capitalize text-foreground">{details.phases[s.subject]}</span>
+                            )}
                             {s.done}/{s.total} sessions
                           </span>
                         </div>

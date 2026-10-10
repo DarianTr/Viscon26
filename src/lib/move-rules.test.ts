@@ -33,6 +33,14 @@ describe("moving blocks by hand", () => {
     assert.equal(dayRule([block({}), block({ start: 11 * 60 })], config, "Analysis"), null);
   });
 
+  it("keeps Exam Eve for the final review only, at most 4 h", () => {
+    const eve = block({ type: "recovery", activity: "exam_eve", title: "Analysis — Exam Eve — Final Review", minutes: 150 });
+    assert.equal(dayRule([eve], config, undefined, ["Analysis"]), null);
+    assert.match(dayRule([eve, block({ start: 14 * 60, title: "Analysis — Theory recap 9" })], config, undefined, ["Analysis"])!, /eve of your Analysis exam/);
+    assert.match(dayRule([eve, block({ subject: "Physics", start: 14 * 60 })], config, undefined, ["Analysis"])!, /final review only/);
+    assert.match(dayRule([{ ...eve, minutes: 270 }], config, undefined, ["Analysis"])!, /at most 4 h/);
+  });
+
   it("keeps meals within their window", () => {
     const lunch = block({ type: "break", activity: "lunch", subject: null, title: "Lunch", minutes: 60 });
     assert.equal(mealRule({ ...lunch, start: 12 * 60 + 45 }), null);
