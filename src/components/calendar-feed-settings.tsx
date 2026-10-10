@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { disableCalendarFeed, resetCalendarFeed } from "@/app/(tabs)/profile/settings/actions";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Card, SectionTitle } from "@/components/ui/primitives";
@@ -16,7 +16,15 @@ export function CalendarFeedSettings({ origin, token: initial }: { origin: strin
   const [token, setToken] = useState(initial);
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [confirm, dialog] = useConfirm();
+  const input = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!copied) return;
+    const t = setTimeout(() => setCopied(false), 2000);
+    return () => clearTimeout(t);
+  }, [copied]);
 
   const url = token ? `${origin}/api/calendar/${token}.ics` : null;
   // Calendar apps fetch webcal:// links over HTTPS, so a plain-http origin
@@ -44,13 +52,33 @@ export function CalendarFeedSettings({ origin, token: initial }: { origin: strin
     if (ok) run(async () => setToken(await resetCalendarFeed()), "New link created. Subscribe again with it.");
   }
 
+  /** The Clipboard API, or — where it's missing or blocked (plain http, iframes, some in-app browsers) — the old select-and-copy. */
+  async function writeClipboard(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      const el = input.current;
+      if (!el) return false;
+      el.focus();
+      el.setSelectionRange(0, el.value.length);
+      try {
+        return document.execCommand("copy");
+      } catch {
+        return false;
+      }
+    }
+  }
+
   async function copy() {
     if (!url) return;
-    try {
-      await navigator.clipboard.writeText(url);
+    setMessage(null);
+    if (await writeClipboard(url)) {
+      setCopied(true);
       setMessage("Link copied. Add it as a calendar subscription (“From URL”) in your calendar app.");
-    } catch {
-      setMessage("Couldn't copy. Select the link and copy it by hand.");
+    } else {
+      input.current?.select();
+      setMessage("Couldn't copy. The link is selected — copy it by hand.");
     }
   }
 
@@ -72,6 +100,7 @@ export function CalendarFeedSettings({ origin, token: initial }: { origin: strin
         {url ? (
           <>
             <input
+              ref={input}
               readOnly
               value={url}
               aria-label="Calendar subscription link"
@@ -97,8 +126,8 @@ export function CalendarFeedSettings({ origin, token: initial }: { origin: strin
                   </a>
                 </>
               )}
-              <button type="button" onClick={copy} className={pill}>
-                Copy link
+              <button type="button" onClick={copy} className={pill} aria-live="polite">
+                {copied ? "Copied!" : "Copy link"}
               </button>
             </div>
             <p className="text-sm text-muted">

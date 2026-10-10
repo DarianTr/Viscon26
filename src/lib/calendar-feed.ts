@@ -22,12 +22,20 @@ export async function findFeedOwner(segment: string) {
   return user ?? null;
 }
 
-/** Origin the browser sees, also behind the deploy's reverse proxy. */
+const isLocal = (host: string) => /^(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(host);
+
+/**
+ * Origin the browser sees, also behind the deploy's reverse proxy. Deployed
+ * hosts are always HTTPS: the organizers' proxy terminates TLS and forwards
+ * `X-Forwarded-Proto: http`, which would give calendar apps a plain-http link
+ * that only redirects to the login page.
+ */
 export function publicOrigin(headers: Headers) {
-  const host = headers.get("x-forwarded-host") ?? headers.get("host") ?? "localhost:3000";
-  const proto = headers.get("x-forwarded-proto")?.split(",")[0] ?? (host.startsWith("localhost") ? "http" : "https");
-  return `${proto}://${host}`;
+  const host = headers.get("x-forwarded-host")?.split(",")[0].trim() ?? headers.get("host") ?? "localhost:3000";
+  return `${isLocal(host) ? "http" : "https"}://${host}`;
 }
+
+const envOrigin = (value: string | undefined) => value?.trim().replace(/\/$/, "") || null;
 
 /**
  * Origin calendar clients fetch the feed from. They can't get past a login
@@ -35,5 +43,13 @@ export function publicOrigin(headers: Headers) {
  * points at an address that reaches the server directly — see deploy/README.md.
  */
 export function feedOrigin(headers: Headers) {
-  return process.env.CALENDAR_FEED_ORIGIN?.replace(/\/$/, "") || publicOrigin(headers);
+  return envOrigin(process.env.CALENDAR_FEED_ORIGIN) ?? publicOrigin(headers);
+}
+
+/**
+ * Origin for links back into the app from inside the feed. The feed itself is
+ * fetched on the direct address, which isn't where people use the app.
+ */
+export function appOrigin(headers: Headers) {
+  return envOrigin(process.env.APP_ORIGIN) ?? publicOrigin(headers);
 }
