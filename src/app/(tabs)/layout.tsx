@@ -1,4 +1,5 @@
 import { ProfileBubble, SideNav, TabBar } from "@/components/tab-bar";
+import { DarkModeToggle } from "@/components/theme-toggle";
 import { getActivePlan, getCurrentUser } from "@/lib/queries";
 
 export default async function TabsLayout({ children }: { children: React.ReactNode }) {
@@ -19,6 +20,7 @@ export default async function TabsLayout({ children }: { children: React.ReactNo
       </main>
       <TabBar />
       <ProfileBubble />
+      <DarkModeToggle />
     </div>
   );
 }
