@@ -1,18 +1,21 @@
 import "server-only";
-import { and, asc, eq, gt, isNotNull, isNull, ne, notInArray } from "drizzle-orm";
+import { and, asc, eq, gt, gte, isNotNull, isNull, lt, ne, notInArray, sql } from "drizzle-orm";
 import { db, schema as s } from "@/db";
 import type { StoredPlanConfig } from "@/db/schema";
+import { deleteObservation, listObservations } from "./knowledge";
+import { describeChanges, duplicateNames, mergePending } from "./plan-changes";
 import { progressFromRows } from "./plan-progress";
 import { generateStudyPlan, type ScheduleResult } from "./scheduler";
 import { listBusyIntervals, localDay } from "./tasks";
 
 /**
- * Regenerating a plan: the one place that decides what is replaced and what
- * stays. Completed blocks (and logged exam scores, which live elsewhere) are
- * never touched; their work is subtracted from what gets scheduled, so nothing
- * is duplicated. Blocks the student moved by hand stay too, where the new
- * settings still allow them. Every other block of the plan — upcoming, or
- * missed and never done — is replaced by the new schedule.
+ * Regenerating ("recalibrating") a plan: the one place that decides what is
+ * replaced and what stays. Only the future changes: every block that starts
+ * before now stays as it was, done or missed, and completed blocks (and logged
+ * exam scores, which live elsewhere) are never touched; their work is
+ * subtracted from what gets scheduled, so nothing is duplicated. Blocks the
+ * student moved by hand stay too, where the new settings still allow them.
+ * Every other upcoming, uncompleted block of the plan is replaced.
  */
 
 export type RegenerateOutcome = {
@@ -28,11 +31,12 @@ export type RegenerateOutcome = {
   config: StoredPlanConfig;
 };
 
-/** Which of a plan's blocks a regeneration replaces (all uncompleted ones but `keep`). */
-const replaceable = (planId: string, keep: string[]) =>
+/** Which of a plan's blocks a regeneration replaces: uncompleted ones from `now` on, but `keep`. */
+const replaceable = (planId: string, keep: string[], now: Date) =>
   and(
     eq(s.sessions.userPlanId, planId),
     isNull(s.sessions.completedAt),
+    gte(s.sessions.scheduledAt, now),
     ne(s.sessions.type, "lecture"),
     keep.length ? notInArray(s.sessions.id, keep) : undefined,
   );
@@ -149,19 +153,21 @@ export async function regeneratePlan(
     now,
     { busy, progress },
   );
+  // The schedule now reflects every saved edit.
+  const { pendingChanges: _pending, ...current } = config;
   const savedConfig: StoredPlanConfig = {
-    ...config,
+    ...current,
     workloadBasisWeeklyMinutes: result.workloadBasisWeeklyMinutes,
     planStart: result.planStart,
     focusDates: result.focusDates,
     eveDates: result.eveDates,
   };
 
-  const replaced = await db.$count(s.sessions, replaceable(planId, keepIds));
+  const replaced = await db.$count(s.sessions, replaceable(planId, keepIds, now));
 
   if (apply) {
     await db.transaction(async (tx) => {
-      await tx.delete(s.sessions).where(replaceable(planId, keepIds));
+      await tx.delete(s.sessions).where(replaceable(planId, keepIds, now));
       const items = result.sessions.map((sess) => ({
         userId,
         userPlanId: planId,
@@ -195,4 +201,129 @@ export async function regeneratePlan(
     manualReplaced: moved.length - keepIds.length,
     config: savedConfig,
   };
+}
+
+/** Settings the student edits; the rest of the config is the scheduler's and stays. */
+export type EditableConfig = Omit<
+  StoredPlanConfig,
+  "planStart" | "workloadBasisWeeklyMinutes" | "focusDates" | "eveDates" | "pendingChanges"
+>;
+
+export class PlanSettingsError extends Error {}
+
+/**
+ * "Manage plan": save a plan's name and settings without touching its
+ * schedule. Renaming a subject relabels everything stored under its name;
+ * edits the scheduler depends on are recorded as pending until the student
+ * recalibrates (see lib/plan-changes.ts).
+ */
+export async function savePlanSettings(
+  userId: string,
+  planId: string,
+  { title, config }: { title?: string; config: EditableConfig },
+): Promise<{ title: string; config: StoredPlanConfig; renamed: [string, string][] } | null> {
+  const [plan] = await db
+    .select({ title: s.userPlans.title, config: s.userPlans.config })
+    .from(s.userPlans)
+    .where(and(eq(s.userPlans.id, planId), eq(s.userPlans.userId, userId)));
+  if (!plan) return null;
+  if (!plan.config) {
+    throw new PlanSettingsError("This plan was created before plans stored their settings, so it can't be edited.");
+  }
+
+  const subjects = (config.subjects ?? []).map((sub) => ({ ...sub, name: sub.name.trim() }));
+  if (subjects.length < (plan.config.subjects?.length ?? 0)) throw new PlanSettingsError("Subjects can't be removed here.");
+  if (subjects.some((sub) => !sub.name)) throw new PlanSettingsError("Every subject needs a name.");
+  const clashes = duplicateNames(subjects);
+  if (clashes.length) throw new PlanSettingsError(`Two subjects can't share a name: ${clashes.join(", ")}`);
+
+  const next: StoredPlanConfig = {
+    ...plan.config,
+    ...config,
+    subjects,
+    // The scheduler's own state stays until the next recalibration.
+    planStart: plan.config.planStart,
+    workloadBasisWeeklyMinutes: plan.config.workloadBasisWeeklyMinutes,
+    focusDates: plan.config.focusDates,
+    eveDates: plan.config.eveDates,
+  };
+  const changes = describeChanges(plan.config, next);
+  const rename = (name: string) => changes.renames.find(([from]) => from === name)?.[1] ?? name;
+  next.pendingChanges = mergePending(plan.config.pendingChanges, changes);
+  if (next.focusDates) {
+    next.focusDates = Object.fromEntries(Object.entries(next.focusDates).map(([day, sub]) => [day, rename(sub)]));
+  }
+  if (next.eveDates) {
+    next.eveDates = Object.fromEntries(Object.entries(next.eveDates).map(([day, subs]) => [day, subs.map(rename)]));
+  }
+  const newTitle = title?.trim() || plan.title;
+
+  await db.transaction(async (tx) => {
+    // Renamed subjects: their blocks, results, reports and materials follow the new name.
+    for (const [from, to] of changes.renames) {
+      await tx
+        .update(s.sessions)
+        .set({
+          subject: to,
+          title: sql`case when starts_with(${s.sessions.title}, ${from + " — "}) then ${to + " — "} || substr(${s.sessions.title}, ${from.length + 4}) else ${s.sessions.title} end`,
+        })
+        .where(and(eq(s.sessions.userPlanId, planId), eq(s.sessions.subject, from)));
+      await tx
+        .update(s.examScores)
+        .set({ subject: to })
+        .where(and(eq(s.examScores.userPlanId, planId), eq(s.examScores.subject, from)));
+      await tx
+        .update(s.cheatsheetReports)
+        .set({ subject: to })
+        .where(and(eq(s.cheatsheetReports.userPlanId, planId), eq(s.cheatsheetReports.subject, from)));
+      await tx
+        .update(s.userCourseMaterials)
+        .set({ subject: to })
+        .where(and(eq(s.userCourseMaterials.userPlanId, planId), eq(s.userCourseMaterials.subject, from)));
+    }
+    await tx.update(s.userPlans).set({ title: newTitle, config: next }).where(eq(s.userPlans.id, planId));
+  });
+  return { title: newTitle, config: next, renamed: changes.renames };
+}
+
+/** What deleting a plan removes and what stays — shown before the student confirms. */
+export async function planDeletionImpact(planId: string) {
+  const now = new Date();
+  const ofPlan = eq(s.sessions.userPlanId, planId);
+  const [upcoming, missed, completed, materials, scores, cheatsheetReports] = await Promise.all([
+    db.$count(s.sessions, and(ofPlan, isNull(s.sessions.completedAt), gte(s.sessions.scheduledAt, now))),
+    db.$count(s.sessions, and(ofPlan, isNull(s.sessions.completedAt), lt(s.sessions.scheduledAt, now))),
+    db.$count(s.sessions, and(ofPlan, isNotNull(s.sessions.completedAt))),
+    db.$count(s.userCourseMaterials, eq(s.userCourseMaterials.userPlanId, planId)),
+    db.$count(s.examScores, eq(s.examScores.userPlanId, planId)),
+    db.$count(s.cheatsheetReports, eq(s.cheatsheetReports.userPlanId, planId)),
+  ]);
+  return { upcoming, missed, completed, materials, scores, cheatsheetReports };
+}
+
+/**
+ * Deletes a plan. Its schedule goes: every block not completed. Completed
+ * sessions stay as study history (hours, streak, feed), no longer part of a
+ * plan, and so do logged exam scores — the database detaches both. Uploaded
+ * materials and cheatsheet reports belong to the plan and go with it
+ * (cascade), as do its grade-forecast data points in the knowledge service.
+ */
+export async function deletePlan(userId: string, planId: string): Promise<{ dataPointsDeleted: number } | null> {
+  const [plan] = await db
+    .select({ id: s.userPlans.id })
+    .from(s.userPlans)
+    .where(and(eq(s.userPlans.id, planId), eq(s.userPlans.userId, userId)));
+  if (!plan) return null;
+
+  // Data points first: if the knowledge service is down, nothing is deleted yet.
+  let dataPointsDeleted = 0;
+  for (const o of await listObservations(userId, planId)) {
+    if (await deleteObservation(userId, planId, o.id)) dataPointsDeleted++;
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.delete(s.sessions).where(and(eq(s.sessions.userPlanId, planId), isNull(s.sessions.completedAt)));
+    await tx.delete(s.userPlans).where(eq(s.userPlans.id, planId));
+  });
+  return { dataPointsDeleted };
 }

@@ -1,14 +1,18 @@
 import { z } from "zod";
 import { and, asc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import { cheatsheetProgress } from "@/lib/plan-progress";
-import { handle, isId, notFound } from "@/lib/http";
+import { handle, isId, jsonError, notFound } from "@/lib/http";
+import { KnowledgeError } from "@/lib/knowledge";
+import { deletePlan, planDeletionImpact, PlanSettingsError, savePlanSettings } from "@/lib/plans";
 import { academic, getCurrentUser } from "@/lib/queries";
 import { db, schema as s } from "@/db";
+import { planConfigSchema } from "../schemas";
 
 type Ctx = RouteContext<"/api/plans/[id]">;
 
 // GET /api/plans/:id — per-subject session breakdown + plan config
-export async function GET(_request: Request, ctx: Ctx) {
+// (?include=deletion adds what deleting the plan would remove).
+export async function GET(request: Request, ctx: Ctx) {
   return handle(async () => {
     const user = await getCurrentUser();
     const { id } = await ctx.params;
@@ -101,25 +105,65 @@ export async function GET(_request: Request, ctx: Ctx) {
       .orderBy(s.sessions.subject, asc(s.sessions.scheduledAt));
     const phases = Object.fromEntries(upcoming.map((r) => [r.subject, r.phase]));
 
-    return Response.json({ title: plan.title, subjects, scores, cheatsheet, mocks, phases, config: plan.config ?? null });
+    const deletion = new URL(request.url).searchParams.get("include") === "deletion" ? await planDeletionImpact(id) : undefined;
+    return Response.json({ title: plan.title, subjects, scores, cheatsheet, mocks, phases, config: plan.config ?? null, deletion });
   });
 }
 
-const patchSchema = z.object({ archived: z.boolean() });
+const patchSchema = z.union([
+  z.object({ archived: z.boolean() }),
+  z.object({
+    title: z.string().trim().min(1).max(200).optional(),
+    // The student's settings; the scheduler's own fields (planStart, focusDates, …) are kept server-side.
+    config: planConfigSchema.omit({ planStart: true, workloadBasisWeeklyMinutes: true, focusDates: true, eveDates: true }),
+  }),
+]);
 
 // PATCH /api/plans/:id — { archived } moves your plan to Past Plans or back.
 // (Plans also become past on their own once their last exam is over — see lib/plan-status.ts.)
+// { title?, config } — "Manage plan": save the settings without touching the schedule;
+// edits the schedule depends on come back as config.pendingChanges until a recalibration.
 export async function PATCH(request: Request, ctx: Ctx) {
   return handle(async () => {
     const user = await getCurrentUser();
     const { id } = await ctx.params;
     if (!isId(id)) return notFound("Plan");
-    const { archived } = patchSchema.parse(await request.json());
+    const body = patchSchema.parse(await request.json());
+    if ("config" in body) {
+      try {
+        const saved = await savePlanSettings(user.id, id, body);
+        return saved ? Response.json(saved) : notFound("Plan");
+      } catch (e) {
+        if (e instanceof PlanSettingsError) return jsonError(400, e.message);
+        throw e;
+      }
+    }
+    const { archived } = body;
     const [plan] = await db
       .update(s.userPlans)
       .set({ archivedAt: archived ? new Date() : null })
       .where(and(eq(s.userPlans.id, id), eq(s.userPlans.userId, user.id)))
       .returning({ archivedAt: s.userPlans.archivedAt });
     return plan ? Response.json({ archivedAt: plan.archivedAt?.toISOString() ?? null }) : notFound("Plan");
+  });
+}
+
+// DELETE /api/plans/:id — the plan and its schedule. Completed sessions and logged
+// exam scores stay as history; materials, cheatsheet reports and grade-forecast
+// data points go with it (see deletePlan in lib/plans.ts).
+export async function DELETE(_request: Request, ctx: Ctx) {
+  return handle(async () => {
+    const user = await getCurrentUser();
+    const { id } = await ctx.params;
+    if (!isId(id)) return notFound("Plan");
+    try {
+      const outcome = await deletePlan(user.id, id);
+      return outcome ? Response.json(outcome) : notFound("Plan");
+    } catch (e) {
+      if (e instanceof KnowledgeError) {
+        return jsonError(503, "Your grade-forecast data couldn't be removed right now, so nothing was deleted. Try again in a moment.");
+      }
+      throw e;
+    }
   });
 }

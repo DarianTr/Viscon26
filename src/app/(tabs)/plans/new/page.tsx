@@ -14,6 +14,8 @@ import {
 } from "@/lib/scheduler";
 import type { LernphaseStart, PlanConfig, PlanFeasibility, ScheduleResult, StudyRhythm } from "@/lib/scheduler";
 import type { StoredPlanConfig } from "@/db/schema";
+import { ConfirmDialog } from "@/components/plans/confirm-dialog";
+import type { EditableConfig } from "@/lib/plans";
 
 /** What step 7 shows, for a new plan or a managed (regenerated) one. */
 type Summary = {
@@ -114,6 +116,97 @@ const formatFileSize = (bytes: number) => {
 const clock = (minutes: number) =>
     `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 
+/** The values "Manage plan" saves, as the API takes them. */
+type EditableValues = {
+    weeklyHours: number;
+    studyDays: string[];
+    startTime: string;
+    rhythm: StudyRhythm;
+    lernphaseStart: LernphaseStart;
+    focusDays: number;
+    vacationRanges: VacationRange[];
+    subjects: Subject[];
+    distribution: number[];
+};
+
+function editableConfig(v: EditableValues): EditableConfig {
+    return {
+        weeklyHours: v.weeklyHours,
+        studyDays: v.studyDays,
+        sessionLength: RHYTHMS[v.rhythm].block,
+        startTime: v.startTime,
+        rhythm: v.rhythm,
+        lernphaseStart: v.lernphaseStart,
+        focusDays: v.focusDays,
+        vacationRanges: v.vacationRanges,
+        subjects: v.subjects.map((s, i) => ({
+            name: s.name,
+            examDate: s.examDate,
+            examDuration: s.examDuration,
+            targetGrade: s.targetGrade,
+            currentGrade: s.currentGrade,
+            confidence: s.confidence,
+            approach: s.approach,
+            customPhases: s.customPhases,
+            mockCount: s.mockCount,
+            allocation: v.distribution[i] ?? 0,
+            materials: s.materials,
+            cheatsheet: s.cheatsheet,
+            comments: s.comments,
+        })),
+    };
+}
+
+/** Whether a subject has every answer the scheduler needs. */
+function subjectIsValid(s: Subject) {
+    return (
+        !!s.name.trim() &&
+        !!s.examDate &&
+        Number(s.examDuration) > 0 &&
+        Number(s.targetGrade) >= 1 &&
+        Number(s.targetGrade) <= 6 &&
+        Number(s.currentGrade) >= 1 &&
+        Number(s.currentGrade) <= 6 &&
+        !!s.confidence &&
+        s.mockCount !== "" &&
+        Number(s.mockCount) >= 0 &&
+        Number.isInteger(Number(s.mockCount)) &&
+        !!s.cheatsheet &&
+        (s.approach !== "custom" || s.customPhases.length > 0)
+    );
+}
+
+/** A study material uploaded to a plan (GET /api/plans/:id/subjects/files). */
+type UploadedMaterial = { id: string; subject: string; filename: string; type: string; fileSize: number };
+
+const MATERIAL_TYPE_LABELS: Record<string, string> = {
+    slides: "Lecture slides",
+    script: "Script",
+    exercises: "Exercise sheet",
+    solution: "Solutions",
+    exam: "Past exam",
+    other: "Other",
+};
+
+/** What deleting a plan removes and keeps (GET /api/plans/:id?include=deletion). */
+type DeletionImpact = {
+    upcoming: number;
+    missed: number;
+    completed: number;
+    materials: number;
+    scores: number;
+    cheatsheetReports: number;
+};
+
+type SubjectSection = "details" | "materials" | "preferences";
+const SUBJECT_SECTIONS: [SubjectSection, string, string][] = [
+    ["details", "Subject details", "Edit subject details"],
+    ["materials", "Study materials", "Manage study materials"],
+    ["preferences", "Study preferences", "Edit study preferences"],
+];
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
 /** Per subject: how many of the available mocks are planned, and how many wait in reserve. */
 function MockPlanList({ subjects }: { subjects: PlanFeasibility["subjects"] }) {
     const withMocks = subjects.filter((s) => s.mocks.available > 0);
@@ -175,9 +268,14 @@ function NewPlanForm() {
     // Navigation
     const [step, setStep] = useState(1);
 
-    // "Manage plan": /plans/new?edit=<id> loads that plan's answers into this form.
+    // "Manage plan": /plans/new?edit=<id> opens an overview of that plan's
+    // settings. Each section saves on its own, without touching the schedule;
+    // edits the schedule depends on wait for "Recalibrate plan".
     const editId = searchParams.get("edit");
     const [loadingPlan, setLoadingPlan] = useState(!!editId);
+    // Bumped by "Discard changes" to load the saved plan again.
+    const [reloadKey, setReloadKey] = useState(0);
+    const sectionParam = searchParams.get("section");
 
     // The open subject lives in the URL (?subject=N) so the browser
     // back button returns to the subject overview.
@@ -239,7 +337,7 @@ function NewPlanForm() {
 
     const completedCount = subjects.filter((s) => s.completed).length;
 
-    const subject = step === 3 ? subjects[activeSubject] : undefined;
+    const subject = step === 3 || (editId && step === 0) ? subjects[activeSubject] : undefined;
 
     // Drag-and-drop state for the study materials upload zone.
     const [materialsDragging, setMaterialsDragging] = useState(false);
@@ -273,7 +371,42 @@ function NewPlanForm() {
     // availability afterwards actually closes a gap.
     const [workloadBasis, setWorkloadBasis] = useState<number | null>(null);
 
-    // Managing a plan: fill the form with its stored answers and start at availability.
+    // Manage plan: what's saved, what's pending, and the dialogs.
+    const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
+    const [savedSubjectNames, setSavedSubjectNames] = useState<string[]>([]);
+    const [pendingChanges, setPendingChanges] = useState<string[]>([]);
+    const [notice, setNotice] = useState<string | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const [saving, setSaving] = useState(false);
+    const [materialFiles, setMaterialFiles] = useState<UploadedMaterial[]>([]);
+    const [uploading, setUploading] = useState(false);
+    const [uploadError, setUploadError] = useState<string | null>(null);
+    const [recalibration, setRecalibration] = useState<
+        null | { phase: "loading" | "preview" | "applying"; summary?: Summary; error?: string }
+    >(null);
+    const [deletion, setDeletion] = useState<
+        null | { phase: "loading" | "confirm" | "deleting"; impact?: DeletionImpact; dataPoints?: number | null; error?: string }
+    >(null);
+
+    const values: EditableValues = { weeklyHours, studyDays, startTime, rhythm, lernphaseStart, focusDays, vacationRanges, subjects, distribution };
+    const snapshotOf = (name: string, v: EditableValues) => JSON.stringify({ name: name.trim(), config: editableConfig(v) });
+    const unsaved = !!editId && savedSnapshot !== null && snapshotOf(planName, values) !== savedSnapshot;
+    const isNewSubject = !!editId && activeSubject >= savedSubjectNames.length;
+    // An existing subject opens one section at a time; a new one shows the whole form.
+    const tabbed = !!editId && !!subject && !isNewSubject;
+    const subjectSection: SubjectSection =
+        SUBJECT_SECTIONS.find(([key]) => key === sectionParam)?.[0] ?? "details";
+    const showSection = (section: SubjectSection) => !tabbed || subjectSection === section;
+
+    // Leaving the page (reload, closing the tab) with unsaved changes asks first.
+    useEffect(() => {
+        if (!unsaved) return;
+        const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+        window.addEventListener("beforeunload", warn);
+        return () => window.removeEventListener("beforeunload", warn);
+    }, [unsaved]);
+
+    // Managing a plan: fill the form with its stored answers and open the overview.
     useEffect(() => {
         if (!editId) return;
         let cancelled = false;
@@ -284,28 +417,43 @@ function NewPlanForm() {
                 const { title, config } = (await response.json()) as { title: string; config: StoredPlanConfig | null };
                 if (cancelled) return;
                 if (!config?.subjects?.length) throw new Error("This plan was created before plans stored their settings, so it can't be edited here.");
+                const loaded: EditableValues = {
+                    weeklyHours: config.weeklyHours,
+                    studyDays: config.studyDays,
+                    startTime: config.startTime ?? (config.preferredStartHour !== undefined
+                        ? `${String(config.preferredStartHour).padStart(2, "0")}:00`
+                        : DEFAULT_START_TIME),
+                    rhythm: config.rhythm ?? "balanced",
+                    lernphaseStart: config.lernphaseStart ?? "recommended",
+                    focusDays: config.focusDays ?? DEFAULT_FOCUS_DAYS,
+                    vacationRanges: config.vacationRanges,
+                    subjects: config.subjects.map((stored) => ({
+                        ...createSubject(),
+                        ...stored,
+                        approach: stored.approach as StudyApproach,
+                        completed: true,
+                    })),
+                    // Keep the stored split: no "recommended" baseline means it counts as customised.
+                    distribution: config.subjects.map((stored) => stored.allocation),
+                };
                 setPlanName(title);
                 setSubjectCount(String(config.subjects.length));
-                setWeeklyHours(config.weeklyHours);
-                setStudyDays(config.studyDays);
-                setStartTime(config.startTime ?? (config.preferredStartHour !== undefined
-                    ? `${String(config.preferredStartHour).padStart(2, "0")}:00`
-                    : DEFAULT_START_TIME));
-                setRhythm(config.rhythm ?? "balanced");
-                setLernphaseStart(config.lernphaseStart ?? "recommended");
-                setFocusDays(config.focusDays ?? DEFAULT_FOCUS_DAYS);
-                setVacationRanges(config.vacationRanges);
-                setSubjects(config.subjects.map((stored) => ({
-                    ...createSubject(),
-                    ...stored,
-                    approach: stored.approach as StudyApproach,
-                    completed: true,
-                })));
-                // Keep the stored split: no "recommended" baseline means it counts as customised.
-                setDistribution(config.subjects.map((stored) => stored.allocation));
+                setWeeklyHours(loaded.weeklyHours);
+                setStudyDays(loaded.studyDays);
+                setStartTime(loaded.startTime);
+                setRhythm(loaded.rhythm);
+                setLernphaseStart(loaded.lernphaseStart);
+                setFocusDays(loaded.focusDays);
+                setVacationRanges(loaded.vacationRanges);
+                setSubjects(loaded.subjects);
+                setDistribution(loaded.distribution);
                 setRecommendedDistribution([]);
                 setWorkloadBasis(config.workloadBasisWeeklyMinutes ?? null);
-                setStep(2);
+                setSavedSnapshot(snapshotOf(title, loaded));
+                setSavedSubjectNames(config.subjects.map((sub) => sub.name));
+                setPendingChanges(config.pendingChanges ?? []);
+                setStep(0);
+                void loadMaterials();
             } catch (err) {
                 if (!cancelled) setGenerationError(err instanceof Error ? err.message : "Unknown error");
             } finally {
@@ -313,7 +461,218 @@ function NewPlanForm() {
             }
         })();
         return () => { cancelled = true; };
-    }, [editId]);
+        // snapshotOf and loadMaterials only read their arguments and editId.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editId, reloadKey]);
+
+    async function loadMaterials() {
+        const response = await fetch(`/api/plans/${editId}/subjects/files`);
+        if (response.ok) setMaterialFiles((await response.json()).materials);
+    }
+
+    /**
+     * Saves the plan's name and settings — never its schedule. The server says
+     * which edits the schedule doesn't reflect yet; those wait for a recalibration.
+     */
+    async function saveSettings(message: string, override?: Partial<EditableValues>): Promise<boolean> {
+        const next: EditableValues = { ...values, ...override };
+        if (!next.subjects.every(subjectIsValid)) {
+            setSaveError("Finish setting up every subject before saving.");
+            return false;
+        }
+        setSaving(true);
+        setSaveError(null);
+        setNotice(null);
+        try {
+            const response = await fetch(`/api/plans/${editId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ title: planName, config: editableConfig(next) }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+            const pending: string[] = data.config.pendingChanges ?? [];
+            const added = pending.filter((line) => !pendingChanges.includes(line));
+            setPendingChanges(pending);
+            setSavedSnapshot(snapshotOf(planName, next));
+            setSavedSubjectNames(next.subjects.map((sub) => sub.name.trim()));
+            if (data.renamed?.length) void loadMaterials();
+            setNotice(
+                added.length
+                    ? `${message} This changes your schedule — recalibrate when you're ready.`
+                    : `${message} No recalibration needed.`,
+            );
+            return true;
+        } catch (err) {
+            setSaveError(err instanceof Error ? err.message : "Couldn't save");
+            return false;
+        } finally {
+            setSaving(false);
+        }
+    }
+
+    function backToOverview() {
+        setSaveError(null);
+        setStep(0);
+        window.scrollTo({ top: 0 });
+    }
+
+    async function saveSection(message: string) {
+        if (await saveSettings(message)) backToOverview();
+    }
+
+    /** Uploads to an existing subject are saved right away; the schedule stays as it is. */
+    async function uploadMaterials(files: File[]) {
+        const name = savedSubjectNames[activeSubject];
+        setUploading(true);
+        setUploadError(null);
+        try {
+            const form = new FormData();
+            form.append("subject", name);
+            for (const f of files) form.append("files", f);
+            const response = await fetch(`/api/plans/${editId}/subjects/files`, { method: "POST", body: form });
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                throw new Error(data.error ?? `HTTP ${response.status}`);
+            }
+            await loadMaterials();
+            setNotice(`${plural(files.length, "file")} added to ${name}. Your schedule stays as it is.`);
+        } catch (err) {
+            setUploadError(err instanceof Error ? err.message : "Upload failed");
+        } finally {
+            setUploading(false);
+        }
+    }
+
+    async function removeMaterial(file: UploadedMaterial) {
+        setUploadError(null);
+        const response = await fetch(`/api/plans/${editId}/subjects/files/${file.id}`, { method: "DELETE" });
+        if (response.ok) setMaterialFiles((previous) => previous.filter((m) => m.id !== file.id));
+        else setUploadError(`Couldn't remove ${file.filename}.`);
+    }
+
+    /** Dropped or picked files: uploaded now when managing a saved subject, else kept with the form. */
+    function addMaterialFiles(files: File[]) {
+        if (tabbed) void uploadMaterials(files);
+        else if (subject) updateSubject("files", [...subject.files, ...files]);
+    }
+
+    // New subjects get an even share of the study time; the others keep their proportions.
+    function withNewShares(previous: number[], count: number) {
+        let next = [...previous];
+        while (next.length < count) {
+            const share = Math.round(100 / (next.length + 1));
+            next = [...allocatePercentages(next, 100 - share), share];
+        }
+        return next;
+    }
+
+    function addSubject() {
+        setNotice(null);
+        setSubjects((previous) => [...previous, createSubject()]);
+        openSubject(subjects.length);
+    }
+
+    async function saveSubject() {
+        const nextDistribution = withNewShares(distribution, subjects.length);
+        const name = subject?.name.trim() ?? "";
+        const added = isNewSubject;
+        const files = subject?.files ?? [];
+        const ok = await saveSettings(added ? `${name} added to your plan.` : `${name} saved.`, {
+            subjects: subjects.map((s, i) => (i === activeSubject ? { ...s, completed: true, files: [] } : s)),
+            distribution: nextDistribution,
+        });
+        if (!ok) return;
+        setDistribution(nextDistribution);
+        setSubjects((previous) => previous.map((s, i) => (i === activeSubject ? { ...s, completed: true, files: [] } : s)));
+        // A new subject's files were kept with the form until it existed.
+        if (added && files.length) {
+            const form = new FormData();
+            form.append("subject", name);
+            for (const f of files) form.append("files", f);
+            await fetch(`/api/plans/${editId}/subjects/files`, { method: "POST", body: form }).catch(() => {});
+            await loadMaterials();
+        }
+        closeSubject();
+    }
+
+    /** Back to the subjects; an unfinished new subject can't be kept. */
+    function leaveSubject() {
+        if (editId && isNewSubject && subject && !subjectIsValid(subject)) {
+            if (!window.confirm("Discard this new subject? It isn't complete yet, so it can't be saved.")) return;
+            setSubjects((previous) => previous.slice(0, savedSubjectNames.length));
+        }
+        closeSubject();
+    }
+
+    function discardChanges() {
+        if (!window.confirm("Discard your unsaved changes?")) return;
+        setNotice(null);
+        setSaveError(null);
+        setLoadingPlan(true);
+        setReloadKey((k) => k + 1);
+    }
+
+    function leavePage() {
+        if (unsaved && !window.confirm("You have unsaved changes. Leave without saving?")) return;
+        router.push("/plans");
+    }
+
+    // ── Recalibrate: preview, confirm, apply ─────────────────────────────────
+    async function startRecalibration() {
+        setNotice(null);
+        if (unsaved && !(await saveSettings("Your changes are saved."))) return;
+        setRecalibration({ phase: "loading" });
+        try {
+            setRecalibration({ phase: "preview", summary: await regenerate(false) });
+        } catch (err) {
+            setRecalibration({ phase: "preview", error: err instanceof Error ? err.message : "Unknown error" });
+        }
+    }
+
+    async function confirmRecalibration() {
+        setRecalibration((r) => r && { ...r, phase: "applying", error: undefined });
+        try {
+            const result = await regenerate(true);
+            setRecalibration(null);
+            setPendingChanges([]);
+            setSummary(result);
+            setPlanSaved(true);
+            setStep(7);
+            window.scrollTo({ top: 0 });
+        } catch (err) {
+            setRecalibration((r) => r && {
+                ...r,
+                phase: "preview",
+                error: `Recalibration failed: ${err instanceof Error ? err.message : "unknown error"}. Your schedule hasn't changed.`,
+            });
+        }
+    }
+
+    // ── Delete: show what goes and what stays, then delete on the server ─────
+    async function startDeletion() {
+        setDeletion({ phase: "loading" });
+        try {
+            const [plan, observations] = await Promise.all([
+                fetch(`/api/plans/${editId}?include=deletion`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))),
+                fetch(`/api/plans/${editId}/observations`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+            ]);
+            setDeletion({ phase: "confirm", impact: plan.deletion, dataPoints: observations ? observations.observations.length : null });
+        } catch (err) {
+            setDeletion({ phase: "confirm", error: `Couldn't check what this plan contains: ${err instanceof Error ? err.message : "unknown error"}` });
+        }
+    }
+
+    async function confirmDeletion() {
+        setDeletion((d) => d && { ...d, phase: "deleting", error: undefined });
+        const response = await fetch(`/api/plans/${editId}`, { method: "DELETE" }).catch(() => null);
+        if (response?.ok) {
+            router.push(`/plans?deleted=${encodeURIComponent(planName)}`);
+            return;
+        }
+        const data = await response?.json().catch(() => ({}));
+        setDeletion((d) => d && { ...d, phase: "confirm", error: data?.error ?? "Deleting the plan failed. Nothing was deleted — try again." });
+    }
 
 
     // Update a single subject without losing other subjects' answers.
@@ -344,9 +703,14 @@ function NewPlanForm() {
         setStep(2);
     }
 
-    function openSubject(index: number) {
-        window.history.pushState(null, "", `?${editId ? `edit=${editId}&` : ""}subject=${index}`);
+    function openSubject(index: number, section?: SubjectSection) {
+        window.history.pushState(null, "", `?${editId ? `edit=${editId}&` : ""}subject=${index}${section ? `&section=${section}` : ""}`);
         window.scrollTo({ top: 0 });
+    }
+
+    /** Switches the open subject's section without a new history entry. */
+    function openSection(section: SubjectSection) {
+        window.history.replaceState(null, "", `?edit=${editId}&subject=${activeSubject}&section=${section}`);
     }
 
     // The subject page is always pushed from the overview,
@@ -365,21 +729,7 @@ function NewPlanForm() {
         closeSubject();
     }
 
-    const validSubject =
-        !!subject?.name.trim() &&
-        !!subject.examDate &&
-        Number(subject.examDuration) > 0 &&
-        Number(subject.targetGrade) >= 1 &&
-        Number(subject.targetGrade) <= 6 &&
-        Number(subject.currentGrade) >= 1 &&
-        Number(subject.currentGrade) <= 6 &&
-        !!subject.confidence &&
-        subject.mockCount !== "" &&
-        Number(subject?.mockCount) >= 0 &&
-        Number.isInteger(Number(subject?.mockCount)) &&
-        !!subject?.cheatsheet &&
-        (subject?.approach !== "custom" ||
-            subject.customPhases.length > 0);
+    const validSubject = !!subject && subjectIsValid(subject);
 
 
     // Convert weights into whole percentages that total exactly 100.
@@ -525,14 +875,6 @@ function NewPlanForm() {
         setStep(7);
 
         try {
-            if (editId) {
-                // Managing a plan: the server regenerates around completed work. Preview first.
-                const preview = await regenerate(false);
-                setSummary(preview);
-                setIsGenerating(false);
-                return;
-            }
-
             const config: PlanConfig = { planName, ...storedConfig(workloadBasis), subjects: storedConfig(workloadBasis).subjects! };
             // Schedule around what's already on the calendar (e.g. other plans).
             const lastExam = subjects.reduce((max, s) => (s.examDate > max ? s.examDate : max), "");
@@ -564,12 +906,12 @@ function NewPlanForm() {
         }
     }
 
-    /** Regenerates the managed plan on the server: a preview, or for real. */
+    /** Recalibrates the managed plan on the server from its saved settings: a preview, or for real. */
     async function regenerate(apply: boolean): Promise<Summary> {
         const response = await fetch(`/api/plans/${editId}/regenerate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title: planName, config: storedConfig(workloadBasis), apply }),
+            body: JSON.stringify({ apply }),
         });
         if (!response.ok) {
             const data = await response.json().catch(() => ({}));
@@ -588,20 +930,6 @@ function NewPlanForm() {
             manualKept: data.manualKept,
             manualReplaced: data.manualReplaced,
         };
-    }
-
-    // Managing a plan: replace its uncompleted schedule after the user confirmed.
-    async function applyChanges() {
-        setIsGenerating(true);
-        setGenerationError(null);
-        try {
-            setSummary(await regenerate(true));
-            setPlanSaved(true);
-        } catch (err) {
-            setGenerationError(err instanceof Error ? err.message : "Unknown error");
-        } finally {
-            setIsGenerating(false);
-        }
     }
 
     // "Continue anyway": keep the best-effort schedule.
@@ -687,7 +1015,7 @@ function NewPlanForm() {
             {/* Back to plans */}
             <button
                 type="button"
-                onClick={() => router.push("/plans")}
+                onClick={leavePage}
                 className="text-sm text-muted hover:underline"
             >
                 ← Back to plans
@@ -705,7 +1033,7 @@ function NewPlanForm() {
 
                 <p className="mt-2 text-sm text-muted">
                     {editId
-                        ? "Change any of your answers. Completed sessions and logged results stay; only the remaining schedule is rebuilt."
+                        ? "Edit any part of your plan. Saving keeps your schedule as it is; recalibrating updates only your upcoming sessions."
                         : "Build your personalized exam preparation schedule."}
                 </p>
             </div>
@@ -721,6 +1049,298 @@ function NewPlanForm() {
                 </div>
             )}
 
+
+            {/* MANAGE PLAN — OVERVIEW */}
+            {editId && step === 0 && !subject && (
+                <div className="space-y-6">
+                    {/* Saved / unsaved / waiting for a recalibration */}
+                    {notice && (
+                        <p role="status" className="rounded-2xl border-2 border-recovery/30 bg-recovery/10 px-4 py-3 text-sm font-medium text-recovery">
+                            {notice}
+                        </p>
+                    )}
+                    {saveError && (
+                        <p role="alert" className="rounded-2xl border-2 border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
+                            {saveError}
+                        </p>
+                    )}
+                    {unsaved ? (
+                        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border-2 border-gold/60 bg-gold/15 px-4 py-3">
+                            <p className="text-sm font-semibold">You have unsaved changes.</p>
+                            <div className="flex gap-2">
+                                <button type="button" onClick={discardChanges} className="rounded-full px-4 py-2 text-sm font-semibold text-muted hover:text-foreground">
+                                    Discard
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={saving}
+                                    onClick={() => void saveSettings("Changes saved.")}
+                                    className="rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background disabled:opacity-50"
+                                >
+                                    {saving ? "Saving…" : "Save changes"}
+                                </button>
+                            </div>
+                        </div>
+                    ) : pendingChanges.length > 0 ? (
+                        <div className="space-y-2 rounded-2xl border-2 border-accent/40 bg-accent-soft px-4 py-3">
+                            <p className="text-sm font-semibold">Saved — your calendar doesn&apos;t reflect these changes yet:</p>
+                            <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted">
+                                {pendingChanges.map((line) => <li key={line}>{line}</li>)}
+                            </ul>
+                            <p className="text-xs text-muted">Recalibrate your plan to update your upcoming sessions.</p>
+                        </div>
+                    ) : (
+                        <p className="rounded-2xl bg-surface-2 px-4 py-3 text-sm text-muted">
+                            Everything is saved, and your schedule is up to date with your settings.
+                        </p>
+                    )}
+
+                    {/* Plan details */}
+                    <section className={cardClass}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <h2 className="text-xl font-bold">Plan details</h2>
+                                <p className="mt-1 text-sm text-muted">{planName}</p>
+                            </div>
+                            <button type="button" onClick={() => setStep(1)} className={secondaryButton}>
+                                Edit plan details
+                            </button>
+                        </div>
+                    </section>
+
+                    {/* Study availability */}
+                    <section className={cardClass}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <h2 className="text-xl font-bold">Study availability</h2>
+                                <p className="mt-1 text-sm text-muted">
+                                    {weeklyHours} h a week · {studyDays.join(", ")} · from {startTime}
+                                </p>
+                                <p className="mt-0.5 text-sm text-muted">
+                                    {RHYTHMS[rhythm].label} rhythm · Lernphase:{" "}
+                                    {lernphaseOptions.find((o) => o.value === lernphaseStart)?.title}
+                                    {vacationRanges.length > 0 && ` · ${plural(vacationRanges.length, "vacation")}`}
+                                </p>
+                            </div>
+                            <button type="button" onClick={() => setStep(2)} className={secondaryButton}>
+                                Adjust study availability
+                            </button>
+                        </div>
+                    </section>
+
+                    {/* Subjects */}
+                    <section className={cardClass}>
+                        <div>
+                            <h2 className="text-xl font-bold">Subjects</h2>
+                            <p className="mt-1 text-sm text-muted">
+                                {plural(subjects.length, "subject")}. Open one to edit its details, materials or preferences.
+                            </p>
+                        </div>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            {subjects.map((s, index) => {
+                                const files = materialFiles.filter((m) => m.subject === savedSubjectNames[index]).length;
+                                const saved = index < savedSubjectNames.length;
+                                return (
+                                    <div
+                                        key={index}
+                                        style={{ backgroundColor: subjectColors[index % subjectColors.length] }}
+                                        className="flex flex-col gap-3 rounded-2xl border border-black/10 p-4 text-gray-900 shadow-sm"
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => openSubject(index, saved ? "details" : undefined)}
+                                            className="text-left"
+                                        >
+                                            <p className="text-lg font-bold">{s.name || `Subject ${index + 1}`}</p>
+                                            <p className="mt-1 text-xs text-gray-700">
+                                                {s.examDate
+                                                    ? `Exam ${new Date(`${s.examDate}T12:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}${s.examDuration ? ` · ${s.examDuration} min` : ""}`
+                                                    : "No exam date yet"}
+                                            </p>
+                                            <p className="text-xs text-gray-700">
+                                                {saved ? `${plural(files, "file")} · target ${s.targetGrade || "–"}` : "Not saved yet"}
+                                            </p>
+                                        </button>
+                                        {saved && (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {SUBJECT_SECTIONS.map(([key, , action]) => (
+                                                    <button
+                                                        key={key}
+                                                        type="button"
+                                                        onClick={() => openSubject(index, key)}
+                                                        className="rounded-full bg-white/70 px-3 py-1.5 text-xs font-semibold hover:bg-white"
+                                                    >
+                                                        {action}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={addSubject}
+                            className="w-full rounded-2xl border-2 border-dashed border-foreground/40 px-6 py-4 text-sm font-display font-bold hover:border-foreground hover:bg-surface-2"
+                        >
+                            + Add subject
+                        </button>
+                    </section>
+
+                    {/* Subject distribution */}
+                    <section className={cardClass}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <h2 className="text-xl font-bold">Subject distribution</h2>
+                                <p className="mt-1 text-sm text-muted">How your study time is split between subjects.</p>
+                            </div>
+                            <button type="button" onClick={openDistribution} className={secondaryButton}>
+                                Adjust subject distribution
+                            </button>
+                        </div>
+                        <div className="flex h-4 overflow-hidden rounded-full bg-surface-2">
+                            {distribution.map((percentage, index) => (
+                                <div
+                                    key={index}
+                                    title={`${subjects[index]?.name}: ${percentage}%`}
+                                    style={{ width: `${percentage}%`, backgroundColor: subjectColors[index % subjectColors.length] }}
+                                />
+                            ))}
+                        </div>
+                    </section>
+
+                    {/* Recalibrate */}
+                    <section className={cardClass}>
+                        <div>
+                            <h2 className="text-xl font-bold">Recalibrate schedule</h2>
+                            <p className="mt-1 text-sm text-muted">
+                                Rebuilds your upcoming sessions from your saved settings. Completed sessions,
+                                logged hours, results and sessions you moved by hand stay as they are.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            disabled={saving || recalibration !== null}
+                            onClick={() => void startRecalibration()}
+                            className={`${primaryButton} w-full`}
+                        >
+                            Recalibrate plan
+                        </button>
+                    </section>
+
+                    {/* Danger zone */}
+                    <section className="space-y-3 rounded-[1.75rem] border-2 border-red-200 p-6">
+                        <h2 className="text-lg font-bold text-red-700">Delete plan</h2>
+                        <p className="text-sm text-muted">
+                            Removes this plan and its upcoming schedule. You&apos;ll see exactly what is deleted
+                            and what stays before anything happens.
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => void startDeletion()}
+                            className="rounded-full border-2 border-red-600 px-5 py-2.5 text-sm font-display font-bold text-red-700 hover:bg-red-50"
+                        >
+                            Delete plan
+                        </button>
+                    </section>
+                </div>
+            )}
+
+            {recalibration && (
+                <ConfirmDialog
+                    title="Recalibrate your remaining schedule?"
+                    confirmLabel="Recalibrate plan"
+                    busyLabel={recalibration.phase === "loading" ? "Checking…" : "Recalibrating…"}
+                    busy={recalibration.phase !== "preview"}
+                    confirmDisabled={!recalibration.summary}
+                    onConfirm={() => void confirmRecalibration()}
+                    onCancel={() => setRecalibration(null)}
+                >
+                    <p>
+                        We&apos;ll update your upcoming study sessions based on your latest changes. Everything
+                        you&apos;ve already completed will stay exactly as it is.
+                    </p>
+                    {recalibration.phase === "loading" && <p>Working out what would change…</p>}
+                    {recalibration.summary && (
+                        <ul className="list-disc space-y-1 rounded-xl bg-surface-2 p-4 pl-8 text-xs">
+                            <li>
+                                {plural(recalibration.summary.replaced ?? 0, "upcoming session")} replaced by{" "}
+                                {recalibration.summary.count} new ones
+                            </li>
+                            <li>Completed sessions kept unchanged: {recalibration.summary.kept ?? 0}</li>
+                            {!!recalibration.summary.manualKept && (
+                                <li>Sessions you moved by hand that stay where you put them: {recalibration.summary.manualKept}</li>
+                            )}
+                            {!!recalibration.summary.manualReplaced && (
+                                <li className="font-semibold text-accent">
+                                    Sessions you moved by hand that no longer fit your settings and will be
+                                    rescheduled: {recalibration.summary.manualReplaced}
+                                </li>
+                            )}
+                            {pendingChanges.length > 0 && <li>Based on: {pendingChanges.join("; ")}</li>}
+                        </ul>
+                    )}
+                    {recalibration.summary?.feasibility.needsMoreTime && (
+                        <div className="space-y-1 rounded-xl border-2 border-accent/40 bg-accent-soft p-4 text-xs">
+                            <p className="font-semibold text-foreground">Your goals need more time than your plan has.</p>
+                            <p>
+                                About {formatHours(recalibration.summary.feasibility.requiredMinutes)} needed,{" "}
+                                {formatHours(recalibration.summary.feasibility.availableMinutes)} available. Recalibrating
+                                keeps a best-effort schedule; you can also cancel and adjust your availability first.
+                            </p>
+                            {recalibration.summary.feasibility.suggestions.length > 0 && (
+                                <ul className="list-disc pl-5">
+                                    {recalibration.summary.feasibility.suggestions.map((line) => <li key={line}>{line}</li>)}
+                                </ul>
+                            )}
+                        </div>
+                    )}
+                    {recalibration.error && <p className="text-sm text-red-600">{recalibration.error}</p>}
+                </ConfirmDialog>
+            )}
+
+            {deletion && (
+                <ConfirmDialog
+                    title={`Delete “${planName}”?`}
+                    confirmLabel="Delete plan"
+                    busyLabel={deletion.phase === "loading" ? "Checking…" : "Deleting…"}
+                    busy={deletion.phase !== "confirm"}
+                    confirmDisabled={!deletion.impact}
+                    danger
+                    onConfirm={() => void confirmDeletion()}
+                    onCancel={() => setDeletion(null)}
+                >
+                    {deletion.impact && (
+                        <>
+                            <p className="font-semibold text-foreground">This can&apos;t be undone. Deleted with the plan:</p>
+                            <ul className="list-disc space-y-0.5 pl-5">
+                                <li>
+                                    {plural(deletion.impact.upcoming, "upcoming session")}
+                                    {deletion.impact.missed > 0 && ` and ${plural(deletion.impact.missed, "missed session")} that were never done`}
+                                </li>
+                                <li>{plural(deletion.impact.materials, "uploaded study material")}</li>
+                                <li>{plural(deletion.impact.cheatsheetReports, "cheatsheet progress update")}</li>
+                                <li>
+                                    {deletion.dataPoints === null || deletion.dataPoints === undefined
+                                        ? "Its grade-forecast data points"
+                                        : plural(deletion.dataPoints, "grade-forecast data point")}
+                                </li>
+                            </ul>
+                            <p className="font-semibold text-foreground">Kept in your history:</p>
+                            <ul className="list-disc space-y-0.5 pl-5">
+                                <li>
+                                    {plural(deletion.impact.completed, "completed session")} — your study hours, streak and
+                                    activity posts
+                                </li>
+                                <li>{plural(deletion.impact.scores, "logged exam score")}</li>
+                            </ul>
+                        </>
+                    )}
+                    {deletion.phase === "loading" && <p>Checking what this plan contains…</p>}
+                    {deletion.error && <p className="text-sm text-red-600">{deletion.error}</p>}
+                </ConfirmDialog>
+            )}
 
             {/* STEP 1 — GENERAL INFORMATION */}
             {step === 1 && (
@@ -744,6 +1364,8 @@ function NewPlanForm() {
                         />
                     </div>
 
+                    {/* Subjects are added from the overview when managing a plan. */}
+                    {!editId && (
                     <div>
                         <label htmlFor="subjectCount" className="mb-2 block text-sm font-semibold">
                             How many subjects are you preparing for?
@@ -760,7 +1382,18 @@ function NewPlanForm() {
                             className={inputClass}
                         />
                     </div>
+                    )}
 
+                    {editId ? (
+                        <ManageNav
+                            saving={saving}
+                            error={saveError}
+                            disabled={!planName.trim()}
+                            onBack={backToOverview}
+                            onSave={() => void saveSection("Plan details saved.")}
+                            saveLabel="Save plan details"
+                        />
+                    ) : (
                     <button
                         type="button"
                         disabled={
@@ -774,6 +1407,7 @@ function NewPlanForm() {
                     >
                         Next →
                     </button>
+                    )}
                 </div>
             )}
 
@@ -1058,6 +1692,16 @@ function NewPlanForm() {
                         </button>
                     </div>
 
+                    {editId ? (
+                        <ManageNav
+                            saving={saving}
+                            error={saveError}
+                            disabled={!studyDays.length || !validVacationRanges}
+                            onBack={backToOverview}
+                            onSave={() => void saveSection("Availability saved.")}
+                            saveLabel="Save availability"
+                        />
+                    ) : (
                     <div className="flex justify-between pt-2">
                         <button
                             type="button"
@@ -1076,6 +1720,7 @@ function NewPlanForm() {
                             Next →
                         </button>
                     </div>
+                    )}
                 </div>
             )}
 
@@ -1173,15 +1818,45 @@ function NewPlanForm() {
             {/* SUBJECT SETUP (?subject=N) */}
             {subject && (
                 <div className={cardClass}>
+                    {tabbed ? (
+                        <div className="space-y-4">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+                                    Subject {activeSubject + 1} of {subjects.length}
+                                </p>
+                                <h2 className="mt-2 text-xl font-bold">
+                                    {savedSubjectNames[activeSubject]}
+                                </h2>
+                            </div>
+                            <div role="tablist" aria-label="Subject sections" className="flex gap-1 overflow-x-auto rounded-2xl bg-surface-2 p-1">
+                                {SUBJECT_SECTIONS.map(([key, label]) => (
+                                    <button
+                                        key={key}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={subjectSection === key}
+                                        onClick={() => openSection(key)}
+                                        className={`rounded-xl px-3.5 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
+                                            subjectSection === key ? "bg-surface text-foreground shadow-sm" : "text-muted hover:text-foreground"
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    ) : (
                     <div>
                         <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-                            Subject {activeSubject + 1} of {subjects.length}
+                            {isNewSubject ? "New subject" : `Subject ${activeSubject + 1} of ${subjects.length}`}
                         </p>
                         <h2 className="mt-2 text-xl font-bold">
                             Subject details
                         </h2>
                     </div>
+                    )}
 
+                    {showSection("details") && (<>
                     {/* Subject name */}
                     <div>
                         <label htmlFor="subjectName" className="mb-2 block text-sm font-semibold">
@@ -1195,6 +1870,12 @@ function NewPlanForm() {
                             onChange={(e) => updateSubject("name", e.target.value)}
                             className={inputClass}
                         />
+                        {tabbed && subject.name.trim() !== savedSubjectNames[activeSubject] && (
+                            <p className="mt-2 text-xs text-muted">
+                                Your sessions, results and materials move to the new name. Grade-forecast data
+                                points logged under the old name stay with the old name.
+                            </p>
+                        )}
                     </div>
 
                     {/* Exam date */}
@@ -1305,11 +1986,16 @@ function NewPlanForm() {
                         </div>
                     </div>
 
+                    </>)}
+
                     {/* Study preferences */}
+                    {!tabbed && (
                     <h3 className="border-t border-border pt-6 text-lg font-bold">
                         Study preferences
                     </h3>
+                    )}
 
+                    {showSection("materials") && (<>
                     {/* Study materials */}
                     <div>
                         <p className="mb-3 text-sm font-semibold">
@@ -1365,7 +2051,7 @@ function NewPlanForm() {
                                 e.preventDefault();
                                 setMaterialsDragging(false);
                                 const dropped = Array.from(e.dataTransfer.files);
-                                if (dropped.length) updateSubject("files", [...subject.files, ...dropped]);
+                                if (dropped.length) addMaterialFiles(dropped);
                             }}
                             className={`mt-3 flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
                                 materialsDragging
@@ -1375,10 +2061,12 @@ function NewPlanForm() {
                         >
                             <span className="text-2xl">📎</span>
                             <span className="text-sm font-medium">
-                                Drop files here, or click to browse
+                                {tabbed ? (uploading ? "Uploading…" : "+ Add study materials") : "Drop files here, or click to browse"}
                             </span>
                             <span className="text-xs text-muted">
-                                Slides, exercise sheets, past exams, summaries — any format.
+                                {tabbed
+                                    ? "Drop files or click to browse. They're saved right away; your schedule stays as it is."
+                                    : "Slides, exercise sheets, past exams, summaries — any format."}
                             </span>
                             <input
                                 id="materialFiles"
@@ -1387,7 +2075,7 @@ function NewPlanForm() {
                                 className="sr-only"
                                 onChange={(e) => {
                                     const picked = Array.from(e.target.files ?? []);
-                                    if (picked.length) updateSubject("files", [...subject.files, ...picked]);
+                                    if (picked.length) addMaterialFiles(picked);
                                     e.target.value = "";
                                 }}
                             />
@@ -1423,6 +2111,39 @@ function NewPlanForm() {
                         )}
                     </div>
 
+                    {tabbed && (
+                        <div>
+                            <p className="mb-2 text-sm font-semibold">Uploaded materials</p>
+                            {uploadError && <p className="mb-2 text-sm text-red-600">{uploadError}</p>}
+                            {materialFiles.filter((m) => m.subject === savedSubjectNames[activeSubject]).length === 0 ? (
+                                <p className="text-xs text-muted">No files yet.</p>
+                            ) : (
+                                <ul className="space-y-2">
+                                    {materialFiles
+                                        .filter((m) => m.subject === savedSubjectNames[activeSubject])
+                                        .map((file) => (
+                                            <li key={file.id} className="flex items-center justify-between gap-3 rounded-lg bg-surface-2 px-3 py-2 text-sm">
+                                                <span className="min-w-0 truncate">{file.filename}</span>
+                                                <span className="flex shrink-0 items-center gap-3">
+                                                    <span className="text-xs text-muted">
+                                                        {MATERIAL_TYPE_LABELS[file.type] ?? "Other"} · {formatFileSize(file.fileSize)}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => void removeMaterial(file)}
+                                                        aria-label={`Remove ${file.filename}`}
+                                                        className="text-muted hover:text-red-500"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </span>
+                                            </li>
+                                        ))}
+                                </ul>
+                            )}
+                        </div>
+                    )}
+
                     {/* Past exams */}
                     <div>
                         <label htmlFor="mockCount" className="mb-2 block text-sm font-semibold">
@@ -1442,6 +2163,9 @@ function NewPlanForm() {
                         />
                     </div>
 
+                    </>)}
+
+                    {showSection("preferences") && (<>
                     {/* Study approach */}
                     <div>
                         <p className="mb-3 text-sm font-semibold">
@@ -1589,11 +2313,14 @@ function NewPlanForm() {
                         />
                     </div>
 
+                    </>)}
+
                     {/* Navigation */}
-                    <div className="flex justify-between pt-2">
+                    {editId && saveError && <p className="text-sm text-red-600">{saveError}</p>}
+                    <div className="flex justify-between gap-3 pt-2">
                         <button
                             type="button"
-                            onClick={closeSubject}
+                            onClick={editId ? leaveSubject : closeSubject}
                             className={secondaryButton}
                         >
                             ← Back to subjects
@@ -1601,13 +2328,18 @@ function NewPlanForm() {
 
                         <button
                             type="button"
-                            disabled={!validSubject}
-                            onClick={finishSubject}
+                            disabled={!validSubject || saving}
+                            onClick={editId ? () => void saveSubject() : finishSubject}
                             className={primaryButton}
                         >
-                            Save subject ✓
+                            {editId ? (saving ? "Saving…" : isNewSubject ? "Add subject" : "Save subject") : "Save subject ✓"}
                         </button>
                     </div>
+                    {editId && !validSubject && (
+                        <p className="text-center text-xs text-muted">
+                            {isNewSubject ? "Fill in every question to add the subject." : "Some answers are missing — check each section."}
+                        </p>
+                    )}
                 </div>
             )}
 
@@ -1723,6 +2455,15 @@ function NewPlanForm() {
                     </div>
 
                     {/* Navigation */}
+                    {editId ? (
+                        <ManageNav
+                            saving={saving}
+                            error={saveError}
+                            onBack={backToOverview}
+                            onSave={() => void saveSection("Subject distribution saved.")}
+                            saveLabel="Save distribution"
+                        />
+                    ) : (
                     <div className="space-y-4 pt-3">
                         <button
                             type="button"
@@ -1740,6 +2481,7 @@ function NewPlanForm() {
                             ← Previous
                         </button>
                     </div>
+                    )}
                 </div>
             )}
 
@@ -1885,50 +2627,6 @@ function NewPlanForm() {
                                 </p>
                             </div>
                         </div>
-                    ) : summary && !planSaved && editId ? (
-                        /* Managing a plan: confirm before replacing the remaining schedule */
-                        <div className="space-y-6">
-                            <div>
-                                <p className="text-xs font-semibold uppercase tracking-widest text-muted">
-                                    Confirm changes
-                                </p>
-                                <h2 className="mt-2 text-2xl font-bold">
-                                    Replace your remaining schedule?
-                                </h2>
-                                <p className="mt-2 text-sm text-muted">
-                                    {summary.replaced} upcoming or missed block{summary.replaced === 1 ? "" : "s"} will
-                                    be replaced by {summary.count} new ones. Your {summary.kept} completed
-                                    session{summary.kept === 1 ? "" : "s"} and logged exam results stay as they are,
-                                    and their work isn&apos;t scheduled again.
-                                </p>
-                                {!!summary.manualKept && (
-                                    <p className="mt-2 text-sm text-muted">
-                                        {summary.manualKept} block{summary.manualKept === 1 ? "" : "s"} you moved by hand
-                                        stay{summary.manualKept === 1 ? "s" : ""} where you put {summary.manualKept === 1 ? "it" : "them"}.
-                                    </p>
-                                )}
-                                {!!summary.manualReplaced && (
-                                    <p className="mt-2 text-sm font-semibold text-accent">
-                                        {summary.manualReplaced} block{summary.manualReplaced === 1 ? "" : "s"} you moved by hand
-                                        no longer fit{summary.manualReplaced === 1 ? "s" : ""} your new settings (day off, vacation or after
-                                        the exam) and will be replaced.
-                                    </p>
-                                )}
-                            </div>
-                            {summary.feasibility.adjustments.length > 0 && (
-                                <ul className="list-disc space-y-1 rounded-xl bg-surface-2 p-4 pl-8 text-xs text-muted">
-                                    {summary.feasibility.adjustments.map((note) => <li key={note}>{note}</li>)}
-                                </ul>
-                            )}
-                            <div className="space-y-3">
-                                <button type="button" onClick={() => void applyChanges()} className={`${primaryButton} w-full`}>
-                                    Replace schedule
-                                </button>
-                                <button type="button" onClick={adjustPlan} className={`${secondaryButton} w-full`}>
-                                    Back to my settings
-                                </button>
-                            </div>
-                        </div>
                     ) : summary && planSaved ? (
                         /* Success */
                         <div className="space-y-6">
@@ -2058,6 +2756,16 @@ function NewPlanForm() {
                                 View in calendar →
                             </button>
 
+                            {editId && (
+                                <button
+                                    type="button"
+                                    onClick={() => { setSummary(null); setPlanSaved(false); backToOverview(); }}
+                                    className={`${secondaryButton} w-full`}
+                                >
+                                    Back to plan settings
+                                </button>
+                            )}
+
                             <button
                                 type="button"
                                 onClick={() => router.push("/plans")}
@@ -2071,5 +2779,45 @@ function NewPlanForm() {
             )}
 
         </main>
+    );
+}
+
+/** "Manage plan" sections end with back-to-overview and a save that keeps the schedule as it is. */
+function ManageNav({
+    saving,
+    error,
+    disabled = false,
+    onBack,
+    onSave,
+    saveLabel,
+}: {
+    saving: boolean;
+    error: string | null;
+    disabled?: boolean;
+    onBack: () => void;
+    onSave: () => void;
+    saveLabel: string;
+}) {
+    return (
+        <div className="space-y-3 pt-2">
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <div className="flex flex-wrap justify-between gap-3">
+                <button
+                    type="button"
+                    onClick={onBack}
+                    className="rounded-full border-2 border-foreground/70 bg-surface px-6 py-3 text-sm font-display font-bold shadow-[0_3px_0_0_var(--border)] active:translate-y-[3px] active:shadow-none"
+                >
+                    ← Back to overview
+                </button>
+                <button
+                    type="button"
+                    disabled={disabled || saving}
+                    onClick={onSave}
+                    className="rounded-full border-[2.5px] border-foreground bg-accent px-6 py-3 text-sm font-display font-bold text-surface shadow-[0_3px_0_0_var(--foreground)] active:translate-y-[3px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-30 disabled:shadow-none"
+                >
+                    {saving ? "Saving…" : saveLabel}
+                </button>
+            </div>
+        </div>
     );
 }
