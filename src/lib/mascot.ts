@@ -16,7 +16,7 @@ export function mascotStageFromHours(hours: number): BrainStage {
 /** A warm, honest line for empty states — never a fabricated achievement. */
 export const emptyStateLines = {
   noSessionsToday: "Nothing on the books today. The brain approves of rest.",
-  noPlan: "No plan yet — pick one below, or wing it. Both are valid.",
+  noPlan: "No plan yet — the brain works best with a little structure. Make one below.",
   noPosts: "Finish a session and it'll show up here, proof and all.",
   noFriends: "Quiet in here — search for classmates above and say hello.",
   noFriendResults: "No one matches that search. Try a different spelling?",

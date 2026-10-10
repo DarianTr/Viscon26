@@ -1,14 +1,17 @@
 
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { generateStudyPlan } from "@/lib/scheduler";
+import type { PlanConfig, ScheduleResult } from "@/lib/scheduler";
 
 type StudyApproach = "foundation" | "balanced" | "exam" | "custom";
 
 type Subject = {
     name: string;
     examDate: string;
+    examDuration: string;
     targetGrade: string;
     currentGrade: string;
     confidence: string;
@@ -29,6 +32,7 @@ type VacationRange = {
 const createSubject = (): Subject => ({
     name: "",
     examDate: "",
+    examDuration: "",
     targetGrade: "",
     currentGrade: "",
     confidence: "",
@@ -62,12 +66,33 @@ const subjectColors = [
     "#D9C3BB", // Dusty taupe
 ];
 
+// useSearchParams needs a Suspense boundary for the page to prerender.
 export default function NewPlanPage() {
+    return (
+        <Suspense>
+            <NewPlanForm />
+        </Suspense>
+    );
+}
+
+function NewPlanForm() {
     const router = useRouter();
+    const searchParams = useSearchParams();
 
     // Navigation
     const [step, setStep] = useState(1);
-    const [activeSubject, setActiveSubject] = useState(0);
+
+    // The open subject lives in the URL (?subject=N) so the browser
+    // back button returns to the subject overview.
+    const subjectParam = searchParams.get("subject");
+    const activeSubject = subjectParam === null ? -1 : Number(subjectParam);
+
+    // Form state is not persisted, so drop a stale ?subject on reload.
+    useEffect(() => {
+        if (new URLSearchParams(window.location.search).has("subject")) {
+            window.history.replaceState(null, "", window.location.pathname);
+        }
+    }, []);
 
     // STEP 1
     const [planName, setPlanName] = useState("");
@@ -97,7 +122,7 @@ export default function NewPlanPage() {
 
     const completedCount = subjects.filter((s) => s.completed).length;
 
-    const subject = subjects[activeSubject];
+    const subject = step === 3 ? subjects[activeSubject] : undefined;
 
     const inputClass =
         "w-full rounded-xl border-2 border-border bg-surface px-4 py-3 text-sm outline-none focus:border-accent";
@@ -114,6 +139,11 @@ export default function NewPlanPage() {
     const [distribution, setDistribution] = useState<number[]>([]);
     const [recommendedDistribution, setRecommendedDistribution] =
         useState<number[]>([]);
+
+    // STEP 7 — generation state
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [scheduleResult, setScheduleResult] = useState<ScheduleResult | null>(null);
+    const [generationError, setGenerationError] = useState<string | null>(null);
 
 
     // Update a single subject without losing other subjects' answers.
@@ -145,8 +175,14 @@ export default function NewPlanPage() {
     }
 
     function openSubject(index: number) {
-        setActiveSubject(index);
-        setStep(4);
+        window.history.pushState(null, "", `?subject=${index}`);
+        window.scrollTo({ top: 0 });
+    }
+
+    // The subject page is always pushed from the overview,
+    // so going back in history returns there.
+    function closeSubject() {
+        window.history.back();
     }
 
     function finishSubject() {
@@ -156,20 +192,19 @@ export default function NewPlanPage() {
             )
         );
 
-        setStep(3);
+        closeSubject();
     }
 
-    const validStep4 =
+    const validSubject =
         !!subject?.name.trim() &&
         !!subject.examDate &&
+        Number(subject.examDuration) > 0 &&
         Number(subject.targetGrade) >= 1 &&
         Number(subject.targetGrade) <= 6 &&
         Number(subject.currentGrade) >= 1 &&
         Number(subject.currentGrade) <= 6 &&
-        !!subject.confidence;
-
-    const validStep5 =
-        subject?.mockCount !== "" &&
+        !!subject.confidence &&
+        subject.mockCount !== "" &&
         Number(subject?.mockCount) >= 0 &&
         Number.isInteger(Number(subject?.mockCount)) &&
         !!subject?.cheatsheet &&
@@ -284,10 +319,13 @@ export default function NewPlanPage() {
         });
     }
 
-    // Save the configured plan locally.
-    // Actual calendar generation will be added next.
-    function generatePlan() {
-        const configuredPlan = {
+    async function generatePlan() {
+        setIsGenerating(true);
+        setScheduleResult(null);
+        setGenerationError(null);
+        setStep(7);
+
+        const config: PlanConfig = {
             planName,
             weeklyHours,
             studyDays,
@@ -295,16 +333,51 @@ export default function NewPlanPage() {
             vacationRanges,
             subjects: subjects.map((subject, index) => ({
                 ...subject,
-                allocation: distribution[index],
+                allocation: distribution[index] ?? 0,
             })),
         };
 
-        localStorage.setItem(
-            "configuredStudyPlan",
-            JSON.stringify(configuredPlan)
-        );
+        try {
+            const result = generateStudyPlan(config);
 
-        setStep(7);
+            const response = await fetch("/api/tasks/batch", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    planTitle: planName,
+                    planConfig: {
+                        weeklyHours,
+                        studyDays,
+                        sessionLength,
+                        vacationRanges,
+                        subjects: subjects.map(({ completed: _, ...subject }, index) => ({
+                            ...subject,
+                            allocation: distribution[index] ?? 0,
+                        })),
+                    },
+                    tasks: result.sessions.map((s) => ({
+                        type: s.type,
+                        subject: s.subject,
+                        title: s.title,
+                        detail: s.detail,
+                        scheduledAt: s.scheduledAt.toISOString(),
+                        plannedMinutes: s.plannedMinutes,
+                        shared: false,
+                    })),
+                }),
+            });
+
+            if (!response.ok) {
+                const text = await response.text();
+                throw new Error(text || `HTTP ${response.status}`);
+            }
+
+            setScheduleResult(result);
+        } catch (err) {
+            setGenerationError(err instanceof Error ? err.message : "Unknown error");
+        } finally {
+            setIsGenerating(false);
+        }
     }
 
 
@@ -332,43 +405,6 @@ export default function NewPlanPage() {
                 <p className="mt-2 text-sm text-muted">
                     Build your personalized exam preparation schedule.
                 </p>
-            </div>
-
-            {/* Progress bar */}
-
-            {/* Subject cards */}
-            <div className="grid gap-4 sm:grid-cols-2">
-                {subjects.map((s, index) => (
-                    <button
-                        key={index}
-                        type="button"
-                        onClick={() => openSubject(index)}
-                        style={{
-                            backgroundColor:
-                                subjectColors[index % subjectColors.length],
-                        }}
-                        className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-2xl border border-black/10 p-5 text-center text-gray-900 shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg"
-                    >
-                        <span className="text-lg font-bold">
-                            {s.name || `Subject ${index + 1}`}
-                        </span>
-
-                        <span
-                            className={`flex size-14 items-center justify-center rounded-full text-3xl ${s.completed
-                                    ? "bg-white/75 text-green-700"
-                                    : "bg-white/50 text-gray-900"
-                                }`}
-                        >
-                            {s.completed ? "✓" : "+"}
-                        </span>
-
-                        <span className="text-sm font-medium text-gray-700">
-                            {s.completed
-                                ? "Completed · Click to edit"
-                                : "Click to set up"}
-                        </span>
-                    </button>
-                ))}
             </div>
 
 
@@ -574,7 +610,8 @@ export default function NewPlanPage() {
                                             Start date
                                         </span>
                                         <input
-                                            type="date"
+                                            type="text"
+                                            placeholder="YYYY-MM-DD"
                                             value={range.start}
                                             onChange={(e) =>
                                                 setVacationRanges((prev) =>
@@ -594,8 +631,8 @@ export default function NewPlanPage() {
                                             End date
                                         </span>
                                         <input
-                                            type="date"
-                                            min={range.start || undefined}
+                                            type="text"
+                                            placeholder="YYYY-MM-DD"
                                             value={range.end}
                                             onChange={(e) =>
                                                 setVacationRanges((prev) =>
@@ -649,7 +686,7 @@ export default function NewPlanPage() {
             )}
 
             {/* STEP 3 — SUBJECT OVERVIEW */}
-            {step === 3 && (
+            {step === 3 && !subject && (
                 <div className={cardClass}>
                     <div>
                         <h2 className="text-xl font-bold">
@@ -683,22 +720,26 @@ export default function NewPlanPage() {
                                 key={index}
                                 type="button"
                                 onClick={() => openSubject(index)}
-                                className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-2xl border border-border p-5 text-center transition-colors hover:bg-surface-2"
+                                style={{
+                                    backgroundColor:
+                                        subjectColors[index % subjectColors.length],
+                                }}
+                                className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-2xl border border-black/10 p-5 text-center text-gray-900 shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg"
                             >
-                                <span className="text-sm font-semibold">
+                                <span className="text-lg font-bold">
                                     {s.name || `Subject ${index + 1}`}
                                 </span>
 
                                 <span
-                                    className={`flex size-12 items-center justify-center rounded-full text-2xl ${s.completed
-                                            ? "bg-green-100 text-green-700"
-                                            : "bg-surface-2"
+                                    className={`flex size-14 items-center justify-center rounded-full text-3xl ${s.completed
+                                            ? "bg-white/75 text-green-700"
+                                            : "bg-white/50 text-gray-900"
                                         }`}
                                 >
                                     {s.completed ? "✓" : "+"}
                                 </span>
 
-                                <span className="text-xs text-muted">
+                                <span className="text-sm font-medium text-gray-700">
                                     {s.completed
                                         ? "Completed · Click to edit"
                                         : "Click to set up"}
@@ -735,8 +776,8 @@ export default function NewPlanPage() {
                 </div>
             )}
 
-            {/* STEP 4 — SUBJECT DETAILS */}
-            {step === 4 && subject && (
+            {/* SUBJECT SETUP (?subject=N) */}
+            {subject && (
                 <div className={cardClass}>
                     <div>
                         <p className="text-xs font-semibold uppercase tracking-wider text-muted">
@@ -818,6 +859,25 @@ export default function NewPlanPage() {
                         />
                     </div>
 
+                    {/* Exam duration */}
+                    <div>
+                        <label htmlFor="examDuration" className="mb-2 block text-sm font-semibold">
+                            How long is this exam? (minutes)
+                        </label>
+                        <input
+                            id="examDuration"
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={subject.examDuration}
+                            placeholder="e.g. 120"
+                            onChange={(e) =>
+                                updateSubject("examDuration", e.target.value)
+                            }
+                            className={inputClass}
+                        />
+                    </div>
+
                     {/* Semester confidence */}
                     <div>
                         <p className="mb-3 text-sm font-semibold">
@@ -851,42 +911,10 @@ export default function NewPlanPage() {
                         </div>
                     </div>
 
-                    {/* Navigation */}
-                    <div className="flex justify-between pt-2">
-                        <button
-                            type="button"
-                            onClick={() => setStep(3)}
-                            className={secondaryButton}
-                        >
-                            ← Previous
-                        </button>
-
-                        <button
-                            type="button"
-                            disabled={!validStep4}
-                            onClick={() => setStep(5)}
-                            className={primaryButton}
-                        >
-                            Next →
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {/* STEP 5 — STUDY PREFERENCES */}
-            {step === 5 && subject && (
-                <div className={cardClass}>
-                    <div>
-                        <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-                            Subject {activeSubject + 1} of {subjects.length}
-                        </p>
-                        <h2 className="mt-2 text-xl font-bold">
-                            Study preferences
-                        </h2>
-                        <p className="mt-1 text-sm text-muted">
-                            {subject.name}
-                        </p>
-                    </div>
+                    {/* Study preferences */}
+                    <h3 className="border-t border-border pt-6 text-lg font-bold">
+                        Study preferences
+                    </h3>
 
                     {/* Study materials */}
                     <div>
@@ -1106,15 +1134,15 @@ export default function NewPlanPage() {
                     <div className="flex justify-between pt-2">
                         <button
                             type="button"
-                            onClick={() => setStep(4)}
+                            onClick={closeSubject}
                             className={secondaryButton}
                         >
-                            ← Previous
+                            ← Back to subjects
                         </button>
 
                         <button
                             type="button"
-                            disabled={!validStep5}
+                            disabled={!validSubject}
                             onClick={finishSubject}
                             className={primaryButton}
                         >
@@ -1253,6 +1281,121 @@ export default function NewPlanPage() {
                             ← Previous
                         </button>
                     </div>
+                </div>
+            )}
+
+            {/* STEP 7 — GENERATING / RESULT */}
+            {step === 7 && (
+                <div className={cardClass}>
+                    {isGenerating ? (
+                        /* Loading */
+                        <div className="flex flex-col items-center gap-4 py-8 text-center">
+                            <div className="size-10 animate-spin rounded-full border-4 border-border border-t-foreground" />
+                            <p className="font-semibold">Building your schedule…</p>
+                            <p className="text-sm text-muted">
+                                Scheduling sessions with spacing, interleaving, and exam practice.
+                            </p>
+                        </div>
+                    ) : generationError ? (
+                        /* Error */
+                        <div className="space-y-4 py-4 text-center">
+                            <p className="text-lg font-bold text-red-600">Something went wrong</p>
+                            <p className="text-sm text-muted">{generationError}</p>
+                            <button
+                                type="button"
+                                onClick={() => setStep(6)}
+                                className={secondaryButton}
+                            >
+                                ← Go back
+                            </button>
+                        </div>
+                    ) : scheduleResult ? (
+                        /* Success */
+                        <div className="space-y-6">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-widest text-muted">
+                                    Plan ready
+                                </p>
+                                <h2 className="mt-2 text-2xl font-bold">
+                                    {planName}
+                                </h2>
+                                <p className="mt-1 text-sm text-muted">
+                                    {scheduleResult.sessions.length} sessions scheduled
+                                    {scheduleResult.firstDate && scheduleResult.lastDate && (
+                                        <> from{" "}
+                                            {scheduleResult.firstDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                                            {" "}to{" "}
+                                            {scheduleResult.lastDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                                        </>
+                                    )}
+                                </p>
+                            </div>
+
+                            {/* Per-subject breakdown */}
+                            <div className="space-y-2">
+                                <p className="text-sm font-semibold">Sessions per subject</p>
+                                {Object.entries(scheduleResult.breakdown).map(([name, count], i) => (
+                                    <div key={name} className="flex items-center gap-3">
+                                        <span
+                                            className="size-3 shrink-0 rounded-full"
+                                            style={{ backgroundColor: subjectColors[i % subjectColors.length] }}
+                                        />
+                                        <span className="flex-1 text-sm">{name}</span>
+                                        <span className="text-sm font-semibold tabular-nums">{count}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* How the scheduler works */}
+                            <div className="rounded-xl bg-surface-2 p-4 space-y-2">
+                                <p className="text-xs font-semibold uppercase tracking-wider text-muted">
+                                    How this schedule was built
+                                </p>
+                                <ul className="space-y-1.5 text-xs text-muted">
+                                    <li>
+                                        <span className="font-medium text-foreground">Retrieval practice</span>
+                                        {" "}— every session opens with a recall warm-up and closes with an exit quiz.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Spacing</span>
+                                        {" "}— recovery sessions implement a 1 → 3 → 7 → 14 day recall cycle for each topic.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Interleaving</span>
+                                        {" "}— subjects are mixed across each day&apos;s slots; no two consecutive sessions cover the same subject.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Exam practice</span>
+                                        {" "}— mock exams are reserved in the final days before each exam date.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Sustainability</span>
+                                        {" "}— sessions are capped at 4 per day, run 09:00–19:00, and 1 in 10 study days is kept free as a buffer.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Hours formula</span>
+                                        {" "}— required_hours = est_hours × (1.25 − 0.5 × confidence), scaling between 0.75× (very confident) and 1.25× (not comfortable).
+                                    </li>
+                                </ul>
+                            </div>
+
+                            <button
+                                type="button"
+                                onClick={() => router.push("/calendar")}
+                                className={`${primaryButton} w-full`}
+                            >
+                                View in calendar →
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => router.push("/plans")}
+                                className={`${secondaryButton} w-full`}
+                            >
+                                Back to plans
+                            </button>
+                        </div>
+                    ) : null}
                 </div>
             )}
 

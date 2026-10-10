@@ -92,9 +92,21 @@ export const HeartIcon = (p: P) => (
   </Icon>
 );
 
+export const BrainIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M9.5 2a4 4 0 0 0-4 4c0 .34.04.67.11.99A4 4 0 0 0 3 10.5c0 1.2.53 2.28 1.37 3.02A4.001 4.001 0 0 0 8 20h1v-2H8a2 2 0 0 1-2-2v-.5a2 2 0 0 1 2-2h1v-2H8a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.5V8c0-1.1.9-2 2-2s2 .9 2 2v.5H14a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-1v2h1a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-1v2h1a4 4 0 0 0 3.63-5.48A4.5 4.5 0 0 0 17 6a4 4 0 0 0-7.5-4z" />
+  </Icon>
+);
+
 export const CommentIcon = (p: P) => (
   <Icon {...p}>
     <path d="M21 12a8.5 8.5 0 0 1-12.4 7.6L3 21l1.4-5.4A8.5 8.5 0 1 1 21 12z" />
+  </Icon>
+);
+
+export const ChevronDownIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M6 9l6 6 6-6" />
   </Icon>
 );
 

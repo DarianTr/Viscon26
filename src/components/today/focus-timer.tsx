@@ -4,23 +4,27 @@ import { useEffect, useState } from "react";
 import { PauseIcon, PlayIcon, XIcon } from "@/components/icons";
 import { Brain, type BrainExpression } from "@/components/mascot/brain";
 import { Ring } from "@/components/ui/primitives";
-import { sessionTypes, subjectColor } from "@/lib/session-types";
+import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
 import type { Task } from "@/lib/types";
 
 /** Full-screen session recorder — the study version of hitting "Start run". */
 export function FocusTimer({
   task,
+  initialElapsed = 0,
   onClose,
   onFinish,
 }: {
   task: Task;
-  onClose: () => void;
-  /** Called with the minutes actually studied (at least 1). */
+  /** Seconds already accumulated in earlier runs of this session. */
+  initialElapsed?: number;
+  /** Called with seconds elapsed so the parent can persist progress. */
+  onClose: (elapsed: number) => void;
+  /** Called with the total minutes actually studied (at least 1). */
   onFinish: (minutes: number) => void;
 }) {
   // Intervals run as 25-minute reps; everything else as one block.
   const blockSeconds = (task.type === "intervals" ? 25 : task.minutes) * 60;
-  const [elapsed, setElapsed] = useState(0);
+  const [elapsed, setElapsed] = useState(initialElapsed);
   const [paused, setPaused] = useState(false);
 
   useEffect(() => {
@@ -37,6 +41,9 @@ export function FocusTimer({
   const type = sessionTypes[task.type];
   const mood: BrainExpression = paused ? "sleepy" : "focused";
 
+  const isResumed = initialElapsed > 0;
+  const totalMinutes = Math.max(1, Math.round(elapsed / 60));
+
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]"
@@ -46,16 +53,26 @@ export function FocusTimer({
       }}
     >
       <div className="flex items-center justify-between">
-        <span
-          className="rounded-full border px-3 py-1 text-xs font-bold"
-          style={{ borderColor: "var(--focus-border)", color: "var(--focus-muted)" }}
-        >
-          {type.label}
-          {task.type === "intervals" && ` · Rep ${rep}`}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className="rounded-full border px-3 py-1 text-xs font-bold"
+            style={{ borderColor: "var(--focus-border)", color: "var(--focus-muted)" }}
+          >
+            {type.label}
+            {task.type === "intervals" && ` · Rep ${rep}`}
+          </span>
+          {isResumed && (
+            <span
+              className="rounded-full border px-3 py-1 text-xs font-bold"
+              style={{ borderColor: "var(--focus-accent)", color: "var(--focus-accent)" }}
+            >
+              Resumed
+            </span>
+          )}
+        </div>
         <button
-          onClick={onClose}
-          aria-label="Close"
+          onClick={() => onClose(elapsed)}
+          aria-label="Pause and leave"
           className="grid size-10 place-items-center rounded-full border transition-colors hover:bg-white/5"
           style={{ borderColor: "var(--focus-border)" }}
         >
@@ -87,6 +104,14 @@ export function FocusTimer({
             </div>
           </Ring>
         </div>
+
+        {isResumed && (
+          <p className="mt-6 text-sm text-muted">
+            Total studied:{" "}
+            <span className="font-semibold text-foreground">{formatMinutes(totalMinutes)}</span>
+            {" "}(incl. earlier run)
+          </p>
+        )}
       </div>
 
       <div className="flex items-center justify-center gap-4">
@@ -99,7 +124,7 @@ export function FocusTimer({
           {paused ? <PlayIcon className="size-6" /> : <PauseIcon className="size-6" />}
         </button>
         <button
-          onClick={() => onFinish(Math.max(1, Math.round(elapsed / 60)))}
+          onClick={() => onFinish(totalMinutes)}
           className="h-16 rounded-full border-2 px-8 font-display text-base font-bold transition-transform active:scale-95"
           style={{ background: "var(--focus-accent)", borderColor: "var(--focus-accent)", color: "var(--focus-ink)" }}
         >

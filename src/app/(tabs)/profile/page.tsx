@@ -7,7 +7,8 @@ import { Brain, STAGE_LABEL, type BrainStage } from "@/components/mascot/brain";
 import { SubjectInvestment } from "@/components/profile/subject-investment";
 import { Avatar, Button, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
 import { mascotStageFromHours } from "@/lib/mascot";
-import { getCurrentUser, getFeed, getProfile } from "@/lib/queries";
+import { getCurrentUser, getFeed, getProfile, getStudyBehavior } from "@/lib/queries";
+import type { HourlyBucket } from "@/lib/queries";
 import { subjectColor } from "@/lib/session-types";
 
 export const metadata: Metadata = { title: "Profile" };
@@ -27,9 +28,10 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
   // ?posts=N shows the latest N posts; "Show more" bumps it.
   const requested = Number((await searchParams).posts);
   const shown = Number.isInteger(requested) ? Math.min(Math.max(requested, POSTS_STEP), 200) : POSTS_STEP;
-  const [profile, posts] = await Promise.all([
+  const [profile, posts, behavior] = await Promise.all([
     getProfile(user),
     getFeed(user.id, { mineOnly: true, limit: shown + 1 }),
+    getStudyBehavior(user.id),
   ]);
   const hasMore = posts.length > shown;
   const weekHours = profile.week.reduce((a, b) => a + b, 0);
@@ -119,7 +121,7 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
       <div className="grid grid-cols-3 gap-3">
         <Total label="Hours" value={profile.totals.hours} />
         <Total label="Sessions" value={profile.totals.sessions} />
-        <Total label="Kudos" value={profile.totals.kudos.toLocaleString("en-US")} />
+        <Total label="Braincells" value={profile.totals.kudos.toLocaleString("en-US")} />
       </div>
 
       <SectionTitle>Your brain, right now</SectionTitle>
@@ -149,10 +151,13 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
         userKey={profile.handle}
       />
 
+      <SectionTitle>Study behavior</SectionTitle>
+      <StudyBehaviorCard behavior={behavior} />
+
       <SectionTitle>Subjects</SectionTitle>
       <Card className="flex flex-col gap-4">
         {profile.subjects.length === 0 && (
-          <p className="text-sm text-muted">Finish a session to see your subjects here.</p>
+          <p className="text-sm text-muted">Create a study plan or finish a session to see your subjects here.</p>
         )}
         {profile.subjects.map((s) => (
           <div key={s.name}>
@@ -250,6 +255,77 @@ function BrainEvolution({ hours }: { hours: number }) {
           </div>
         ))}
       </div>
+    </Card>
+  );
+}
+
+function StudyBehaviorCard({ behavior }: { behavior: { hourly: HourlyBucket[]; peakHour: number | null; totalSessions: number } }) {
+  if (behavior.totalSessions === 0) {
+    return (
+      <Card className="flex flex-col items-center gap-3 py-8 text-center">
+        <Brain expression="confused" size={72} />
+        <p className="text-sm text-muted">Complete sessions to see your study patterns here.</p>
+      </Card>
+    );
+  }
+
+  const formatHour = (h: number) => {
+    if (h === 0) return "12 AM";
+    if (h < 12) return `${h} AM`;
+    if (h === 12) return "12 PM";
+    return `${h - 12} PM`;
+  };
+
+  // Show hours 5–23 (trim early-morning noise)
+  const visible = behavior.hourly.slice(5, 24);
+  const maxSessions = Math.max(...visible.map((b) => b.sessions), 1);
+  const peakHour = behavior.peakHour;
+
+  return (
+    <Card>
+      {peakHour !== null && (
+        <p className="mb-4 text-sm">
+          Most active at{" "}
+          <span className="font-display font-bold text-accent">{formatHour(peakHour)}</span>
+          {" "}— the strategy agent uses this to schedule your most important sessions then.
+        </p>
+      )}
+      <div className="flex h-24 items-end gap-px overflow-hidden rounded-xl border-2 border-border p-1.5">
+        {visible.map((bucket) => {
+          const isPeak = bucket.hour === peakHour;
+          const heightPct = bucket.sessions > 0 ? Math.max(8, (bucket.sessions / maxSessions) * 100) : 4;
+          return (
+            <div
+              key={bucket.hour}
+              className="group relative flex flex-1 flex-col items-center justify-end"
+              style={{ height: "100%" }}
+            >
+              <div
+                className={`w-full rounded-sm transition-opacity ${isPeak ? "bg-accent" : "bg-surface-2"} ${bucket.sessions === 0 ? "opacity-30" : ""}`}
+                style={{ height: `${heightPct}%` }}
+                title={`${formatHour(bucket.hour)}: ${bucket.sessions} session${bucket.sessions !== 1 ? "s" : ""}${bucket.avgFocus != null ? `, avg focus ${bucket.avgFocus}` : ""}`}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1.5 flex justify-between text-[10px] text-muted">
+        <span>{formatHour(5)}</span>
+        <span>{formatHour(12)}</span>
+        <span>{formatHour(23)}</span>
+      </div>
+      {(() => {
+        const withFocus = behavior.hourly.filter((b) => b.avgFocus != null && b.sessions > 0);
+        if (withFocus.length === 0) return null;
+        const bestFocus = withFocus.reduce((best, cur) => (cur.avgFocus! > best.avgFocus! ? cur : best));
+        return (
+          <p className="mt-3 text-sm text-muted">
+            Highest focus at{" "}
+            <span className="font-medium text-foreground">{formatHour(bestFocus.hour)}</span>
+            {" "}(avg {bestFocus.avgFocus}/100)
+          </p>
+        );
+      })()}
     </Card>
   );
 }

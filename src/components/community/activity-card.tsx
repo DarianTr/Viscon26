@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { CameraIcon, CommentIcon, HeartIcon, MapPinIcon, UsersIcon, XIcon } from "@/components/icons";
+import { BrainIcon, CameraIcon, CommentIcon, MapPinIcon, UsersIcon, XIcon } from "@/components/icons";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Avatar, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
@@ -147,8 +147,8 @@ export function ActivityCard({ activity }: { activity: Activity }) {
             liked ? "text-accent" : "text-muted hover:text-foreground"
           }`}
         >
-          <HeartIcon className={`size-5 transition-transform ${liked ? "mascot-pop scale-110 fill-current" : ""}`} />
-          {others + (liked ? 1 : 0)} kudos
+          <BrainIcon className={`size-5 transition-transform ${liked ? "mascot-pop scale-110 fill-current" : ""}`} />
+          {others + (liked ? 1 : 0)} braincells
         </button>
         <button
           onClick={toggleComments}

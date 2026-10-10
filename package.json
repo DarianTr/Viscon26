@@ -13,16 +13,17 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx --env-file-if-exists=.env.local src/db/seed.ts",
+    "db:seed-knowledge": "tsx --env-file-if-exists=.env.local src/db/seed-knowledge.ts",
     "db:set-password": "tsx --env-file-if-exists=.env.local src/db/set-password.ts",
     "db:setup": "npm run db:up && npm run db:migrate && npm run db:seed",
     "db:studio": "drizzle-kit studio",
     "docker:up": "docker compose up -d --build --wait",
-    "docker:down": "docker compose down",
-    "typecheck": "next typegen && tsc --noEmit"
+    "docker:down": "docker compose down"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.4",
     "next": "16.4.0",
+    "openai": "^7.32.0",
     "postgres": "^3.4.9",
     "react": "19.3.0",
     "react-dom": "19.3.0",

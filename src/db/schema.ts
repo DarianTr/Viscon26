@@ -90,6 +90,46 @@ export const friendships = pgTable(
 
 export type PlanPhase = { name: string; weeks: number };
 
+export type StoredSubjectConfig = {
+  name: string;
+  examDate: string;
+  examDuration: string;
+  targetGrade: string;
+  currentGrade: string;
+  confidence: string;
+  approach: string;
+  customPhases: string[];
+  mockCount: string;
+  allocation: number;
+  materials: string[];
+  cheatsheet: string;
+  comments: string;
+};
+
+export type StoredPlanConfig = {
+  weeklyHours: number;
+  studyDays: string[];
+  sessionLength: number;
+  vacationRanges: { start: string; end: string }[];
+  /** Per-subject configs persisted at creation time and updated by the strategy agent. */
+  subjects?: StoredSubjectConfig[];
+  /** Preferred session start hour (e.g. 9 = 09:00), set by the strategy agent from behavioral data. */
+  preferredStartHour?: number;
+};
+
+/** A custom study plan created by the user via the plan wizard. */
+export const userPlans = pgTable(
+  "user_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    config: jsonb("config").$type<StoredPlanConfig>(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId)],
+);
+
 export const plans = pgTable("plans", {
   /** Readable plan slug. */
   id: text("id").primaryKey(),
@@ -126,6 +166,7 @@ export const sessions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     planId: text("plan_id").references(() => plans.id, { onDelete: "set null" }),
+    userPlanId: uuid("user_plan_id").references(() => userPlans.id, { onDelete: "set null" }),
     type: sessionType("type").notNull(),
     blocksStudy: boolean("blocks_study").notNull().default(false),
     calendarOrder: integer("calendar_order"),
@@ -150,6 +191,7 @@ export const sessions = pgTable(
   (t) => [
     index().on(t.userId, t.scheduledAt),
     index().on(t.completedAt),
+    index().on(t.userPlanId),
   ],
 );
 
@@ -217,6 +259,24 @@ export const userBadges = pgTable(
     earnedAt: timestamp("earned_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.userId, t.badgeId] })],
+);
+
+/** Exam scores logged by the user for mock or past exams. */
+export const examScores = pgTable(
+  "exam_scores",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userPlanId: uuid("user_plan_id").references(() => userPlans.id, { onDelete: "set null" }),
+    subject: text("subject").notNull(),
+    /** Swiss grade scale 1–6. */
+    score: real("score").notNull(),
+    examType: text("exam_type").$type<"mock" | "past">().notNull().default("mock"),
+    takenAt: date("taken_at").notNull(),
+    notes: text("notes"),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId), index().on(t.userPlanId)],
 );
 
 /** The original starter example, kept for /api/items. */

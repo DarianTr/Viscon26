@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckIcon, ClockIcon, FlameIcon, PlayIcon } from "@/components/icons";
+import { CheckIcon, ChevronDownIcon, ClockIcon, FlameIcon, PlayIcon } from "@/components/icons";
 import { Brain, type BrainExpression } from "@/components/mascot/brain";
 import { Button, Card, Ring, SectionTitle } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
@@ -11,15 +11,41 @@ import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
 import type { Task } from "@/lib/types";
 import { FocusTimer } from "./focus-timer";
 
+const PROGRESS_KEY = "focus-timer-progress";
+
+function loadProgress(): Map<string, number> {
+  try {
+    const raw = localStorage.getItem(PROGRESS_KEY);
+    if (raw) return new Map(JSON.parse(raw) as [string, number][]);
+  } catch {}
+  return new Map();
+}
+
+function persistProgress(map: Map<string, number>) {
+  try {
+    localStorage.setItem(PROGRESS_KEY, JSON.stringify([...map.entries()]));
+  } catch {}
+}
+
 export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; streak: number }) {
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
   const [running, setRunning] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Seconds accumulated per task ID from earlier, paused runs.
+  const [inProgress, setInProgress] = useState<Map<string, number>>(new Map());
+
+  // Load saved progress after hydration (localStorage is client-only).
+  useEffect(() => {
+    setInProgress(loadProgress());
+  }, []);
 
   const total = tasks.reduce((sum, t) => sum + t.minutes, 0);
-  const done = tasks.filter((t) => t.done).reduce((sum, t) => sum + t.minutes, 0);
-  const progress = total ? done / total : 0;
+  // Actual minutes studied: use actualMinutes when available, fall back to plannedMinutes.
+  const studied = tasks.reduce((sum, t) => sum + (t.done ? (t.actualMinutes ?? t.minutes) : 0), 0);
+  const completedCount = tasks.filter((t) => t.done).length;
+  const progress = tasks.length ? completedCount / tasks.length : 0;
   const next = tasks.find((t) => !t.done);
 
   // Purely decorative — which face the mascot pulls today. Doesn't touch
@@ -37,18 +63,46 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
 
   /** Optimistically flip a task, then save; roll back if the save fails. */
   function setDone(id: string, value: boolean, minutes?: number) {
-    const markAs = (v: boolean) =>
-      setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, done: v } : t)));
-    markAs(value);
+    const prev = tasks;
+    setTasks((ts) =>
+      ts.map((t) => {
+        if (t.id !== id) return t;
+        if (!value) return { ...t, done: false, actualMinutes: null };
+        // Use the timer's elapsed minutes if provided; otherwise keep planned.
+        return { ...t, done: true, actualMinutes: minutes ?? t.minutes };
+      }),
+    );
     setError(null);
     api
       .setTaskDone(id, value, minutes)
       // Refresh server data that depends on it (streak, sidebar, other tabs).
       .then(() => router.refresh())
       .catch((err: Error) => {
-        markAs(!value);
+        setTasks(prev);
         setError(err.message);
       });
+  }
+
+  /** X pressed inside the timer — save progress and return to the board. */
+  function handleTimerClose(elapsed: number) {
+    if (!running) return;
+    if (elapsed > 0) {
+      const updated = new Map(inProgress).set(running.id, elapsed);
+      setInProgress(updated);
+      persistProgress(updated);
+    }
+    setRunning(null);
+  }
+
+  /** "Finish & save" pressed — record actual time and clear saved progress. */
+  function handleTimerFinish(minutes: number) {
+    if (!running) return;
+    const updated = new Map(inProgress);
+    updated.delete(running.id);
+    setInProgress(updated);
+    persistProgress(updated);
+    setDone(running.id, true, minutes);
+    setRunning(null);
   }
 
   return (
@@ -63,7 +117,7 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
           </div>
         </Ring>
         <div className="grid flex-1 grid-cols-2 gap-x-4 gap-y-3">
-          <Stat label="Studied" value={formatMinutes(done)} />
+          <Stat label="Studied" value={formatMinutes(studied)} />
           <Stat label="Planned" value={formatMinutes(total)} />
           <Stat
             label="Streak"
@@ -94,7 +148,7 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
           </p>
           <Button variant="ghost" onClick={() => setRunning(next)} className="mt-4 text-accent!">
             <PlayIcon className="size-4" />
-            Start session
+            {(inProgress.get(next.id) ?? 0) > 0 ? "Resume session" : "Start session"}
           </Button>
           <div className="pointer-events-none absolute -top-8 -right-8 size-32 rounded-full bg-white/10" />
           <div className="pointer-events-none absolute -right-2 -bottom-14 size-28 rounded-full bg-white/10" />
@@ -116,10 +170,13 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
       <ul className="flex flex-col gap-3">
         {tasks.map((task) => {
           const type = sessionTypes[task.type];
+          const savedSecs = inProgress.get(task.id) ?? 0;
+          const isPaused = !task.done && savedSecs > 0;
+          const isExpanded = expanded.has(task.id);
           return (
             <li key={task.id}>
               <Card className={`flex gap-4 p-4 transition-opacity ${task.done ? "opacity-60" : ""}`}>
-                <div className={`w-1.5 shrink-0 rounded-full ${type.color}`} />
+                <div className={`w-1.5 shrink-0 rounded-full ${isPaused ? "bg-amber-400" : type.color}`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-xs">
                     <span className={`rounded-full px-2 py-0.5 font-bold ${type.soft}`}>
@@ -129,11 +186,37 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
                       <span className="size-1.5 rounded-full" style={{ backgroundColor: subjectColor(task.subject).value }} />
                       {task.subject}
                     </span>
+                    {isPaused && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">
+                        Paused · {formatMinutes(Math.round(savedSecs / 60))} done
+                      </span>
+                    )}
                   </div>
-                  <p className={`mt-1.5 font-display font-bold ${task.done ? "line-through" : ""}`}>
-                    {task.title}
-                  </p>
-                  {task.detail && <p className="mt-0.5 text-sm text-muted">{task.detail}</p>}
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <p className={`font-display font-bold ${task.done ? "line-through" : ""}`}>
+                      {task.title}
+                    </p>
+                    {task.detail && (
+                      <button
+                        onClick={() =>
+                          setExpanded((prev) => {
+                            const next = new Set(prev);
+                            next.has(task.id) ? next.delete(task.id) : next.add(task.id);
+                            return next;
+                          })
+                        }
+                        aria-label={isExpanded ? "Hide details" : "Show details"}
+                        className="text-muted transition-transform"
+                      >
+                        <ChevronDownIcon
+                          className={`size-4 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                        />
+                      </button>
+                    )}
+                  </div>
+                  {task.detail && isExpanded && (
+                    <p className="mt-0.5 text-sm text-muted">{task.detail}</p>
+                  )}
                   <p className="mt-2 flex items-center gap-1.5 text-xs text-muted">
                     <ClockIcon className="size-3.5" />
                     {task.time} · {formatMinutes(task.minutes)}
@@ -154,8 +237,12 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
                   {!task.done && (
                     <button
                       onClick={() => setRunning(task)}
-                      aria-label={`Start ${task.title}`}
-                      className="grid size-8 place-items-center rounded-full bg-accent-soft text-accent"
+                      aria-label={isPaused ? `Resume ${task.title}` : `Start ${task.title}`}
+                      className={`grid size-8 place-items-center rounded-full transition-colors ${
+                        isPaused
+                          ? "bg-amber-100 text-amber-600"
+                          : "bg-accent-soft text-accent"
+                      }`}
                     >
                       <PlayIcon className="size-3.5" />
                     </button>
@@ -170,11 +257,9 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
       {running && (
         <FocusTimer
           task={running}
-          onClose={() => setRunning(null)}
-          onFinish={(minutes) => {
-            setDone(running.id, true, minutes);
-            setRunning(null);
-          }}
+          initialElapsed={inProgress.get(running.id) ?? 0}
+          onClose={handleTimerClose}
+          onFinish={handleTimerFinish}
         />
       )}
     </>
