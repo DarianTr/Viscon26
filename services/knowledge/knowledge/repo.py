@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 from collections import defaultdict
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, date, datetime, time
 from typing import Any
 from uuid import UUID
 
@@ -24,12 +24,21 @@ def to_days(ts: datetime) -> float:
     return ts.timestamp() / SECONDS_PER_DAY
 
 
+def from_days(days: float) -> datetime:
+    return datetime.fromtimestamp(days * SECONDS_PER_DAY, UTC)
+
+
+def exam_datetime(day: date) -> datetime:
+    """Exams are assumed to be in the morning: 09:00 UTC on the exam date."""
+    return datetime.combine(day, time(9), UTC)
+
+
 # --- Topics ------------------------------------------------------------------
 
 
 def list_topics(conn: Connection, plan_id: str) -> list[dict[str, Any]]:
     return conn.execute(
-        "select id, parent_id, name, prior_mean, prior_sd, position from topics"
+        "select id, parent_id, name, prior_mean, prior_sd, position, exam_date from topics"
         " where plan_id = %s order by position, id",
         [plan_id],
     ).fetchall()
@@ -42,13 +51,13 @@ def upsert_topics(conn: Connection, plan_id: str, topics: Iterable[dict[str, Any
         # Insert without parents first so the self-reference holds in any order.
         for t in topics:
             conn.execute(
-                "insert into topics (plan_id, id, name, prior_mean, prior_sd, position)"
+                "insert into topics (plan_id, id, name, prior_mean, prior_sd, position, exam_date)"
                 " values (%(plan_id)s, %(id)s, %(name)s, %(prior_mean)s, %(prior_sd)s,"
-                " %(position)s)"
+                " %(position)s, %(exam_date)s)"
                 " on conflict (plan_id, id) do update set name = excluded.name,"
                 " prior_mean = excluded.prior_mean, prior_sd = excluded.prior_sd,"
-                " position = excluded.position",
-                {**t, "plan_id": plan_id},
+                " position = excluded.position, exam_date = excluded.exam_date",
+                {"exam_date": None, **t, "plan_id": plan_id},
             )
         for t in topics:
             conn.execute(

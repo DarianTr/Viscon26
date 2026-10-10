@@ -35,13 +35,20 @@ from .schemas import (
     ObservationOut,
     ObservationsOut,
     PlanParamsBody,
+    ProjectionPoint,
     Slope,
     StateOut,
+    TimelineGroup,
+    TimelineObservation,
+    TimelineOut,
+    TimelineStep,
+    TimelineTopic,
     TopicsIn,
     TopicsOut,
     TopicState,
     TypeFitOut,
 )
+from .timeline import build_timeline
 
 STARTED = time.monotonic()
 
@@ -132,14 +139,14 @@ def _routes(app: FastAPI) -> None:
 
     @app.put("/plans/{plan_id}/topics", response_model=TopicsOut)
     def put_topics(plan_id: str, body: TopicsIn, conn: Conn):
-        """Insert or update topics. Topics not in the body are kept."""
+        """Insert or update topics. Topics not in the body are kept.
+
+        `parentId` groups topics: siblings are correlated and, in the timeline,
+        forecast together. It may name another topic or just a group, such as a subject.
+        """
         ids = [t.id for t in body.topics]
         if len(set(ids)) != len(ids):
             raise bad_request("Duplicate topic ids")
-        known = repo.known_topic_ids(conn, plan_id) | set(ids)
-        missing = sorted({t.parent_id for t in body.topics if t.parent_id} - known)
-        if missing:
-            raise bad_request("Unknown parent topics", missing)
         rows = [
             {**t.model_dump(), "position": t.position if t.position is not None else i}
             for i, t in enumerate(body.topics)
@@ -291,6 +298,80 @@ def _routes(app: FastAPI) -> None:
             diagnostics=Diagnostics(
                 observations=fits, calibration=calibration, skipped=result.skipped
             ),
+        )
+
+    # --- Timeline ------------------------------------------------------------
+
+    @app.get("/users/{user_id}/plans/{plan_id}/timeline", response_model=TimelineOut)
+    def get_timeline(
+        user_id: UUID,
+        plan_id: str,
+        conn: Conn,
+        at: Annotated[datetime | None, Query(description="Defaults to now")] = None,
+    ):
+        """Every step of the learner's estimates, with exam-day forecasts, for charts."""
+        model = repo.load_model(conn, plan_id)
+        if model is None:
+            raise HTTPException(404, "Plan has no topics")
+        as_of = at or datetime.now(UTC)
+        if as_of.tzinfo is None:
+            raise bad_request("`at` needs a time zone offset")
+        topic_rows = repo.list_topics(conn, plan_id)
+        exam_days = [
+            None if r["exam_date"] is None else repo.to_days(repo.exam_datetime(r["exam_date"]))
+            for r in topic_rows
+        ]
+        rows = repo.list_observations(conn, plan_id=plan_id, user_id=user_id, end=as_of)
+        tl = build_timeline(
+            model, [repo.to_observation(r) for r in rows], exam_days, repo.to_days(as_of)
+        )
+
+        def step_out(st) -> TimelineStep:
+            o = st.observation
+            return TimelineStep(
+                at=repo.from_days(st.t),
+                observation=None
+                if o is None
+                else TimelineObservation(
+                    id=o.id, type=o.type_id, score=o.score, n_points=o.n_points, weights=o.weights
+                ),
+                levels=[MeanSd(mean=m.mean, sd=m.sd) for m in st.levels],
+                forecasts=[MeanSd(mean=m.mean, sd=m.sd) for m in st.forecasts],
+                group_levels=[MeanSd(mean=m.mean, sd=m.sd) for m in st.group_levels],
+                group_forecasts=[MeanSd(mean=m.mean, sd=m.sd) for m in st.group_forecasts],
+                overall=MeanSd(mean=st.overall.mean, sd=st.overall.sd),
+                predicted=st.predicted,
+                z=st.z,
+                noise_sd=st.noise_sd,
+            )
+
+        return TimelineOut(
+            user_id=user_id,
+            plan_id=plan_id,
+            as_of=as_of,
+            topics=[
+                TimelineTopic(id=r["id"], name=r["name"], exam_date=r["exam_date"])
+                for r in topic_rows
+            ],
+            groups=[
+                TimelineGroup(
+                    id=g.id,
+                    topic_ids=[topic_rows[i]["id"] for i in g.members],
+                    exam_date=None if g.exam_day is None else repo.from_days(g.exam_day).date(),
+                )
+                for g in tl.groups
+            ],
+            steps=[step_out(s) for s in tl.steps],
+            current=step_out(tl.current),
+            projection=[
+                ProjectionPoint(
+                    at=repo.from_days(t),
+                    levels=[MeanSd(mean=m.mean, sd=m.sd) for m in levels],
+                    group_levels=[MeanSd(mean=m.mean, sd=m.sd) for m in group_levels],
+                )
+                for t, levels, group_levels in tl.projection
+            ],
+            skipped=tl.skipped,
         )
 
     # --- Fit -----------------------------------------------------------------

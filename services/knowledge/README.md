@@ -309,7 +309,7 @@ interactive docs are at `/docs`.
 | Method | Path | Body / query | Response |
 | ------ | ---- | ------------ | -------- |
 | GET | `/health` | – | `{ status, database, … }` (503 if the DB is down) |
-| GET / PUT | `/plans/:planId/topics` | `{ topics: [{ id, name, parentId?, priorMean?, priorSd?, position? }] }` (upsert) | `{ topics }` |
+| GET / PUT | `/plans/:planId/topics` | `{ topics: [{ id, name, parentId?, priorMean?, priorSd?, position?, examDate? }] }` (upsert). `parentId` is a group key, e.g. the subject: siblings are correlated and forecast together | `{ topics }` |
 | GET / PUT | `/plans/:planId/params` | `{ halfLifeDays?, slopePriorMean?, slopePriorSd?, qLevel?, qSlope?, learnerBiasSd?, rhoSibling?, rhoGlobal? }` | params |
 | GET | `/assessment-types` | – | `{ types }` (seeded: practice, quiz, mock, exam) |
 | GET / PUT | `/assessment-types/:id` | `{ name, nDefault, cPrior, tau2?, biasPrior?, biasFixed? }` | type |
@@ -317,6 +317,7 @@ interactive docs are at `/docs`.
 | GET | `/observations` | `?userId=&planId=&from=&to=&limit=&offset=` | `{ observations }` |
 | DELETE | `/observations/:id` | – | `204` |
 | GET | `/users/:userId/plans/:planId/state` | `?at=` (ISO time, default now) | levels, slopes (per week), correlations, learner biases, diagnostics |
+| GET | `/users/:userId/plans/:planId/timeline` | `?at=` | every step (prior, then after each data point): per-topic levels and exam-day forecasts, the same per group (equal average of a group's topics, with their joint covariance), the plan forecast weighting groups equally, and a daily projection to the last exam. Used by the app's charts |
 | POST | `/plans/:planId/fit` | – | estimates with sds and `priorOnly` flags |
 | GET | `/plans/:planId/fit` | – | the stored fit |
 

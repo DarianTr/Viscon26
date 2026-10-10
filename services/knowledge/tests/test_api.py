@@ -156,3 +156,45 @@ def test_fit_uses_all_learners_and_feeds_back_into_state(client, topics):
     by_type = {t["typeId"]: t for t in stored["types"]}
     assert by_type["practice"]["c"] == pytest.approx(fit["types"]["practice"]["c"]["value"])
     assert "exam" not in by_type
+
+
+def test_timeline_forecasts_for_exam_dates(client):
+    plan = "timeline-plan"
+    res = client.put(
+        f"/plans/{plan}/topics",
+        json={"topics": [
+            {"id": "analysis", "name": "Analysis", "examDate": "2026-10-20"},
+            {"id": "linalg", "name": "Linear algebra", "examDate": "2026-10-25"},
+        ]},
+    )  # fmt: skip
+    assert res.status_code == 200 and res.json()["topics"][0]["examDate"] == "2026-10-20"
+    user = uuid.uuid4()
+    for day, score in ((0, 0.6), (2, 0.7)):
+        r = client.post("/observations", json={
+            "userId": str(user), "planId": plan, "type": "quiz",
+            "observedAt": (DAY0 + timedelta(days=day)).isoformat(),
+            "score": score, "weights": {"analysis": 1},
+        })  # fmt: skip
+        assert r.status_code == 201, r.text
+
+    at = (DAY0 + timedelta(days=5)).isoformat()
+    tl = client.get(f"/users/{user}/plans/{plan}/timeline", params={"at": at}).json()
+    assert [t["id"] for t in tl["topics"]] == ["analysis", "linalg"]
+    assert len(tl["steps"]) == 3 and tl["steps"][0]["observation"] is None
+    assert tl["steps"][1]["observation"]["type"] == "quiz"
+    assert tl["projection"][0]["at"].startswith((DAY0 + timedelta(days=5)).date().isoformat())
+    assert tl["projection"][-1]["at"].startswith("2026-10-25")
+    assert set(tl["current"]) >= {"levels", "forecasts", "groupLevels", "groupForecasts", "overall"}
+    assert [g["id"] for g in tl["groups"]] == ["analysis", "linalg"]
+
+
+def test_parent_may_be_a_group_that_is_not_a_topic(client):
+    res = client.put(
+        "/plans/group-plan/topics",
+        json={"topics": [
+            {"id": "physics.mechanics", "name": "Mechanics", "parentId": "physics"},
+            {"id": "physics.waves", "name": "Waves", "parentId": "physics"},
+        ]},
+    )  # fmt: skip
+    assert res.status_code == 200, res.text
+    assert {t["parentId"] for t in res.json()["topics"]} == {"physics"}

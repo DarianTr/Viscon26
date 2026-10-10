@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -27,12 +27,15 @@ class Out(BaseModel):
 class TopicIn(Body):
     id: Id
     name: str = Field(min_length=1, max_length=200)
+    #: Group key: another topic's id, or any group name (e.g. a subject).
     parent_id: Id | None = None
     #: Expected score on this topic before any data, as a fraction.
     prior_mean: Fraction = 0.5
     prior_sd: float = Field(0.2, gt=0, le=1)
     #: Order in the state vector; defaults to the order in the request.
     position: int | None = None
+    #: The day this topic is examined; the timeline forecasts it for that day.
+    exam_date: date | None = None
 
 
 class TopicsIn(Body):
@@ -46,6 +49,7 @@ class TopicOut(Out):
     prior_mean: float
     prior_sd: float
     position: int
+    exam_date: date | None
 
 
 class TopicsOut(Out):
@@ -193,6 +197,69 @@ class StateOut(Out):
     #: This learner's own offset per non-anchor assessment type.
     learner_bias: dict[str, MeanSd]
     diagnostics: Diagnostics
+
+
+# --- Timeline ----------------------------------------------------------------
+
+
+class TimelineTopic(Out):
+    id: str
+    name: str
+    exam_date: date | None
+
+
+class TimelineGroup(Out):
+    """Topics sharing a parentId, e.g. one subject; examined together, equally weighted."""
+
+    id: str
+    topic_ids: list[str]
+    exam_date: date | None
+
+
+class TimelineObservation(Out):
+    id: str | None
+    type: str
+    score: float
+    n_points: float
+    weights: dict[str, float]
+
+
+class TimelineStep(Out):
+    at: datetime
+    #: None for the prior and for `current`.
+    observation: TimelineObservation | None
+    #: Per topic (in `topics` order): the level at `at`.
+    levels: list[MeanSd]
+    #: Per topic: the forecast for its exam day, as known at `at`.
+    forecasts: list[MeanSd]
+    #: Per group (in `groups` order): the equal average of its topics, now and on its exam day.
+    group_levels: list[MeanSd]
+    group_forecasts: list[MeanSd]
+    #: Every group weighted equally, at the last exam day.
+    overall: MeanSd
+    #: What the model expected this observation to score, and how surprising it was.
+    predicted: float | None = None
+    z: float | None = None
+    noise_sd: float | None = None
+
+
+class ProjectionPoint(Out):
+    at: datetime
+    levels: list[MeanSd]
+    group_levels: list[MeanSd]
+
+
+class TimelineOut(Out):
+    user_id: UUID
+    plan_id: str
+    as_of: datetime
+    topics: list[TimelineTopic]
+    groups: list[TimelineGroup]
+    steps: list[TimelineStep]
+    current: TimelineStep
+    #: Daily from `as_of` to the last exam day.
+    projection: list[ProjectionPoint]
+    skipped: list[str | None]
 
 
 # --- Fit ---------------------------------------------------------------------

@@ -23,8 +23,9 @@ Other scripts: `npm run build`, `npm start`, `npm run lint`.
 
 ## Run everything in Docker
 
-One command builds the app and starts it with its database. Docker is the
-only requirement:
+One command builds the app and starts it with its database and the
+knowledge service (grade forecasts; see [below](#knowledge-service)). Docker
+is the only requirement:
 
 ```bash
 docker compose up --build
@@ -266,6 +267,29 @@ uv sync
 DATABASE_URL=postgres://stride:stride@localhost:5432/stride uv run uvicorn knowledge.api:app --reload
 # http://localhost:8000/docs for the interactive API
 ```
+
+In the app, each custom plan has three knowledge pages, linked from the plan card:
+
+| Page | What it shows |
+| ---- | ------------- |
+| `/plans/:id/forecast` | Predicted grade per subject (or the plan average) as a band: the estimated level so far, the projection to the exam date, the chance of reaching the target grade |
+| `/plans/:id/topics` | Spider chart with one axis per topic, plus a progress list grouped by subject (compared with a week ago or the exam-day forecast) |
+| `/plans/:id/log` | Log a practice sheet, quiz, mock or exam (points or a grade), tick which of the subject's topics it covered, and delete data points |
+
+For now, every subject gets three hardcoded topics: a fixed list for common
+subjects (Analysis, Linear Algebra, Physics, …), otherwise "Concepts /
+Methods / Applications". Each subject's exam covers its three topics equally,
+and the plan average weights subjects equally. Grades map linearly:
+grade = 1 + 5 × score. These choices live in `src/lib/knowledge-topics.ts`.
+The app talks to the service only from the server (`src/lib/knowledge.ts`),
+after checking that the plan belongs to the user.
+
+**Demo data:** with the database and the knowledge service running,
+`npm run db:seed-knowledge` creates the plan "Basisprüfung (demo)" for the
+demo user. It logs six weeks of practice sheets, quizzes and mocks across
+four subjects. Each topic has its own hidden learning curve: a weak one, a
+fast learner, a strong one, and a barely logged subject the model stays
+unsure about. Re-running it replaces the demo data points.
 
 The model, API and tests are described in
 [`services/knowledge/README.md`](services/knowledge/README.md).
