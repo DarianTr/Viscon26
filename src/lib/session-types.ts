@@ -51,6 +51,7 @@ const activityLabels: Partial<Record<NonNullable<CalendarEvent["activity"]>, str
   short_break: "Break",
   lunch: "Lunch",
   dinner: "Dinner",
+  quiz: "Practice Quiz",
 };
 
 /** The kind of block a calendar event is, as the calendar badges it. */

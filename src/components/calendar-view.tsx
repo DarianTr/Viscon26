@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronLeftIcon, ChevronRightIcon, ClockIcon } from "@/components/icons";
 import { Card } from "@/components/ui/primitives";
 import { eventLabel, formatMinutes, phaseLabels, sessionTypes, subjectColor } from "@/lib/session-types";
@@ -64,6 +65,7 @@ export function CalendarView({ events, initialDate }: { events: CalendarEvent[];
 const timeFormat = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
 
 function Calendar({ today, initial, events: list }: { today: Date; initial: Date; events: CalendarEvent[] }) {
+  const router = useRouter();
   const [calendarEvents, setCalendarEvents] = useState(list);
   const [month, setMonth] = useState(() => new Date(initial.getFullYear(), initial.getMonth(), 1));
   const [selected, setSelected] = useState(initial);
@@ -162,11 +164,12 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
       return;
     }
     const { study, buffer } = await response.json();
-    const toEvent = (t: { id: string; type: CalendarEvent["type"]; activity: CalendarEvent["activity"]; subject: string | null; cheatsheetMinutes: number | null; cheatsheetTarget: number | null; prepPhase: CalendarEvent["prepPhase"]; title: string; scheduledAt: string; plannedMinutes: number; calendarOrder: number | null }): CalendarEvent => ({
+    const toEvent = (t: { id: string; type: CalendarEvent["type"]; activity: CalendarEvent["activity"]; subject: string | null; planId?: string | null; cheatsheetMinutes: number | null; cheatsheetTarget: number | null; prepPhase: CalendarEvent["prepPhase"]; title: string; scheduledAt: string; plannedMinutes: number; calendarOrder: number | null }): CalendarEvent => ({
       id: t.id,
       type: t.type,
       activity: t.activity,
       subject: t.subject,
+      planId: t.planId ?? null,
       cheatsheetMinutes: t.cheatsheetMinutes,
       cheatsheetTarget: t.cheatsheetTarget,
       prepPhase: t.prepPhase,
@@ -423,6 +426,15 @@ function Calendar({ today, initial, events: list }: { today: Date; initial: Date
                         {formatMinutes(e.cheatsheetMinutes)} cheatsheet
                         {e.cheatsheetTarget !== null && ` · aim: ${e.cheatsheetTarget}%`}
                       </p>
+                    )}
+                    {e.activity === "quiz" && e.planId && (
+                      <button
+                        type="button"
+                        onClick={() => router.push(`/plans/${e.planId}/practice`)}
+                        className="mt-2 text-xs font-semibold text-accent"
+                      >
+                        Start quiz →
+                      </button>
                     )}
                     {e.type === "buffer" && subjects.length > 0 && (catchUp?.id === e.id ? (
                       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">

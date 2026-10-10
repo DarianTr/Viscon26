@@ -990,6 +990,8 @@ export type GenerateOptions = {
   progress?: Record<string, SubjectProgress>;
   /** Internal: immersion days taken off each subject, when a tight plan needs the time back. */
   immersionCut?: number;
+  /** Per subject name: average knowledge gap 0–1 from the Kalman filter (higher = weaker). */
+  quizGaps?: Record<string, number>;
 };
 
 /**
@@ -1025,7 +1027,7 @@ export function generateStudyPlan(
   now: Date = new Date(),
   options: GenerateOptions = {},
 ): ScheduleResult {
-  const { suggest = true, busy = [], progress = {} } = options;
+  const { suggest = true, busy = [], progress = {}, quizGaps = {} } = options;
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
   const planStart = config.planStart && config.planStart < toDateKey(today) ? config.planStart : toDateKey(today);
@@ -1483,6 +1485,36 @@ export function generateStudyPlan(
       });
       prev = d;
     });
+  });
+
+  // ── 5d. Knowledge-gap quiz blocks ─────────────────────────────────────────
+  // For subjects with a measured knowledge gap, spread short practice quizzes
+  // across the study timeline. Weaker subjects (higher gap) get more quizzes.
+  // Count = round(1 + 3 * gap), capped to one per week; each block is 30 min.
+
+  const QUIZ_MINUTES = 30;
+  subjects.forEach((s, si) => {
+    const gap = quizGaps[s.name] ?? 0;
+    if (gap <= 0) return;
+    const lastIdx = lastIdxOf[si];
+    if (lastIdx < 0) return;
+    const quizCount = Math.max(1, Math.round(1 + 3 * gap));
+    for (let q = 0; q < quizCount; q++) {
+      const target = quizCount === 1 ? Math.round(lastIdx * 0.5) : Math.round((q * lastIdx) / (quizCount - 1));
+      const candidates: number[] = [];
+      for (let d = 0; d <= lastIdx; d++) candidates.push(d);
+      candidates.sort((a, b) => Math.abs(a - target) - Math.abs(b - target) || a - b);
+      const d = candidates.find((c) => free(days[c]) >= QUIZ_MINUTES && canTake(days[c], si));
+      if (d === undefined) continue;
+      place(days[d], {
+        type: "intervals",
+        activity: "quiz",
+        subject: s.name,
+        title: `${s.name} — Practice Quiz ${q + 1}`,
+        detail: "Test yourself on weak topics with short AI-generated questions — no notes, timed, one topic at a time.",
+        plannedMinutes: QUIZ_MINUTES,
+      });
+    }
   });
 
   // ── 6. Weighted round-robin over at most two subjects a day ──────────────

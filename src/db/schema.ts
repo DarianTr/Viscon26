@@ -47,6 +47,7 @@ export const blockActivity = pgEnum("block_activity", [
   "dinner",
   "buffer",
   "exam",
+  "quiz",
 ]);
 
 export const planLevel = pgEnum("plan_level", ["Beginner", "Intermediate", "Advanced"]);
@@ -465,6 +466,71 @@ export const courseResources = pgTable("course_resources", {
   contentFetchedAt: timestamp("content_fetched_at", { withTimezone: true }),
   createdAt: createdAt(),
 });
+
+export type McqContent = {
+  stem: string;
+  options: string[];
+  correctIndex: number;
+  explanation: string;
+};
+
+/**
+ * A generated (or manually authored) multiple-choice question tied to a course
+ * topic. `status` moves pending → trusted once enough users have answered it;
+ * flagged questions are hidden from future quizzes.
+ */
+export const questions = pgTable(
+  "questions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    courseSlug: text("course_slug")
+      .notNull()
+      .references(() => courseProfiles.slug, { onDelete: "cascade" }),
+    topicId: text("topic_id").notNull(),
+    type: text("type").notNull().default("mcq"),
+    content: jsonb("content").$type<McqContent>().notNull(),
+    source: text("source").notNull().default("generated"),
+    /** 'pending' | 'trusted' | 'flagged' */
+    status: text("status").notNull().default("pending"),
+    requiredViews: integer("required_views").notNull().default(3),
+    createdAt: createdAt(),
+  },
+  (t) => [index("questions_course_topic_status_idx").on(t.courseSlug, t.topicId, t.status)],
+);
+
+/** One row per (question, user) pair — records whether the user answered correctly. */
+export const questionViews = pgTable(
+  "question_views",
+  {
+    questionId: uuid("question_id")
+      .notNull()
+      .references(() => questions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    answeredCorrectly: boolean("answered_correctly").notNull(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.questionId, t.userId] })],
+);
+
+/** A user reports a question as wrong / misleading / offensive. */
+export const questionFlags = pgTable(
+  "question_flags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    questionId: uuid("question_id")
+      .notNull()
+      .references(() => questions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    reason: text("reason").notNull(),
+    note: text("note"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("question_flags_question_user_idx").on(t.questionId, t.userId)],
+);
 
 /**
  * Files uploaded by a student for a specific subject in their plan.
