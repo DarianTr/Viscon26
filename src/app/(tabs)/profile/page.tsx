@@ -76,7 +76,7 @@ export default async function ProfilePage() {
           </div>
         </div>
         <div className="mt-5 grid grid-cols-2 divide-x-2 divide-border border-t-2 border-border pt-4 text-center">
-          <Count label="Friends" value={profile.friends} />
+          <Count label="Friends" value={profile.friends} href="/community?tab=friends" />
           <Count label="Day streak" value={profile.streak} icon />
         </div>
       </Card>
@@ -208,16 +208,24 @@ function formatHours(hours: number) {
   return String(Math.round(hours * 10) / 10);
 }
 
-function Count({ label, value, icon }: { label: string; value: number; icon?: boolean }) {
-  return (
-    <div>
+function Count({ label, value, icon, href }: { label: string; value: number; icon?: boolean; href?: string }) {
+  const content = (
+    <>
       <p className="inline-flex items-center gap-1 font-display text-lg font-bold">
         {icon && <FlameIcon className="size-4 text-accent" />}
         {value}
       </p>
       <p className="text-xs text-muted">{label}</p>
-    </div>
+    </>
   );
+  if (href) {
+    return (
+      <Link href={href} className="rounded-lg transition-opacity hover:opacity-70">
+        {content}
+      </Link>
+    );
+  }
+  return <div>{content}</div>;
 }
 
 function Total({ label, value }: { label: string; value: number | string }) {

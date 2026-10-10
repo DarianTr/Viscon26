@@ -2,7 +2,11 @@
 
 import { useEffect } from "react";
 
-/** Scrolling over a focused number input must not change its value — only typing should. */
+/**
+ * Scrolling over a focused number input must not change its value — only typing should.
+ * Blurring (rather than preventDefault) stops the browser's scroll-to-increment behavior
+ * without also blocking the page's native scroll for that same wheel event.
+ */
 export function NumericInputWheelGuard() {
     useEffect(() => {
         function handleWheel(e: WheelEvent) {
@@ -12,10 +16,10 @@ export function NumericInputWheelGuard() {
                 target.type === "number" &&
                 target === document.activeElement
             ) {
-                e.preventDefault();
+                target.blur();
             }
         }
-        window.addEventListener("wheel", handleWheel, { passive: false });
+        window.addEventListener("wheel", handleWheel, { passive: true });
         return () => window.removeEventListener("wheel", handleWheel);
     }, []);
 
