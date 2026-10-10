@@ -10,12 +10,16 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { sql } from "drizzle-orm";
 import postgres from "postgres";
 import * as s from "./schema";
-import { hashPassword } from "./password";
 
 const TZ = "Europe/Zurich";
 const DEMO_HANDLE = process.env.DEMO_USER_HANDLE ?? "tprazak";
-/** Every seeded user gets this password; the demo user is also an admin. */
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? "stride";
+/**
+ * The demo user (an admin) belongs to whoever logs in with this email, e.g.
+ * set DEV_USER_ID to it locally to look around as them. Other seeded users
+ * have no email.
+ */
+const DEMO_EMAIL = (process.env.DEMO_USER_EMAIL || "demo@example.com").toLowerCase();
+const DEMO_NAME = process.env.DEMO_USER_NAME || "Tomas P.";
 
 const client = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
 const db = drizzle(client, { schema: s });
@@ -152,17 +156,16 @@ async function main() {
   await db.execute(sql`
     truncate table
       session_photos, session_tags, comments, kudos, sessions, enrollments,
-      user_badges, badges, friendships, plans, auth_sessions, users, items,
+      user_badges, badges, friendships, plans, users, items,
       challenges, notifications, push_subscriptions
     restart identity cascade
   `);
 
   // --- Users --------------------------------------------------------------
-  const passwordHash = await hashPassword(DEMO_PASSWORD);
   const [me, lena, jonas, aisha, marco, ...classmates] = await db
     .insert(s.users)
     .values([
-      { handle: DEMO_HANDLE, name: "Tomas P.", hue: 200, spiritAnimal: "fox", program: "BSc Computer Science · Semester 3", weeklyGoalHours: 25, isAdmin: true },
+      { handle: DEMO_HANDLE, email: DEMO_EMAIL, name: DEMO_NAME, hue: 200, spiritAnimal: "fox", program: "BSc Computer Science · Semester 3", weeklyGoalHours: 25, isAdmin: true },
       { handle: "lena", name: "Lena Meier", hue: 260, spiritAnimal: "owl", program: "BSc Mathematics" },
       { handle: "jonas", name: "Jonas Keller", hue: 160, spiritAnimal: "wolf", program: "BSc Physics" },
       { handle: "aisha", name: "Aisha Rahman", hue: 20, spiritAnimal: "deer", program: "BSc Computer Science" },
@@ -173,7 +176,7 @@ async function main() {
         hue: (i * 47) % 360,
         program: pick(["BSc Computer Science", "BSc Mathematics", "BSc Physics"]),
       })),
-    ].map((u) => ({ ...u, passwordHash })))
+    ])
     .returning();
   const friends = [lena, jonas, aisha, marco];
   const everyone = [me, ...friends, ...classmates];
@@ -472,7 +475,7 @@ async function main() {
 
   console.log(
     `Seeded ${everyone.length} users, ${inserted.length} sessions, ${kudosRows.length} kudos. ` +
-      `Log in as @${DEMO_HANDLE} (admin) or any other handle, password "${DEMO_PASSWORD}".`,
+      `@${DEMO_HANDLE} (admin) belongs to ${DEMO_EMAIL}.`,
   );
 }
 

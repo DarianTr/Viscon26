@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { logout } from "@/app/(auth)/actions";
 import { FlameIcon, PlusIcon, SettingsIcon } from "@/components/icons";
 import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { BrainEvolution } from "@/components/profile/brain-evolution";
 import { SubjectInvestment } from "@/components/profile/subject-investment";
-import { Avatar, Button, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
+import { Avatar, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
 import { getCurrentUser, getProfile, getStudyBehavior } from "@/lib/queries";
 import type { HourlyBucket } from "@/lib/queries";
 import { subjectColor } from "@/lib/session-types";
@@ -48,11 +47,6 @@ export default async function ProfilePage() {
                 Admin
               </Link>
             )}
-            <form action={logout}>
-              <Button type="submit" variant="soft" size="sm">
-                Log out
-              </Button>
-            </form>
             <Link
               href="/profile/settings"
               aria-label="Settings"

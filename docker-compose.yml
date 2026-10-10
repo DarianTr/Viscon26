@@ -38,7 +38,9 @@ services:
     environment:
       DATABASE_URL: *database-url
       DEMO_USER_HANDLE: ${DEMO_USER_HANDLE:-tprazak}
-      DEMO_PASSWORD: ${DEMO_PASSWORD:-stride}
+      # The demo user (an admin) belongs to whoever logs in with this email.
+      DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-}
+      DEMO_USER_NAME: ${DEMO_USER_NAME:-}
       # Set to false to start with an empty database.
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
     depends_on:
@@ -57,6 +59,10 @@ services:
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@example.com}
       NUDGES: ${NUDGES:-on}
+      # Login comes from the reverse proxy's X-User-Id header. Without the proxy
+      # (local runs), these stand in for it. Never set them on the VM.
+      DEV_USER_ID: ${DEV_USER_ID:-}
+      DEV_USER_NAME: ${DEV_USER_NAME:-}
     ports:
       - "${APP_PORT:-3000}:3000"
     depends_on:

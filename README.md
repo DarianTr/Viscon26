@@ -9,15 +9,14 @@ Needs Docker (for the local Postgres) and Node 20+.
 
 ```bash
 npm install
-cp .env.example .env.local
+cp .env.example .env.local   # then set DEV_USER_ID to your email
 # Starts Postgres, applies migrations, and loads demo data
 npm run db:setup
 npm run dev
 ```
 
-Log in as `tprazak` with password `stride` (an admin), or as any other seeded
-handle with the same password. `/signup` creates new accounts.
-Open http://localhost:3000.
+Open http://localhost:3000. You're logged in as `DEV_USER_ID`; on the first
+visit you sign up with it. See [Logging in locally](#logging-in-locally).
 
 Other scripts: `npm run build`, `npm start`, `npm run lint`.
 
@@ -45,7 +44,9 @@ the data.
 | `POSTGRES_PASSWORD` | `stride`  | Database password: change it on a server    |
 | `SEED_DEMO_DATA`    | `true`    | `false` to start with an empty database     |
 | `DEMO_USER_HANDLE`  | `tprazak` | Seeded admin user                           |
-| `DEMO_PASSWORD`     | `stride`  | Password of every seeded user               |
+| `DEMO_USER_EMAIL`   | `demo@example.com` | Email (X-User-Id) that logs in as the seeded admin |
+| `DEMO_USER_NAME`    | `Tomas P.` | Name of the seeded admin                   |
+| `DEV_USER_ID`, `DEV_USER_NAME` | – | Stand-in login without the proxy; never set on the VM |
 | `KNOWLEDGE_PORT`    | `8000`    | Port the knowledge service is published on (localhost) |
 
 Set them inline (`APP_PORT=8080 docker compose up --build`) or in a `.env`
@@ -69,7 +70,7 @@ Postgres via [Drizzle ORM](https://orm.drizzle.team) and the `postgres` driver.
 | `npm run db:down`     | Stop it (data persists in a Docker volume)                |
 | `npm run db:migrate`  | Apply migrations in `drizzle/`                            |
 | `npm run db:seed`     | **Wipe** all tables and load demo data                    |
-| `npm run db:set-password -- <handle> <pw> [--admin]` | Set a password, optionally make the user an admin |
+| `npm run db:reset`    | **Wipe** everything, migrate, refetch courses (VVZ), seed demo + knowledge data |
 | `npm run db:generate` | Write a new migration after editing `src/db/schema.ts`    |
 | `npm run db:studio`   | Browse the data in Drizzle Studio                         |
 
@@ -83,17 +84,76 @@ entry until `completed_at` is set; then it is an activity in the feed.
 
 ## Auth and admin
 
-Users log in at `/login` with their handle and password (or sign up at
-`/signup`). Passwords are hashed with scrypt (`src/db/password.ts`). A login
-creates a row in `auth_sessions` and an httpOnly cookie holding a random
-token; only the token's SHA-256 is stored. Sessions last 30 days, and logging
-out (on the Profile tab) deletes the row. `src/lib/auth.ts` has the helpers:
-`getSessionUser()`, `requireUser()` and `requireAdmin()`.
+The app has no login of its own. The VIScon reverse proxy logs users in and
+adds two headers to every request it forwards:
 
-- Pages call `getCurrentUser()`, which redirects to `/login` without a session.
-- Every API route wrapped in `handle()` answers `401` without a session
+```
+Browser ──HTTPS──► VIScon reverse proxy ──HTTP + headers──► app (VM :8080)
+                   (ETH / edu-ID login)    X-User-Id:   jdoe@ethz.ch
+                                           X-User-Name: J%C3%B6rg%20Doe
+```
+
+`src/lib/auth.ts` reads them on every request (no cookies, no tokens) and
+matches `X-User-Id` against `users.email`:
+
+- Known email → that user. `getSessionUser()`, `requireUser()`,
+  `requireAdmin()` and the pages' `getCurrentUser()` all build on this.
+- Unknown email → pages redirect to `/signup`, prefilled with a handle from
+  the email (`jdoe@ethz.ch` → `jdoe`, or `jdoe2` if taken) and the decoded
+  name. Submitting creates the `users` row with that email.
+- Every API route wrapped in `handle()` answers `401` without a profile
   (`/api/health` stays public).
-- The cookie is `Secure` in production, so serve the app over HTTPS there.
+
+The headers can only be trusted while the app is reachable through the proxy
+alone: don't open its port in `ufw` or set access control to "Disabled".
+
+To hand an existing account (e.g. one made before the proxy login) to someone,
+set its `email` to their X-User-Id in `/admin/users`.
+
+### Logging in locally
+
+There's no proxy on your machine, so when a request has no `X-User-Id`,
+`DEV_USER_ID` and `DEV_USER_NAME` from `.env.local` stand in for the headers:
+
+```bash
+DEV_USER_ID=jdoe@ethz.ch
+DEV_USER_NAME=Jörg Doe
+```
+
+Which account that is:
+
+- **Your own:** an email without an account gets the signup page on the first
+  visit, which creates one. To make it an admin:
+  `update users set is_admin = true where handle = '<handle>';`
+- **Your own, with the demo data:** the seed (`npm run db:seed` /
+  `db:reset`) creates the demo admin from `DEMO_USER_HANDLE`,
+  `DEMO_USER_EMAIL` and `DEMO_USER_NAME`. Make them yours and reset:
+
+  ```bash
+  # .env.local
+  DEMO_USER_HANDLE=jdoe
+  DEMO_USER_EMAIL=jdoe@ethz.ch   # same as DEV_USER_ID
+  DEMO_USER_NAME=Jörg Doe
+  ```
+
+  Without them it's `@tprazak` with `demo@example.com`; set `DEV_USER_ID` to
+  that to look around as them.
+- **An existing account:** link it once in the database:
+
+  ```bash
+  docker compose exec db psql -U stride stride \
+    -c "update users set email = 'jdoe@ethz.ch' where handle = '<handle>';"
+  ```
+
+There's no logout: on the VM the proxy owns the login, and locally you switch
+users by changing `DEV_USER_ID` and restarting `npm run dev`. Or send the
+header for a single request; a real header always wins over `DEV_USER_ID`:
+
+```bash
+curl -H 'X-User-Id: someone@ethz.ch' localhost:3000/signup
+```
+
+Never set `DEV_USER_ID` on the VM.
 
 **Admin interface** at `/admin`, for users with `users.is_admin = true` (others
 get a 404; admins see an "Admin" button on their profile):
@@ -105,9 +165,9 @@ get a 404; admins see an "Admin" button on their profile):
   fields get the column default.
 - A SQL console that runs any statement directly. There's no undo.
 
-To make someone an admin on a database that wasn't seeded, run
-`npm run db:set-password -- <handle> <password> --admin`. In Docker:
-`docker compose run --rm migrate npx tsx src/db/set-password.ts <handle> <password> --admin`.
+To make someone an admin on a database that wasn't seeded, sign up and run
+`update users set is_admin = true where handle = '<handle>';` in the database
+(on the VM: `docker compose -p viscon exec db psql -U stride stride`).
 
 For production, point `DATABASE_URL` at any hosted Postgres (Neon, Supabase,
 RDS, …) and run `npm run db:migrate` against it. `next build` doesn't need a
@@ -125,8 +185,8 @@ src/
       calendar/page.tsx   /calendar   month view + day agenda
       community/page.tsx  /community  feed, your activities, leaderboard, friends and requests
       profile/page.tsx    /profile    stats, subjects, achievements, your posts
-      profile/settings/   /profile/settings  edit profile, change password, delete account
-    (auth)/               /login, /signup and their server actions (+ logout)
+      profile/settings/   /profile/settings  edit profile, delete account
+    (auth)/               /signup (first visit) and its server action; /login redirects to /
     admin/                /admin: table browser, row editor, SQL console
     layout.tsx            root layout (fonts, metadata, viewport)
     manifest.ts           web app manifest (installable on phones)
@@ -142,8 +202,7 @@ src/
     schema.ts             tables (Drizzle) — source of truth for migrations
     index.ts              database client
     seed.ts               demo data
-    password.ts           scrypt hashing (shared with the seed script)
-    set-password.ts       CLI: set a password / make an admin
+    reset.ts              wipes the database for `npm run db:reset`
   components/
     tab-bar.tsx           tab navigation (bottom bar + sidebar)
     icons.tsx             inline SVG icon set
@@ -151,7 +210,7 @@ src/
     today/, community/, calendar-view.tsx   interactive tab pieces
     items-panel.tsx       example client component for the items API
   lib/
-    auth.ts               sessions: login cookie, requireUser, requireAdmin
+    auth.ts               proxy login (X-User-Id), requireUser, requireAdmin
     admin.ts              generic table access for /admin
     queries.ts            reads for the pages (server-only)
     users.ts, tasks.ts    CRUD data layer for /api/users and /api/tasks
@@ -262,19 +321,18 @@ session, lecture or exam. It counts as done once `completedAt` is set.
   `plannedMinutes`. `{ done: false }` clears the completion.
 - `POST /api/tasks` without `userId` creates the task for the current user.
 
-With curl, pass the `session` cookie from a logged-in browser (DevTools →
-Application → Cookies):
+With curl against a local server, send the header the proxy would add:
 
 ```bash
-S='session=<value>'
-curl -b $S 'localhost:3000/api/users?q=lena'
-curl -b $S -X POST localhost:3000/api/tasks -H 'content-type: application/json' \
+S='X-User-Id: demo@example.com'
+curl -H "$S" 'localhost:3000/api/users?q=lena'
+curl -H "$S" -X POST localhost:3000/api/tasks -H 'content-type: application/json' \
   -d '{"type":"deep","subject":"DiskMath","title":"Long block","scheduledAt":"2026-10-12T09:00:00+02:00","plannedMinutes":90}'
-curl -b $S -X PATCH localhost:3000/api/tasks/<id> -H 'content-type: application/json' -d '{"done":true}'
+curl -H "$S" -X PATCH localhost:3000/api/tasks/<id> -H 'content-type: application/json' -d '{"done":true}'
 ```
 
-Every endpoint except `/api/health` needs a login session (the cookie set by
-`/login`) and returns `401` otherwise. There are no ownership checks yet: any
+Every endpoint except `/api/health` needs a signed-up user (via `X-User-Id`)
+and returns `401` otherwise. There are no ownership checks yet: any
 logged-in user can read or change any user or task. Add those before going
 public.
 
@@ -283,8 +341,8 @@ input or a reference to a missing record (e.g. an unknown `userId`), 404 on a
 missing resource, 409 on a duplicate (e.g. a taken `handle`), 500 otherwise.
 
 ```bash
-curl -b $S localhost:3000/api/items
-curl -b $S -X POST localhost:3000/api/items -H 'content-type: application/json' -d '{"title":"ship it"}'
+curl -H "$S" localhost:3000/api/items
+curl -H "$S" -X POST localhost:3000/api/items -H 'content-type: application/json' -d '{"title":"ship it"}'
 ```
 
 ## Knowledge service

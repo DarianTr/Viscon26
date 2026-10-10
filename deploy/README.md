@@ -26,7 +26,22 @@ chmod 600 /home/viscon/viscon.env
 nano /home/viscon/viscon.env  # set POSTGRES_PASSWORD (openssl rand -hex 24) and APP_PORT
 ```
 
-Set `APP_PORT` to the port the organizers' reverse proxy forwards to.
+Set `APP_PORT` to the port the organizers' reverse proxy forwards to: `8080`
+by default (team page → Access Details → Edit Network Configuration). The
+template app already listens there, so stop it first:
+
+```sh
+cd ~/template && docker compose down
+```
+
+Set `DEMO_USER_EMAIL` to your own X-User-Id (e.g. `jdoe@ethz.ch`), and
+`DEMO_USER_HANDLE` / `DEMO_USER_NAME` to yours, to log in as the seeded admin.
+The seed only runs on an empty database, so this applies on the first deploy
+(or after wiping the volume). Everyone else gets the signup page on their first visit.
+
+Login comes from the proxy's `X-User-Id` header, which anyone could forge if
+they reached the app directly. So **don't** `ufw allow` the app port, keep
+access control on one of the login modes, and never set `DEV_USER_ID` here.
 
 > `POSTGRES_PASSWORD` only takes effect when the database is first created.
 > To change it later, either change it inside Postgres too or wipe the volume

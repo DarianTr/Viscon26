@@ -63,8 +63,11 @@ export const users = pgTable("users", {
   spiritAnimal: text("spirit_animal").notNull().default("owl"),
   program: text("program"),
   weeklyGoalHours: integer("weekly_goal_hours").notNull().default(20),
-  /** scrypt hash from `src/db/password.ts`; null means the user can't log in. */
-  passwordHash: text("password_hash"),
+  /**
+   * The X-User-Id the VIScon reverse proxy sends (see `src/lib/auth.ts`).
+   * Null for accounts nobody can log in as, e.g. seeded classmates.
+   */
+  email: text("email").unique(),
   /** Admins can open /admin and edit the database directly. */
   isAdmin: boolean("is_admin").notNull().default(false),
   /** Tone of the daily "go study" push: savage, gentle, or off. */
@@ -73,18 +76,6 @@ export const users = pgTable("users", {
 });
 
 export type NudgeStyle = "savage" | "gentle" | "off";
-
-/** Login sessions. The cookie holds a random token; only its SHA-256 is stored. */
-export const authSessions = pgTable(
-  "auth_sessions",
-  {
-    tokenHash: text("token_hash").primaryKey(),
-    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    createdAt: createdAt(),
-  },
-  (t) => [index().on(t.userId)],
-);
 
 /**
  * One row per pair of users. Pending until the addressee accepts the request;
