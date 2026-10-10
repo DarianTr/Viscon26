@@ -2,9 +2,11 @@
 
     uv run python -m bench.sweep                     # q_slope grid on `rich`
     uv run python -m bench.sweep --schedule sparse --q-level 1e-4 4e-4
+    uv run python -m bench.sweep --half-life 10 --fit-half-life
 
 The fit can't choose these: its likelihood only scores one-step-ahead
 predictions. This picks them by held-out exam-forecast accuracy and coverage.
+The chosen defaults (q_slope 3e-6, half-life 20 days, not fitted) came from here.
 """
 
 from __future__ import annotations
@@ -24,13 +26,10 @@ from .truth import ARCHETYPES
 WATCH = ("steady", "crammer", "forgetter", "fast_plateau", "stalled")
 
 
-def run_one(q, *, schedule, n_train, n_eval, seed, half_life=None):
+def run_one(q, *, schedule, n_train, n_eval, seed, half_life, fit_half_life):
     q_level, q_slope = q
-    params = replace(DEFAULT_PARAMS, q_level=q_level, q_slope=q_slope)
-    priors = None
-    if half_life is not None:  # a near-zero prior sd pins the half-life
-        params = replace(params, half_life_days=half_life)
-        priors = Priors(half_life_log_sd=1e-3)
+    params = replace(DEFAULT_PARAMS, q_level=q_level, q_slope=q_slope, half_life_days=half_life)
+    priors = Priors(fit_half_life=fit_half_life)
     return q, run_schedule(
         schedule, archetypes=list(ARCHETYPES), n_train=n_train, n_eval=n_eval,
         seed=seed, params=params, priors=priors,
@@ -46,13 +45,14 @@ def main() -> None:
     p.add_argument("--learners", type=int, default=40)
     p.add_argument("--train", type=int, default=60)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--pin-half-life", type=float, help="fix the half-life instead of fitting it")
+    p.add_argument("--half-life", type=float, default=DEFAULT_PARAMS.half_life_days)
+    p.add_argument("--fit-half-life", action="store_true", help="MAP-fit it (prior: --half-life)")
     args = p.parse_args()
 
     grid = list(itertools.product(args.q_level, args.q_slope))
     run = partial(run_one, schedule=args.schedule, n_train=args.train,
                   n_eval=args.learners, seed=args.seed,
-                  half_life=args.pin_half_life)  # fmt: skip
+                  half_life=args.half_life, fit_half_life=args.fit_half_life)  # fmt: skip
     with ProcessPoolExecutor() as pool:
         results = list(pool.map(run, grid))
 

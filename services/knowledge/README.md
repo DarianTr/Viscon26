@@ -58,10 +58,13 @@ priors:
 
 - per type: log c ~ N(log c_prior, 0.5), and bias ~ N(bias_prior, 0.05) for
   non-anchor types;
-- half-life: log ~ N(log configured, 0.7);
+- half-life: fixed at the configured value by default; optionally
+  log ~ N(log configured, 0.7) via `Priors(fit_half_life=True)`;
 - mean starting slope: ~ N(configured, slope_prior_sd).
 
-Process noise is not fitted: it isn't identifiable from realistic data.
+Process noise and, by default, the half-life are not fitted: the likelihood
+only scores one-step-ahead predictions, so it can't judge long-range
+forecasts (see the sweep below).
 Optimisation is L-BFGS-B from three starts, in prior-standardised units. sds
 come from the Laplace approximation. Types (or the trend) with fewer than 5
 observations keep their prior and are reported as `priorOnly`. A fit is used
@@ -138,9 +141,20 @@ Then five estimators are scored on fresh learners at days 10, 24 and 42:
 regression guard.
 
 `uv run python -m bench.sweep` (options `--q-slope …`, `--q-level …`,
-`--pin-half-life N`, `--schedule`) tunes the process noise by held-out
-exam-forecast accuracy and coverage. The MAP fit can't do this itself,
-because its likelihood only scores one-step-ahead predictions.
+`--half-life N`, `--fit-half-life`, `--schedule`) tunes the process noise
+and half-life by held-out exam-forecast accuracy and coverage. The MAP fit
+can't do this itself, because its likelihood only scores one-step-ahead
+predictions. The defaults come from this sweep (rich schedule):
+
+| q_slope | half-life | exam RMSE, days 10 / 24 / 42 | 90% coverage, days 10 / 24 / 42 |
+| ------- | --------- | ---------------------------- | ------------------------------- |
+| 1e-7 | fitted (→ 10 days) | 10.8 / 9.8 / 6.5 | 66% / 65% / 72% |
+| 1e-4 | fitted (→ 2 days) | 15.4 / 11.9 / 5.6 | 51% / 62% / 89% |
+| **3e-6** | **20 days, fixed** | 11.7 / 10.8 / 5.2 | 88% / 83% / 92% |
+
+A wandering learning rate covers surges and declines (crammers,
+forgetters). If the half-life is fitted, the fit shortens it to a few days
+and loses the long-range trend.
 
 ## API
 

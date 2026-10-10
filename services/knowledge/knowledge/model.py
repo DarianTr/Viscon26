@@ -58,7 +58,8 @@ class PlanParams:
     slope_prior_mean: float = 0.005
     slope_prior_sd: float = 0.005
     q_level: float = 1e-4
-    q_slope: float = 1e-7
+    #: Lets the learning rate wander (surges, declines); tuned with bench.sweep.
+    q_slope: float = 3e-6
     learner_bias_sd: float = 0.04
     rho_sibling: float = 0.5
     rho_global: float = 0.15

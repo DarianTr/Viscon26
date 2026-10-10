@@ -13,7 +13,9 @@ TYPE_PRIORS = [
     TypePrior("mock", c_prior=2.0, bias_fixed=True),
     TypePrior("exam", c_prior=1.0, bias_fixed=True),
 ]
-PARAMS = PlanParams(half_life_days=15, slope_prior_sd=0.003, learner_bias_sd=0.03)
+# The simulated slopes don't wander, so the fitting model's shouldn't either: with
+# a wandering slope the fitted half-life shrinks (see bench.sweep).
+PARAMS = PlanParams(half_life_days=15, slope_prior_sd=0.003, learner_bias_sd=0.03, q_slope=1e-7)
 
 
 def within(estimate, truth, n_sd=3.0):
@@ -25,7 +27,7 @@ def test_map_recovers_measurement_model_and_trend():
     rng = np.random.default_rng(2)
     learners = [simulate_learner(rng, clip=False)[0] for _ in range(30)]
 
-    result = fit_map(TOPICS, TYPE_PRIORS, PARAMS, learners)
+    result = fit_map(TOPICS, TYPE_PRIORS, PARAMS, learners, Priors(fit_half_life=True))
 
     assert result.converged and result.starts_agree
     truth = {t.id: t for t in TRUE_TYPES}
@@ -56,3 +58,13 @@ def test_no_data_returns_priors():
     assert all(e.prior_only for e in result.c.values())
     assert result.half_life_days.value == pytest.approx(15)
     assert result.n_observations == 0
+
+
+def test_half_life_is_kept_fixed_by_default():
+    rng = np.random.default_rng(2)
+    learners = [simulate_learner(rng, clip=False)[0] for _ in range(10)]
+
+    result = fit_map(TOPICS, TYPE_PRIORS, PARAMS, learners)
+
+    assert result.half_life_days.prior_only and result.half_life_days.value == 15
+    assert not result.slope_prior_mean.prior_only

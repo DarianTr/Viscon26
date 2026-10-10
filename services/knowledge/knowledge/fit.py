@@ -6,11 +6,15 @@ parameters can be optimised directly, with no EM:
 
 - per assessment type: log c (overdispersion) and, unless fixed, the
   population bias;
-- per plan: log half-life of the learning slope and the mean starting slope.
+- per plan: the mean starting slope, and optionally the log half-life.
 
-Process noise stays fixed: it is not identifiable from realistic data and
-barely moves forecasts. Priors keep every scale away from zero, where plain
-maximum likelihood tends to collapse with little data.
+The likelihood only scores one-step-ahead predictions, so it can't judge the
+settings that shape long-range forecasts. Process noise and, by default, the
+half-life therefore stay fixed; tune them by held-out forecast accuracy
+(`python -m bench.sweep`). Fitting the half-life collapses it towards a few
+days once slopes are allowed to wander, which ruins early exam forecasts.
+Priors keep every scale away from zero, where plain maximum likelihood tends
+to collapse with little data.
 """
 
 from __future__ import annotations
@@ -40,6 +44,8 @@ class Priors:
     c_log_sd: float = 0.5
     bias_sd: float = 0.05
     half_life_log_sd: float = 0.7
+    #: Off by default: see the module docstring.
+    fit_half_life: bool = False
     #: A type (or the trend) needs this many observations before it is fitted.
     min_obs: int = 5
 
@@ -100,8 +106,8 @@ def fit_map(
         )
         if not tp.bias_fixed:
             spec.append(_Param("bias", tp.id, tp.bias_prior, priors.bias_sd, -0.4, 0.4))
-    fit_trend = n_obs >= 2 * priors.min_obs and math.isfinite(params.half_life_days)
-    if fit_trend:
+    fit_trend = n_obs >= 2 * priors.min_obs
+    if fit_trend and priors.fit_half_life and math.isfinite(params.half_life_days):
         spec.append(
             _Param(
                 "half_life",
@@ -112,6 +118,7 @@ def fit_map(
                 math.log(730),
             )
         )
+    if fit_trend:
         spec.append(
             _Param(
                 "slope",

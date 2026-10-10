@@ -62,7 +62,7 @@ class PlanParamsBody(Body):
     slope_prior_mean: float = Field(0.005, ge=-0.1, le=0.1)
     slope_prior_sd: float = Field(0.005, gt=0, le=0.1)
     q_level: float = Field(1e-4, ge=0, le=0.01)
-    q_slope: float = Field(1e-7, ge=0, le=1e-3)
+    q_slope: float = Field(3e-6, ge=0, le=1e-3)
     learner_bias_sd: float = Field(0.04, gt=0, le=0.5)
     rho_sibling: float = Field(0.5, ge=0, lt=1)
     rho_global: float = Field(0.15, ge=0, lt=1)
