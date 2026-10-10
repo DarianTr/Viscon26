@@ -67,6 +67,20 @@ export const PauseIcon = (p: P) => (
   </Icon>
 );
 
+export const SkipIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M5 5.5v13l9-6.5z" fill="currentColor" />
+    <path d="M18.5 5v14" strokeWidth={2.4} />
+  </Icon>
+);
+
+export const UndoIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M9 14L4 9l5-5" />
+    <path d="M4 9h10.5a5.5 5.5 0 010 11H11" />
+  </Icon>
+);
+
 export const CheckIcon = (p: P) => (
   <Icon {...p}>
     <path d="M5 12.5l4.5 4.5L19 7.5" strokeWidth={2.5} />

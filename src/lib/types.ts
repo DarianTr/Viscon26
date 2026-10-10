@@ -49,6 +49,8 @@ export type Task = {
   /** Start time, "HH:MM" in the users' time zone. */
   time: string;
   done: boolean;
+  /** The student chose not to do it. */
+  skipped: boolean;
 };
 
 export type PlanPhase = { name: string; weeks: number };
@@ -94,6 +96,9 @@ export type CalendarEvent = {
   end: string;
   minutes: number;
   calendarOrder: number | null;
+  done: boolean;
+  /** The student chose not to do it; it stays on the calendar, dimmed. */
+  skipped: boolean;
 };
 
 export type UserSummary = { id: string; name: string; initials: string; hue: number };
@@ -201,6 +206,8 @@ export type TaskRecord = {
   id: string;
   userId: string;
   planId: string | null;
+  /** The student's own plan it belongs to. */
+  userPlanId: string | null;
   type: EventType;
   activity: BlockActivity | null;
   /** Null for breaks and buffers. */
@@ -212,8 +219,11 @@ export type TaskRecord = {
   detail: string | null;
   scheduledAt: string;
   plannedMinutes: number;
+  calendarOrder: number | null;
   done: boolean;
   completedAt: string | null;
+  skipped: boolean;
+  skippedAt: string | null;
   actualMinutes: number | null;
   focus: number | null;
   trace: number[] | null;
@@ -222,6 +232,9 @@ export type TaskRecord = {
   shared: boolean;
   createdAt: string;
 };
+
+/** A subject to pick when adding a session by hand, with the newest plan that has it. */
+export type SubjectChoice = { name: string; planId: string; planTitle: string };
 
 export type ChallengeStatus = "pending" | "accepted" | "declined" | "completed";
 

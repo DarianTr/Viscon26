@@ -95,6 +95,7 @@ export async function GET(_request: Request, ctx: Ctx) {
       .where(and(
         eq(s.sessions.userPlanId, id),
         isNull(s.sessions.completedAt),
+        isNull(s.sessions.skippedAt),
         isNotNull(s.sessions.prepPhase),
         sql`${s.sessions.scheduledAt} + ${s.sessions.plannedMinutes} * interval '1 minute' > now()`,
       ))

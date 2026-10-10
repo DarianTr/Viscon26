@@ -197,6 +197,13 @@
       "when": 1791720001011,
       "tag": "0023_quiz_activity",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791720001012,
+      "tag": "0024_session_skips",
+      "breakpoints": true
     }
   ]
 }

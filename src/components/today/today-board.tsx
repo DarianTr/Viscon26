@@ -2,14 +2,15 @@
 
 import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { CheckIcon, ChevronDownIcon, ClockIcon, FlameIcon, PlayIcon } from "@/components/icons";
+import { AddSessionDialog } from "@/components/add-session-dialog";
+import { CheckIcon, ChevronDownIcon, ClockIcon, FlameIcon, PlayIcon, PlusIcon, SkipIcon, UndoIcon } from "@/components/icons";
 import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { LightningBolt, Sparkle, SpeechBubble, StickerLabel } from "@/components/mascot/doodles";
 import { Button, Card, Ring, SectionTitle } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import { emptyStateLines } from "@/lib/mascot";
 import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
-import type { Task } from "@/lib/types";
+import type { SessionType, SubjectChoice, Task, TaskRecord } from "@/lib/types";
 import { FocusTimer } from "./focus-timer";
 
 const PROGRESS_KEY = "focus-timer-progress";
@@ -50,14 +51,33 @@ function persistProgress(map: Map<string, number>) {
   progressListeners.forEach((listener) => listener());
 }
 
+const timeFormat = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+/** A session just added by hand, as the board lists it. */
+const toBoardTask = (t: TaskRecord): Task => ({
+  id: t.id,
+  type: t.type as SessionType,
+  subject: t.subject ?? "",
+  title: t.title,
+  detail: t.detail,
+  minutes: t.plannedMinutes,
+  actualMinutes: t.actualMinutes,
+  time: timeFormat.format(new Date(t.scheduledAt)),
+  done: t.done,
+  skipped: t.skipped,
+});
+
 export function TodayBoard({
   initialTasks,
+  subjects,
   streak,
   greeting,
   date,
   firstName,
 }: {
   initialTasks: Task[];
+  /** Subjects to pick from when adding a session by hand. */
+  subjects: SubjectChoice[];
   streak: number;
   /** Server-computed display strings, purely for the hero copy — no logic lives here. */
   greeting: string;
@@ -69,6 +89,7 @@ export function TodayBoard({
   const [running, setRunning] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [adding, setAdding] = useState(false);
   // Seconds accumulated per task ID from earlier, paused runs. Synced from
   // localStorage: null on the server and on the very first client render
   // (matching the SSR markup), then the real value once hydration settles —
@@ -76,12 +97,14 @@ export function TodayBoard({
   const savedProgress = useSyncExternalStore(subscribeProgress, readProgressSnapshot, () => null);
   const inProgress = parseProgress(savedProgress);
 
-  const total = tasks.reduce((sum, t) => sum + t.minutes, 0);
+  // Skipped sessions are off today's plan.
+  const planned = tasks.filter((t) => !t.skipped);
+  const total = planned.reduce((sum, t) => sum + t.minutes, 0);
   // Actual minutes studied: use actualMinutes when available, fall back to plannedMinutes.
   const studied = tasks.reduce((sum, t) => sum + (t.done ? (t.actualMinutes ?? t.minutes) : 0), 0);
-  const completedCount = tasks.filter((t) => t.done).length;
-  const progress = tasks.length ? completedCount / tasks.length : 0;
-  const next = tasks.find((t) => !t.done);
+  const completedCount = planned.filter((t) => t.done).length;
+  const progress = planned.length ? completedCount / planned.length : 0;
+  const next = planned.find((t) => !t.done);
 
   /** Optimistically flip a task, then save; roll back if the save fails. */
   function setDone(id: string, value: boolean, minutes?: number) {
@@ -91,7 +114,7 @@ export function TodayBoard({
         if (t.id !== id) return t;
         if (!value) return { ...t, done: false, actualMinutes: null };
         // Use the timer's elapsed minutes if provided; otherwise keep planned.
-        return { ...t, done: true, actualMinutes: minutes ?? t.minutes };
+        return { ...t, done: true, skipped: false, actualMinutes: minutes ?? t.minutes };
       }),
     );
     setError(null);
@@ -103,6 +126,28 @@ export function TodayBoard({
         setTasks(prev);
         setError(err.message);
       });
+  }
+
+  /** Optimistically skip a session (or take it back), then save; roll back if the save fails. */
+  function setSkipped(id: string, value: boolean) {
+    const prev = tasks;
+    setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, skipped: value } : t)));
+    setError(null);
+    api
+      .setTaskSkipped(id, value)
+      .then(() => router.refresh())
+      .catch((err: Error) => {
+        setTasks(prev);
+        setError(err.message);
+      });
+  }
+
+  /** A session added by hand: list it if it's today's, and refresh stats either way. */
+  function handleCreated(task: TaskRecord) {
+    if (task.type in sessionTypes && new Date(task.scheduledAt).toDateString() === new Date().toDateString()) {
+      setTasks((ts) => [...ts, toBoardTask(task)].sort((a, b) => a.time.localeCompare(b.time)));
+    }
+    router.refresh();
   }
 
   /** X pressed inside the timer — save progress and return to the board. */
@@ -162,7 +207,7 @@ export function TodayBoard({
                 </span>
               }
             />
-            <Stat label="Sessions" value={`${tasks.filter((t) => t.done).length}/${tasks.length}`} />
+            <Stat label="Sessions" value={`${completedCount}/${planned.length}`} />
           </div>
         </div>
       </div>
@@ -187,10 +232,16 @@ export function TodayBoard({
             </span>{" "}
             · {formatMinutes(next.minutes)}
           </p>
-          <Button variant="ghost" onClick={() => setRunning(next)} className="mt-4 text-accent!">
-            <PlayIcon className="size-4" />
-            {(inProgress.get(next.id) ?? 0) > 0 ? "Resume session" : "Start session"}
-          </Button>
+          <div className="relative z-10 mt-4 flex flex-wrap gap-2">
+            <Button variant="ghost" onClick={() => setRunning(next)} className="text-accent!">
+              <PlayIcon className="size-4" />
+              {(inProgress.get(next.id) ?? 0) > 0 ? "Resume session" : "Start session"}
+            </Button>
+            <Button variant="soft" onClick={() => setSkipped(next.id, true)} className="bg-white/15! text-surface! hover:bg-white/25!">
+              <SkipIcon className="size-4" />
+              Skip
+            </Button>
+          </div>
 
           <ExpressionMascot
             expression="excited"
@@ -200,7 +251,16 @@ export function TodayBoard({
         </div>
       )}
 
-      <SectionTitle>Today&apos;s sessions</SectionTitle>
+      <SectionTitle
+        action={
+          <Button variant="ghost" size="sm" onClick={() => setAdding(true)}>
+            <PlusIcon className="size-3.5" />
+            Add session
+          </Button>
+        }
+      >
+        Today&apos;s sessions
+      </SectionTitle>
       {error && (
         <p role="alert" className="mb-3 rounded-2xl border-2 border-tempo/30 bg-tempo/10 px-4 py-3 text-sm font-medium text-tempo">
           Couldn&apos;t save: {error}
@@ -216,12 +276,13 @@ export function TodayBoard({
         {tasks.map((task, index) => {
           const type = sessionTypes[task.type];
           const savedSecs = inProgress.get(task.id) ?? 0;
-          const isPaused = !task.done && savedSecs > 0;
+          const isPaused = !task.done && !task.skipped && savedSecs > 0;
           const isExpanded = expanded.has(task.id);
-          const tilt = task.done ? "" : index % 2 === 0 ? "sm:-rotate-[0.4deg]" : "sm:rotate-[0.4deg]";
+          const settled = task.done || task.skipped;
+          const tilt = settled ? "" : index % 2 === 0 ? "sm:-rotate-[0.4deg]" : "sm:rotate-[0.4deg]";
           return (
             <li key={task.id}>
-              <Card className={`flex gap-4 p-4 transition-opacity ${tilt} ${task.done ? "opacity-60" : ""}`}>
+              <Card className={`flex gap-4 p-4 transition-opacity ${tilt} ${task.done ? "opacity-60" : task.skipped ? "border-dashed bg-surface-2/50 shadow-none" : ""}`}>
                 <div className={`w-1.5 shrink-0 rounded-full ${isPaused ? "bg-amber-400" : type.color}`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-xs">
@@ -232,6 +293,9 @@ export function TodayBoard({
                       <span className="size-1.5 rounded-full" style={{ backgroundColor: subjectColor(task.subject).value }} />
                       {task.subject}
                     </span>
+                    {task.skipped && (
+                      <span className="rounded-full bg-surface-2 px-2 py-0.5 font-semibold text-muted">Skipped</span>
+                    )}
                     {isPaused && (
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-700">
                         Paused · {formatMinutes(Math.round(savedSecs / 60))} done
@@ -239,7 +303,7 @@ export function TodayBoard({
                     )}
                   </div>
                   <div className="mt-1.5 flex items-center gap-1.5">
-                    <p className={`font-display font-bold ${task.done ? "line-through" : ""}`}>
+                    <p className={`font-display font-bold ${settled ? "line-through" : ""} ${task.skipped ? "text-muted" : ""}`}>
                       {task.title}
                     </p>
                     {task.detail && (
@@ -268,6 +332,13 @@ export function TodayBoard({
                     <ClockIcon className="size-3.5" />
                     {task.time} · {formatMinutes(task.minutes)}
                   </p>
+                  {!task.done && (
+                    <SkipButton
+                      skipped={task.skipped}
+                      title={task.title}
+                      onClick={() => setSkipped(task.id, !task.skipped)}
+                    />
+                  )}
                 </div>
                 <div className="relative flex flex-col items-center justify-between gap-2">
                   {task.done && <Sparkle size={11} className="mascot-pop absolute -top-1 -right-1" />}
@@ -282,7 +353,7 @@ export function TodayBoard({
                   >
                     <CheckIcon className="size-4" />
                   </button>
-                  {!task.done && (
+                  {!settled && (
                     <button
                       onClick={() => setRunning(task)}
                       aria-label={isPaused ? `Resume ${task.title}` : `Start ${task.title}`}
@@ -302,6 +373,15 @@ export function TodayBoard({
         })}
       </ul>
 
+      {adding && (
+        <AddSessionDialog
+          subjects={subjects}
+          initialMode="plan"
+          onClose={() => setAdding(false)}
+          onCreated={handleCreated}
+        />
+      )}
+
       {running && (
         <FocusTimer
           task={running}
@@ -311,6 +391,24 @@ export function TodayBoard({
         />
       )}
     </>
+  );
+}
+
+/** Skip a planned session, or take the skip back. */
+function SkipButton({ skipped, title, onClick }: { skipped: boolean; title: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={skipped ? `Undo skipping ${title}` : `Skip ${title}`}
+      className={`mt-3 inline-flex items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-bold transition-colors ${
+        skipped
+          ? "border-foreground/70 bg-surface text-foreground hover:bg-surface-2"
+          : "border-border bg-surface-2 text-muted hover:border-muted hover:text-foreground"
+      }`}
+    >
+      {skipped ? <UndoIcon className="size-3.5" /> : <SkipIcon className="size-3.5" />}
+      {skipped ? "Undo skip" : "Skip session"}
+    </button>
   );
 }
 

@@ -32,11 +32,34 @@ export const newTaskSchema = createTaskSchema.refine(
   { message: "A subject is required", path: ["subject"] },
 );
 
+const endsAt = (task: { scheduledAt: Date; plannedMinutes: number }) =>
+  task.scheduledAt.getTime() + task.plannedMinutes * 60_000;
+
+/**
+ * A session added by hand: planned ahead (it must not be over yet), or logged
+ * after the fact with `done: true` (it must have started already). Linking it
+ * to one of your plans counts it toward that plan.
+ */
+export const manualTaskSchema = createTaskSchema
+  .extend({
+    userPlanId: z.uuid().nullable().optional(),
+    done: z.boolean().optional(),
+  })
+  .refine(
+    (task) => task.subject !== null || task.type === "buffer" || task.type === "break",
+    { message: "A subject is required", path: ["subject"] },
+  )
+  .refine((task) => (task.done ? task.scheduledAt.getTime() <= Date.now() : endsAt(task) > Date.now()), {
+    message: "Planned sessions must still be ahead; log ones you already did as done",
+    path: ["scheduledAt"],
+  });
+
 export const updateTaskSchema = createTaskSchema
   .omit({ userId: true })
   .partial()
   .extend({
     done: z.boolean().optional(),
+    skipped: z.boolean().optional(),
     actualMinutes: z.number().int().min(1).max(24 * 60).optional(),
     focus: z.number().int().min(0).max(100).nullable().optional(),
   })

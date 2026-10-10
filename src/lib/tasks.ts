@@ -11,12 +11,13 @@ import type { EventType, TaskRecord } from "./types";
 type Row = typeof s.sessions.$inferSelect;
 
 export type NewTask = Pick<Row, "userId" | "type" | "subject" | "title" | "scheduledAt" | "plannedMinutes"> &
-  Partial<Pick<Row, "planId" | "userPlanId" | "activity" | "cheatsheetTarget" | "cheatsheetMinutes" | "prepPhase" | "detail" | "location" | "note" | "shared">>;
+  Partial<Pick<Row, "planId" | "userPlanId" | "activity" | "cheatsheetTarget" | "cheatsheetMinutes" | "prepPhase" | "detail" | "location" | "note" | "shared" | "movedManually" | "completedAt" | "actualMinutes" | "focus">>;
 
-export type TaskPatch = Partial<Omit<NewTask, "userId">> &
-  Partial<Pick<Row, "actualMinutes" | "focus" | "movedManually">> & {
+export type TaskPatch = Partial<Omit<NewTask, "userId" | "completedAt">> & {
     /** true stamps completion (actual minutes default to planned); false clears it. */
     done?: boolean;
+    /** true marks a planned session skipped; false un-skips it. */
+    skipped?: boolean;
   };
 
 export type TaskFilter = {
@@ -35,6 +36,8 @@ function toTask(row: Row): TaskRecord {
     done: row.completedAt !== null,
     scheduledAt: row.scheduledAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
+    skipped: row.skippedAt !== null,
+    skippedAt: row.skippedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -64,9 +67,17 @@ export async function getTask(id: string): Promise<TaskRecord | undefined> {
   return row && toTask(row);
 }
 
-export async function createTask(data: NewTask): Promise<TaskRecord> {
-  const [row] = await db.insert(s.sessions).values(data).returning();
-  return toTask(row);
+/**
+ * Adds one block. With `check`, it must fit the calendar the way a moved block
+ * does (no overlap, no running past midnight, a study day of its plan).
+ */
+export async function createTask(data: NewTask, { check = false } = {}): Promise<TaskRecord> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx.insert(s.sessions).values(data).returning();
+    // Throwing rolls the insert back.
+    if (check) await assertSchedulable(tx, row.userId, [{ id: row.id, start: row.scheduledAt, minutes: row.plannedMinutes }]);
+    return toTask(row);
+  });
 }
 
 export async function createTasksBulk(items: NewTask[]): Promise<number> {
@@ -82,11 +93,17 @@ export async function createTasksBulk(items: NewTask[]): Promise<number> {
 
 export async function updateTask(
   id: string,
-  { done, ...patch }: TaskPatch,
+  { done, skipped, ...patch }: TaskPatch,
 ): Promise<TaskRecord | undefined> {
+  const skip =
+    skipped === true ? { skippedAt: sql`coalesce(${s.sessions.skippedAt}, now())` }
+      : skipped === false ? { skippedAt: null }
+        : {};
   const completion =
     done === true
       ? {
+          // Doing a skipped session after all un-skips it.
+          skippedAt: null,
           completedAt: sql`coalesce(${s.sessions.completedAt}, now())`,
           actualMinutes: patch.actualMinutes ?? sql`coalesce(${s.sessions.actualMinutes}, ${s.sessions.plannedMinutes})`,
         }
@@ -96,7 +113,7 @@ export async function updateTask(
 
   const [row] = await db
     .update(s.sessions)
-    .set({ ...patch, ...completion })
+    .set({ ...patch, ...skip, ...completion })
     .where(eq(s.sessions.id, id))
     .returning();
   return row && toTask(row);
@@ -170,6 +187,8 @@ async function assertSchedulable(
       eq(s.sessions.userId, userId),
       notInArray(s.sessions.id, ids),
       sql`${s.sessions.type} <> 'vacation'`,
+      // A skipped session frees its slot.
+      isNull(s.sessions.skippedAt),
       lt(s.sessions.scheduledAt, new Date(to)),
       sql`${s.sessions.scheduledAt} + ${s.sessions.plannedMinutes} * interval '1 minute' > ${new Date(from).toISOString()}`,
     ));
@@ -333,6 +352,7 @@ export async function listBusyIntervals(
     .where(and(
       eq(s.sessions.userId, userId),
       sql`${s.sessions.type} <> 'vacation'`,
+      isNull(s.sessions.skippedAt),
       lt(s.sessions.scheduledAt, to),
       sql`${s.sessions.scheduledAt} + ${s.sessions.plannedMinutes} * interval '1 minute' > ${from.toISOString()}`,
       // Blocks a regeneration replaces don't count — unless they're kept.
