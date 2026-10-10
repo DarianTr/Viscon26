@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckIcon, ChevronDownIcon, ClockIcon, FlameIcon, PlayIcon } from "@/components/icons";
-import { Card, Ring, SectionTitle } from "@/components/ui/primitives";
+import { Brain, type BrainExpression } from "@/components/mascot/brain";
+import { Button, Card, Ring, SectionTitle } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
+import { emptyStateLines } from "@/lib/mascot";
 import { formatMinutes, sessionTypes, subjectColor } from "@/lib/session-types";
 import type { Task } from "@/lib/types";
 import { FocusTimer } from "./focus-timer";
@@ -45,6 +47,19 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
   const completedCount = tasks.filter((t) => t.done).length;
   const progress = tasks.length ? completedCount / tasks.length : 0;
   const next = tasks.find((t) => !t.done);
+
+  // Purely decorative — which face the mascot pulls today. Doesn't touch
+  // any streak, XP or progress calculation, just which picture shows.
+  const mood: BrainExpression =
+    total > 0 && progress === 1
+      ? "celebrating"
+      : streak >= 7
+        ? "proud"
+        : next
+          ? "excited"
+          : total === 0
+            ? "sleepy"
+            : "happy";
 
   /** Optimistically flip a task, then save; roll back if the save fails. */
   function setDone(id: string, value: boolean, minutes?: number) {
@@ -92,10 +107,12 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
 
   return (
     <>
-      <Card className="flex items-center gap-5">
-        <Ring value={progress} size={88} stroke={9}>
+      <Card className="flex items-center gap-4">
+        <Brain expression={mood} size={64} />
+        <div className="h-12 w-px shrink-0 bg-border" />
+        <Ring value={progress} size={76} stroke={8}>
           <div className="text-center leading-none">
-            <p className="text-lg font-bold">{Math.round(progress * 100)}%</p>
+            <p className="font-display text-lg font-bold">{Math.round(progress * 100)}%</p>
             <p className="mt-1 text-[10px] text-muted">of today</p>
           </div>
         </Ring>
@@ -116,40 +133,38 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
       </Card>
 
       {next && (
-        <div className="relative mt-4 overflow-hidden rounded-3xl bg-gradient-to-br from-[#fc4c02] to-[#e11d74] p-5 text-white shadow-lg shadow-accent/20">
-          <p className="text-xs font-semibold tracking-wide uppercase opacity-80">
-            Up next · {next.time}
+        <div className="relative mt-4 overflow-hidden rounded-[1.75rem] border-[2.5px] border-foreground bg-accent p-5 text-surface shadow-[0_4px_0_0_var(--foreground)]">
+          <p className="font-display text-xs font-bold tracking-wide uppercase opacity-85">
+            Next mission · {next.time}
           </p>
-          <h3 className="mt-1.5 text-xl leading-snug font-bold">{next.title}</h3>
-          <p className="mt-1 text-sm opacity-85">
+          <h3 className="mt-1.5 font-display text-2xl leading-snug font-extrabold">{next.title}</h3>
+          <p className="mt-1 text-sm opacity-90">
             {sessionTypes[next.type].label} ·{" "}
             <span className="inline-flex items-center gap-1.5">
-              <span className="size-2 rounded-full" style={{ backgroundColor: subjectColor(next.subject).value }} />
+              <span className="size-2 rounded-full border border-white/40" style={{ backgroundColor: subjectColor(next.subject).value }} />
               {next.subject}
             </span>{" "}
             · {formatMinutes(next.minutes)}
           </p>
-          <button
-            onClick={() => setRunning(next)}
-            className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-[#e0430a] transition-transform active:scale-95"
-          >
+          <Button variant="ghost" onClick={() => setRunning(next)} className="mt-4 text-accent!">
             <PlayIcon className="size-4" />
             {(inProgress.get(next.id) ?? 0) > 0 ? "Resume session" : "Start session"}
-          </button>
-          <div className="pointer-events-none absolute -top-10 -right-10 size-40 rounded-full bg-white/10" />
-          <div className="pointer-events-none absolute -right-4 -bottom-16 size-32 rounded-full bg-white/10" />
+          </Button>
+          <div className="pointer-events-none absolute -top-8 -right-8 size-32 rounded-full bg-white/10" />
+          <div className="pointer-events-none absolute -right-2 -bottom-14 size-28 rounded-full bg-white/10" />
         </div>
       )}
 
       <SectionTitle>Today&apos;s sessions</SectionTitle>
       {error && (
-        <p role="alert" className="mb-3 rounded-2xl bg-tempo/10 px-4 py-3 text-sm text-tempo">
+        <p role="alert" className="mb-3 rounded-2xl border-2 border-tempo/30 bg-tempo/10 px-4 py-3 text-sm font-medium text-tempo">
           Couldn&apos;t save: {error}
         </p>
       )}
       {tasks.length === 0 && (
-        <Card className="py-10 text-center text-sm text-muted">
-          Nothing planned today — a rest day counts too.
+        <Card className="flex flex-col items-center gap-3 py-8 text-center">
+          <Brain expression="sleepy" size={72} />
+          <p className="max-w-[22ch] text-sm text-muted">{emptyStateLines.noSessionsToday}</p>
         </Card>
       )}
       <ul className="flex flex-col gap-3">
@@ -164,7 +179,7 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
                 <div className={`w-1.5 shrink-0 rounded-full ${isPaused ? "bg-amber-400" : type.color}`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-xs">
-                    <span className={`rounded-full px-2 py-0.5 font-semibold ${type.soft}`}>
+                    <span className={`rounded-full px-2 py-0.5 font-bold ${type.soft}`}>
                       {type.label}
                     </span>
                     <span className={`inline-flex items-center gap-1.5 ${subjectColor(task.subject).text}`}>
@@ -178,7 +193,7 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
                     )}
                   </div>
                   <div className="mt-1.5 flex items-center gap-1.5">
-                    <p className={`font-semibold ${task.done ? "line-through" : ""}`}>
+                    <p className={`font-display font-bold ${task.done ? "line-through" : ""}`}>
                       {task.title}
                     </p>
                     {task.detail && (
@@ -211,10 +226,10 @@ export function TodayBoard({ initialTasks, streak }: { initialTasks: Task[]; str
                   <button
                     onClick={() => setDone(task.id, !task.done)}
                     aria-label={task.done ? "Mark as not done" : "Mark as done"}
-                    className={`grid size-8 place-items-center rounded-full ring-2 transition-colors ${
+                    className={`grid size-8 place-items-center rounded-full border-2 transition-colors ${
                       task.done
-                        ? "bg-recovery text-white ring-recovery"
-                        : "text-transparent ring-border hover:ring-muted"
+                        ? "border-recovery bg-recovery text-white"
+                        : "border-border text-transparent hover:border-muted"
                     }`}
                   >
                     <CheckIcon className="size-4" />

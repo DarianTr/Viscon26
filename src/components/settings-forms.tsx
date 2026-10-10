@@ -11,8 +11,9 @@ import { Avatar, Card, SectionTitle } from "@/components/ui/primitives";
 import { initials } from "@/lib/session-types";
 
 const input =
-  "w-full rounded-xl bg-surface-2 px-3.5 py-2.5 text-sm outline-none ring-1 ring-border focus:ring-2 focus:ring-accent";
-const button = "rounded-xl px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60";
+  "w-full rounded-xl border-2 border-border bg-surface-2 px-3.5 py-2.5 text-sm outline-none focus:border-accent";
+const button =
+  "rounded-full border-2 border-foreground px-4 py-2.5 text-sm font-bold text-white shadow-[0_3px_0_0_var(--border)] active:translate-y-[3px] active:shadow-none disabled:opacity-60 disabled:shadow-none";
 
 type Me = {
   name: string;

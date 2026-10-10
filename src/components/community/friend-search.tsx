@@ -3,9 +3,11 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckIcon } from "@/components/icons";
+import { Brain } from "@/components/mascot/brain";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Avatar, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
+import { emptyStateLines } from "@/lib/mascot";
 import type { FriendStatus, Person } from "@/lib/types";
 
 const sections: { status: FriendStatus; title: string }[] = [
@@ -96,17 +98,18 @@ export function FriendSearch({ friends }: { friends: Person[] }) {
         placeholder="Search by name or @handle"
         autoCapitalize="none"
         autoComplete="off"
-        className="w-full rounded-2xl bg-surface px-4 py-3 text-sm outline-none ring-1 ring-border focus:ring-2 focus:ring-accent"
+        className="w-full rounded-full border-2 border-border bg-surface px-4 py-3 text-sm outline-none focus:border-accent"
       />
 
       {error && <p className="px-1 text-sm text-tempo">{error}</p>}
       {confirmDialog}
 
       {shown.length === 0 && !loading && (
-        <Card className="py-10 text-center text-sm text-muted">
-          {searching
-            ? `No one matches “${query.trim()}”.`
-            : "No friends yet — search for classmates above and send them a request."}
+        <Card className="flex flex-col items-center gap-3 py-8 text-center">
+          <Brain expression="confused" size={72} />
+          <p className="max-w-[26ch] text-sm text-muted">
+            {searching ? `No one matches “${query.trim()}”.` : emptyStateLines.noFriends}
+          </p>
         </Card>
       )}
 
@@ -160,9 +163,9 @@ function PersonList({
   );
 }
 
-const button = "shrink-0 rounded-full px-4 py-1.5 text-sm font-semibold transition-colors";
-const primary = `${button} bg-accent-soft text-accent`;
-const secondary = `${button} bg-surface-2 text-muted`;
+const button = "shrink-0 rounded-full border-2 px-4 py-1.5 text-sm font-bold transition-colors";
+const primary = `${button} border-accent/30 bg-accent-soft text-accent`;
+const secondary = `${button} border-border bg-surface-2 text-muted`;
 
 function FriendButtons({ person, onSet }: { person: Person; onSet: (person: Person, on: boolean) => void }) {
   switch (person.status) {

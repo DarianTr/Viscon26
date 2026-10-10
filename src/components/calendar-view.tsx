@@ -175,10 +175,10 @@ function Calendar({ today, events: list }: { today: Date; events: CalendarEvent[
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <div className="inline-flex rounded-full bg-surface-2 p-1" aria-label="Calendar view">
+        <div className="inline-flex rounded-full border-2 border-border bg-surface-2 p-1" aria-label="Calendar view">
           {(["month", "week"] as const).map((mode) => (
             <button key={mode} onClick={() => setView(mode)} aria-pressed={view === mode}
-              className={`rounded-full px-4 py-2 text-sm font-medium capitalize ${view === mode ? "bg-surface shadow-sm" : "text-muted"}`}>
+              className={`rounded-full px-4 py-2 text-sm font-bold capitalize ${view === mode ? "border-2 border-foreground bg-surface" : "border-2 border-transparent text-muted"}`}>
               {mode}
             </button>
           ))}
@@ -238,7 +238,7 @@ function Calendar({ today, events: list }: { today: Date; events: CalendarEvent[
       ) : <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
       <Card className="p-4">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-semibold">
+          <h2 className="font-display font-bold">
             {month.toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
           </h2>
         </div>
@@ -287,7 +287,7 @@ function Calendar({ today, events: list }: { today: Date; events: CalendarEvent[
 
       <div>
         <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="text-lg font-semibold tracking-tight">
+          <h2 className="font-display text-lg font-bold tracking-tight">
             {selected.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}
           </h2>
           {totalMinutes > 0 && (

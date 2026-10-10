@@ -58,14 +58,14 @@ const studyPhases = [
 const formatHours = (minutes: number) => `${Math.round(minutes / 60)} h`;
 
 const subjectColors = [
-    "#A8D5F2", // Pastel blue
-    "#B8E3C4", // Pastel green
-    "#D9C2F0", // Lavender
-    "#F5D2A2", // Peach
-    "#F5B9C5", // Pink
-    "#B2E2DF", // Turquoise
-    "#E8DCAD", // Soft yellow
-    "#C4CCE9", // Periwinkle
+    "#F2A7C4", // Braina pink
+    "#D6D6B1", // Pearl beige
+    "#BFE1DE", // Soft teal tint
+    "#F2CB8C", // Warm gold tint
+    "#F0B7A8", // Soft brick tint
+    "#C7D2DD", // Soft slate tint
+    "#E8C9D6", // Blush
+    "#D9C3BB", // Dusty taupe
 ];
 
 // useSearchParams needs a Suspense boundary for the page to prerender.
@@ -131,16 +131,16 @@ function NewPlanForm() {
     const subject = step === 3 ? subjects[activeSubject] : undefined;
 
     const inputClass =
-        "w-full rounded-xl border border-border bg-background px-4 py-3 text-sm";
+        "w-full rounded-xl border-2 border-border bg-surface px-4 py-3 text-sm outline-none focus:border-accent";
 
     const cardClass =
-        "space-y-6 rounded-2xl border border-border p-6";
+        "space-y-6 rounded-[1.75rem] border-2 border-border bg-surface p-6 shadow-[0_3px_0_0_var(--border)]";
 
     const primaryButton =
-        "rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background disabled:cursor-not-allowed disabled:opacity-30";
+        "rounded-full border-[2.5px] border-foreground bg-accent px-6 py-3 text-sm font-display font-bold text-surface shadow-[0_3px_0_0_var(--foreground)] active:translate-y-[3px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-30 disabled:shadow-none";
 
     const secondaryButton =
-        "rounded-full border border-border px-6 py-3 text-sm font-semibold";
+        "rounded-full border-2 border-foreground/70 bg-surface px-6 py-3 text-sm font-display font-bold shadow-[0_3px_0_0_var(--border)] active:translate-y-[3px] active:shadow-none";
 
     const [distribution, setDistribution] = useState<number[]>([]);
     const [recommendedDistribution, setRecommendedDistribution] =

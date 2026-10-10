@@ -5,7 +5,7 @@ import { useActionState } from "react";
 import type { AuthState } from "@/app/(auth)/actions";
 
 const input =
-  "w-full rounded-xl bg-surface-2 px-3.5 py-2.5 text-sm outline-none ring-1 ring-border focus:ring-2 focus:ring-accent";
+  "w-full rounded-xl border-2 border-border bg-surface-2 px-3.5 py-2.5 text-sm outline-none focus:border-accent";
 
 /** The login and signup forms; signup adds a name field. */
 export function AuthForm({
@@ -43,7 +43,7 @@ export function AuthForm({
       {state?.error && <p className="text-sm text-tempo">{state.error}</p>}
       <button
         disabled={pending}
-        className="mt-1 rounded-xl bg-accent py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+        className="mt-1 rounded-full border-[2.5px] border-foreground bg-accent py-2.5 font-display text-sm font-bold text-white shadow-[0_3px_0_0_var(--foreground)] active:translate-y-[3px] active:shadow-none disabled:opacity-60 disabled:shadow-none"
       >
         {pending ? "…" : signup ? "Create account" : "Log in"}
       </button>

@@ -3,8 +3,10 @@ import Link from "next/link";
 import { logout } from "@/app/(auth)/actions";
 import { ActivityCard } from "@/components/community/activity-card";
 import { FlameIcon, SettingsIcon } from "@/components/icons";
+import { Brain, STAGE_LABEL, type BrainStage } from "@/components/mascot/brain";
 import { SubjectInvestment } from "@/components/profile/subject-investment";
-import { Avatar, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
+import { Avatar, Button, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
+import { mascotStageFromHours } from "@/lib/mascot";
 import { getCurrentUser, getFeed, getProfile, getStudyBehavior } from "@/lib/queries";
 import type { HourlyBucket } from "@/lib/queries";
 import { subjectColor } from "@/lib/session-types";
@@ -45,17 +47,22 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
         action={
           <div className="flex items-center gap-2">
             {user.isAdmin && (
-              <Link href="/admin" className="rounded-full bg-surface-2 px-4 py-2 text-sm font-medium">
+              <Link
+                href="/admin"
+                className="rounded-full border-2 border-border bg-surface-2 px-4 py-2 text-sm font-bold"
+              >
                 Admin
               </Link>
             )}
             <form action={logout}>
-              <button className="rounded-full bg-surface-2 px-4 py-2 text-sm font-medium">Log out</button>
+              <Button type="submit" variant="soft" size="sm">
+                Log out
+              </Button>
             </form>
             <Link
               href="/profile/settings"
               aria-label="Settings"
-              className="grid size-10 place-items-center rounded-full bg-surface-2"
+              className="grid size-10 place-items-center rounded-full border-2 border-border bg-surface-2"
             >
               <SettingsIcon className="size-5" />
             </Link>
@@ -69,18 +76,18 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
             <Avatar initials={profile.initials} hue={profile.hue} size="lg" />
             <span
               aria-label={`${spiritAnimal.name} spirit animal`}
-              className="absolute -right-1 -bottom-1 grid size-7 place-items-center rounded-full bg-surface text-base shadow-sm ring-1 ring-border"
+              className="absolute -right-1 -bottom-1 grid size-7 place-items-center rounded-full border-2 border-foreground bg-surface text-base"
             >
               {spiritAnimal.emoji}
             </span>
           </span>
           <div className="min-w-0">
-            <h2 className="text-xl font-bold">{profile.name}</h2>
+            <h2 className="font-display text-xl font-bold">{profile.name}</h2>
             <p className="text-sm text-muted">{profile.handle}</p>
             {profile.program && <p className="mt-1 text-sm">{profile.program}</p>}
           </div>
         </div>
-        <div className="mt-5 grid grid-cols-2 divide-x divide-border border-t border-border pt-4 text-center">
+        <div className="mt-5 grid grid-cols-2 divide-x-2 divide-border border-t-2 border-border pt-4 text-center">
           <Count label="Friends" value={profile.friends} />
           <Count label="Day streak" value={profile.streak} icon />
         </div>
@@ -90,7 +97,7 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
       <Card className="flex items-center gap-6">
         <Ring value={weekHours / profile.weeklyGoal} size={96} stroke={10}>
           <div className="text-center leading-none">
-            <p className="text-xl font-bold">{weekHours.toFixed(1)}</p>
+            <p className="font-display text-xl font-bold">{weekHours.toFixed(1)}</p>
             <p className="mt-1 text-[10px] text-muted">/ {profile.weeklyGoal} h</p>
           </div>
         </Ring>
@@ -116,6 +123,9 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
         <Total label="Sessions" value={profile.totals.sessions} />
         <Total label="Braincells" value={profile.totals.kudos.toLocaleString("en-US")} />
       </div>
+
+      <SectionTitle>Your brain, right now</SectionTitle>
+      <BrainEvolution hours={profile.totals.hours} />
 
       <SectionTitle>Exam countdowns</SectionTitle>
       {examSubjects.length === 0 ? (
@@ -168,7 +178,7 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
           <li key={b.label}>
             <Card className={`flex flex-col items-center gap-2 p-3 text-center ${b.earned ? "" : "opacity-40 grayscale"}`}>
               <span className="text-3xl">{b.emoji}</span>
-              <span className="text-[11px] leading-tight font-medium">{b.label}</span>
+              <span className="text-[11px] leading-tight font-bold">{b.label}</span>
             </Card>
           </li>
         ))}
@@ -176,8 +186,9 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
 
       <SectionTitle>Your posts</SectionTitle>
       {posts.length === 0 ? (
-        <Card className="py-10 text-center text-sm text-muted">
-          Finish a session and it shows up here.
+        <Card className="flex flex-col items-center gap-3 py-8 text-center">
+          <Brain expression="sleepy" size={72} />
+          <p className="text-sm text-muted">Finish a session and it shows up here.</p>
         </Card>
       ) : (
         <ul className="flex flex-col gap-4">
@@ -192,7 +203,7 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
         <Link
           href={`/profile?posts=${shown + POSTS_STEP}`}
           scroll={false}
-          className="mt-4 block rounded-2xl bg-surface-2 py-3 text-center text-sm font-medium"
+          className="mt-4 block rounded-full border-2 border-border bg-surface-2 py-3 text-center text-sm font-bold"
         >
           Show more
         </Link>
@@ -204,7 +215,7 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
 function Count({ label, value, icon }: { label: string; value: number; icon?: boolean }) {
   return (
     <div>
-      <p className="inline-flex items-center gap-1 text-lg font-bold">
+      <p className="inline-flex items-center gap-1 font-display text-lg font-bold">
         {icon && <FlameIcon className="size-4 text-accent" />}
         {value}
       </p>
@@ -216,15 +227,46 @@ function Count({ label, value, icon }: { label: string; value: number; icon?: bo
 function Total({ label, value }: { label: string; value: number | string }) {
   return (
     <Card className="p-4">
-      <p className="text-2xl font-bold tabular-nums">{value}</p>
+      <p className="font-display text-2xl font-bold tabular-nums">{value}</p>
       <p className="text-xs text-muted">{label}</p>
+    </Card>
+  );
+}
+
+const STAGES: BrainStage[] = [1, 2, 3, 4, 5];
+
+/** A purely decorative read-out of existing all-time hours — not a new progress system. */
+function BrainEvolution({ hours }: { hours: number }) {
+  const current = mascotStageFromHours(hours);
+  return (
+    <Card>
+      <div className="flex items-center gap-4">
+        <Brain stage={current} expression={current >= 4 ? "proud" : "happy"} size={72} />
+        <div>
+          <p className="font-display text-lg font-bold">{STAGE_LABEL[current]}</p>
+          <p className="text-sm text-muted">{hours} hours logged all-time</p>
+        </div>
+      </div>
+      <div className="mt-5 flex items-center justify-between border-t-2 border-border pt-4">
+        {STAGES.map((s) => (
+          <div key={s} className={`flex flex-col items-center gap-1 ${s === current ? "" : "opacity-35"}`}>
+            <Brain stage={s} expression="happy" size={36} idle={s === current} />
+            <span className="text-[10px] font-bold text-muted">{s}</span>
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }
 
 function StudyBehaviorCard({ behavior }: { behavior: { hourly: HourlyBucket[]; peakHour: number | null; totalSessions: number } }) {
   if (behavior.totalSessions === 0) {
-    return <Card className="text-sm text-muted">Complete sessions to see your study patterns here.</Card>;
+    return (
+      <Card className="flex flex-col items-center gap-3 py-8 text-center">
+        <Brain expression="confused" size={72} />
+        <p className="text-sm text-muted">Complete sessions to see your study patterns here.</p>
+      </Card>
+    );
   }
 
   const formatHour = (h: number) => {
@@ -244,11 +286,11 @@ function StudyBehaviorCard({ behavior }: { behavior: { hourly: HourlyBucket[]; p
       {peakHour !== null && (
         <p className="mb-4 text-sm">
           Most active at{" "}
-          <span className="font-semibold text-accent">{formatHour(peakHour)}</span>
+          <span className="font-display font-bold text-accent">{formatHour(peakHour)}</span>
           {" "}— the strategy agent uses this to schedule your most important sessions then.
         </p>
       )}
-      <div className="flex h-24 items-end gap-px overflow-hidden">
+      <div className="flex h-24 items-end gap-px overflow-hidden rounded-xl border-2 border-border p-1.5">
         {visible.map((bucket) => {
           const isPeak = bucket.hour === peakHour;
           const heightPct = bucket.sessions > 0 ? Math.max(8, (bucket.sessions / maxSessions) * 100) : 4;
@@ -293,7 +335,7 @@ function ExamCountdown({ hours, color }: { hours: number; color: string }) {
   const remainingHours = hours % 24;
 
   return (
-    <p className="mt-2 text-2xl font-bold tabular-nums" style={{ color }}>
+    <p className="mt-2 font-display text-2xl font-bold tabular-nums" style={{ color }}>
       {days > 0 && <>{days}d </>}
       {remainingHours}h
       <span className="sr-only"> left</span>

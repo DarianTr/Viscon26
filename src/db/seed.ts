@@ -199,7 +199,7 @@ async function main() {
       weeks: 8,
       hoursPerWeek: 10,
       level: "Intermediate",
-      gradient: "from-[#fc4c02] to-[#e11d74]",
+      gradient: "from-[#BB3925] to-[#EEB111]",
       phases: [
         { name: "Base", weeks: 2 },
         { name: "Build", weeks: 3 },
@@ -215,7 +215,7 @@ async function main() {
       weeks: 12,
       hoursPerWeek: 20,
       level: "Advanced",
-      gradient: "from-[#5b5bf6] to-[#10a37f]",
+      gradient: "from-[#104547] to-[#250A04]",
       phases: [
         { name: "Base", weeks: 4 },
         { name: "Build", weeks: 4 },
@@ -231,7 +231,7 @@ async function main() {
       weeks: 6,
       hoursPerWeek: 6,
       level: "Beginner",
-      gradient: "from-[#10a37f] to-[#5bc0f6]",
+      gradient: "from-[#F2A7C4] to-[#EEB111]",
       phases: [
         { name: "Base", weeks: 3 },
         { name: "Build", weeks: 3 },
@@ -245,7 +245,7 @@ async function main() {
       weeks: 4,
       hoursPerWeek: 8,
       level: "Intermediate",
-      gradient: "from-[#e11d74] to-[#5b5bf6]",
+      gradient: "from-[#63768D] to-[#104547]",
       phases: [
         { name: "Build", weeks: 3 },
         { name: "Taper", weeks: 1 },
