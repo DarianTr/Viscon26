@@ -32,7 +32,6 @@ export default async function SettingsPage() {
           handle: user.handle,
           program: user.program,
           hue: user.hue,
-          weeklyGoalHours: user.weeklyGoalHours,
         }}
         notifications={<NotificationSettings vapidPublicKey={vapidPublicKey} nudgeStyle={user.nudgeStyle} />}
       />

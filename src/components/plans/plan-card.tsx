@@ -628,6 +628,11 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
                   })}
                 </ul>
               </div>
+            </>
+          ) : (
+            <p className="py-4 text-center text-sm text-muted">Failed to load plan details.</p>
+          )}
+
           {/* Tab bar */}
           <div className="flex flex-wrap items-center gap-2">
             <button

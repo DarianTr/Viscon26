@@ -20,7 +20,6 @@ type Me = {
   handle: string;
   program: string | null;
   hue: number;
-  weeklyGoalHours: number;
 };
 
 /** `notifications` goes between the profile and the password forms. */
@@ -81,22 +80,13 @@ function ProfileForm({ me }: { me: Me }) {
               className={input}
             />
           </Field>
-          <Field label="Study programme">
+          {/* Your weekly study goal comes from your study plan, not from here. */}
+          <Field label="Degree">
             <input
               name="program"
               defaultValue={v?.program ?? me.program ?? ""}
-              placeholder="e.g. BSc Computer Science, ETH"
-              className={input}
-            />
-          </Field>
-          <Field label="Weekly goal (hours)">
-            <input
-              name="weeklyGoalHours"
-              type="number"
-              min={0}
-              max={100}
-              defaultValue={v?.weeklyGoalHours ?? me.weeklyGoalHours}
-              required
+              placeholder="e.g. BSc Computer Science, ETH Zürich"
+              maxLength={200}
               className={input}
             />
           </Field>

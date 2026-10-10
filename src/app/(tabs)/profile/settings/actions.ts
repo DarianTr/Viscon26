@@ -27,7 +27,6 @@ const profileSchema = z.object({
     .max(200)
     .transform((v) => v || null),
   hue: z.coerce.number().pipe(userFields.hue),
-  weeklyGoalHours: z.coerce.number().pipe(userFields.weeklyGoalHours),
 });
 
 const passwordSchema = z
