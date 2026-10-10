@@ -28,6 +28,21 @@ export const sessionType = pgEnum("session_type", [
   "recovery",
   "lecture",
   "exam",
+  "buffer",
+  "break",
+]);
+
+/** What a scheduled block is for — see blockActivities in lib/types.ts. */
+export const blockActivity = pgEnum("block_activity", [
+  "study",
+  "mock_exam",
+  "mock_review",
+  "cheatsheet",
+  "short_break",
+  "lunch",
+  "dinner",
+  "buffer",
+  "exam",
 ]);
 
 export const planLevel = pgEnum("plan_level", ["Beginner", "Intermediate", "Advanced"]);
@@ -119,6 +134,18 @@ export type StoredPlanConfig = {
   subjects?: StoredSubjectConfig[];
   /** Preferred session start hour (e.g. 9 = 09:00), set by the strategy agent from behavioral data. */
   preferredStartHour?: number;
+  /** Focused weekly minutes the scheduler sizes the workload from (see scheduler.ts). */
+  workloadBasisWeeklyMinutes?: number;
+  /** Daily start, "HH:MM". */
+  startTime?: string;
+  rhythm?: "balanced" | "sprint" | "deep";
+  /** How the Lernphase begins, and how many focus days a subject gets (see scheduler.ts). */
+  lernphaseStart?: "recommended" | "focus" | "mixed";
+  focusDays?: number;
+  /** First day of the plan, "YYYY-MM-DD" — workload and focus days count from here. */
+  planStart?: string;
+  /** Initial focus days the scheduler planned: "YYYY-MM-DD" → subject. Moves respect them. */
+  focusDates?: Record<string, string>;
 };
 
 /** A custom study plan created by the user via the plan wizard. */
@@ -132,6 +159,20 @@ export const userPlans = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index().on(t.userId)],
+);
+
+/** How far the student says a subject's cheatsheet is — the latest report counts. */
+export const cheatsheetReports = pgTable(
+  "cheatsheet_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    userPlanId: uuid("user_plan_id").notNull().references(() => userPlans.id, { onDelete: "cascade" }),
+    subject: text("subject").notNull(),
+    percent: integer("percent").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userPlanId, t.subject), check("cheatsheet_percent", sql`${t.percent} between 0 and 100`)],
 );
 
 export const plans = pgTable("plans", {
@@ -172,9 +213,17 @@ export const sessions = pgTable(
     planId: text("plan_id").references(() => plans.id, { onDelete: "set null" }),
     userPlanId: uuid("user_plan_id").references(() => userPlans.id, { onDelete: "set null" }),
     type: sessionType("type").notNull(),
+    activity: blockActivity("activity"),
     blocksStudy: boolean("blocks_study").notNull().default(false),
     calendarOrder: integer("calendar_order"),
-    subject: text("subject").notNull(),
+    /** The academic subject; null for breaks and buffers, which belong to none. */
+    subject: text("subject"),
+    /** Cheatsheet milestone (cumulative %) a session should reach — the plan, not the student's progress. */
+    cheatsheetTarget: integer("cheatsheet_target"),
+    /** Minutes of the session reserved for the cheatsheet: all of a cheatsheet session, part of a combined one. */
+    cheatsheetMinutes: integer("cheatsheet_minutes"),
+    /** Moved by hand in the calendar: regenerating the plan keeps it where feasible. */
+    movedManually: boolean("moved_manually").notNull().default(false),
     title: text("title").notNull(),
     detail: text("detail"),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),

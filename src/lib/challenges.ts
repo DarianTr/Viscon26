@@ -52,7 +52,7 @@ export async function sendChallenges(
     .onConflictDoNothing()
     .returning({ challengeeId: c.challengeeId });
 
-  const what = `"${session.title}" — ${formatEffort(effort(session))} of ${session.subject}`;
+  const what = `"${session.title}" — ${formatEffort(effort(session))}${session.subject ? ` of ${session.subject}` : ""}`;
   after(() =>
     Promise.all(
       created.map(({ challengeeId }) =>

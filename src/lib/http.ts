@@ -16,6 +16,9 @@ export function jsonError(
 
 export const notFound = (what = "Resource") => jsonError(404, `${what} not found`);
 
+/** The request conflicts with existing data (e.g. overlapping calendar blocks) — answered with 409. */
+export class ConflictError extends Error {}
+
 /** Row ids are UUIDs; anything else can't exist, so callers can 404 early. */
 export const isId = (value: string) => z.uuid().safeParse(value).success;
 
@@ -49,6 +52,7 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
     if (err instanceof SyntaxError) {
       return jsonError(400, "Request body must be valid JSON");
     }
+    if (err instanceof ConflictError) return jsonError(409, err.message);
     // Constraint violations are the caller's fault, not the server's.
     const pg = pgError(err);
     if (pg?.code === "23505") return jsonError(409, "Already exists", pg.detail);

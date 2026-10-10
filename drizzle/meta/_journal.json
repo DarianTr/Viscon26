@@ -103,8 +103,43 @@
     {
       "idx": 14,
       "version": "7",
-      "when": 1791720001000,
-      "tag": "0013_challenges_and_push",
+      "when": 1791720000001,
+      "tag": "0013_buffer_session_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791720000002,
+      "tag": "0014_block_activity",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791720000003,
+      "tag": "0015_cheatsheet_and_subjectless_blocks",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791720000004,
+      "tag": "0016_moved_manually",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791720000005,
+      "tag": "0017_cheatsheet_progress",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791720000006,
+      "tag": "0018_challenges_and_push",
       "breakpoints": true
     }
   ]

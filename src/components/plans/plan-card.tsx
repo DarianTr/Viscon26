@@ -47,8 +47,24 @@ type StrategyResult = {
 type PlanDetails = {
   subjects: SubjectStat[];
   scores: ExamScore[];
+  /** Per subject: cheatsheet % the plan expects by now, and actual progress (reported, else completed sessions). */
+  cheatsheet: Record<string, { planned: number; actual: number; reported: boolean }>;
+  /** Per subject: past/mock exams available, done, still planned, and held in reserve. */
+  mocks: Record<string, { available: number; done: number; planned: number; reserve: number }>;
   config: StoredConfig;
 };
+
+/** A change to how many mocks a subject should do, after a new result. */
+type MockChange = { subject: string; from: number; to: number; reason: string };
+
+/** Where "Continue plan" leads: today's board for today's work, else the calendar on that day. */
+function continueHref(start: string) {
+  const at = new Date(start);
+  const today = new Date();
+  if (at.toDateString() === today.toDateString()) return "/";
+  const key = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+  return `/calendar?date=${key}`;
+}
 
 const PALETTE = [
   "#6366f1",
@@ -409,7 +425,7 @@ function StrategySection({
   onReschedule: () => void;
 }) {
   const [applying, setApplying] = useState(false);
-  const [applyResult, setApplyResult] = useState<{ count: number; breakdown: Record<string, number> } | null>(null);
+  const [applyResult, setApplyResult] = useState<{ count: number; breakdown: Record<string, number>; warnings?: string[] } | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
 
   async function applyToSchedule() {
@@ -541,6 +557,9 @@ function StrategySection({
                     <span>{count} sessions</span>
                   </p>
                 ))}
+              {applyResult.warnings?.map((w) => (
+                <p key={w} className="text-xs text-red-600">{w}</p>
+              ))}
             </div>
           ) : (
             <button
@@ -575,6 +594,12 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
     } catch { return null; }
   });
   const [strategyLoading, setStrategyLoading] = useState(false);
+  const [mockChanges, setMockChanges] = useState<MockChange[] | null>(null);
+  const [updatingMocks, setUpdatingMocks] = useState(false);
+  // Reporting cheatsheet progress: which subject's form is open, and the catch-up it triggered.
+  const [reporting, setReporting] = useState<{ subject: string; percent: number } | null>(null);
+  const [savingReport, setSavingReport] = useState(false);
+  const [caughtUp, setCaughtUp] = useState<{ subject: string; actual: number; planned: number; addedMinutes: number } | null>(null);
   const [strategyError, setStrategyError] = useState<string | null>(null);
 
   const progress = plan.totalSessions > 0 ? plan.doneSessions / plan.totalSessions : 0;
@@ -604,6 +629,66 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
     // Invalidate cached strategy so the user is prompted to refresh
     setStrategy(null);
     localStorage.removeItem(`strategy-${plan.id}`);
+    void reassessMocks();
+  }
+
+  // A new result can change how many mocks are worth doing: preview the plan, and
+  // offer to update the schedule if the mock plan would change.
+  async function reassessMocks() {
+    if (!details?.config) return;
+    const res = await fetch(`/api/plans/${plan.id}/regenerate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config: details.config, apply: false }),
+    });
+    if (!res.ok) return;
+    const preview: { feasibility: { subjects: { name: string; mocks: { planned: number; reason: string } }[] } } = await res.json();
+    const changes = preview.feasibility.subjects
+      .map((s) => ({ subject: s.name, from: details.mocks?.[s.name]?.planned ?? 0, to: s.mocks.planned, reason: s.mocks.reason }))
+      .filter((c) => c.from !== c.to);
+    setMockChanges(changes.length ? changes : null);
+  }
+
+  async function applyMockChanges() {
+    if (!details?.config) return;
+    setUpdatingMocks(true);
+    try {
+      const res = await fetch(`/api/plans/${plan.id}/regenerate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: details.config, apply: true }),
+      });
+      if (res.ok) {
+        setMockChanges(null);
+        setDetails(null);
+        await fetchDetails();
+      }
+    } finally {
+      setUpdatingMocks(false);
+    }
+  }
+
+  // The student says how far a cheatsheet actually is. Behind the plan, the
+  // server rebuilds the remaining schedule right away with more cheatsheet time.
+  async function reportCheatsheet() {
+    if (!reporting) return;
+    setSavingReport(true);
+    try {
+      const res = await fetch(`/api/plans/${plan.id}/cheatsheet`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(reporting),
+      });
+      if (!res.ok) return;
+      const data: { caughtUp: boolean; planned: number; addedMinutes?: number } = await res.json();
+      setCaughtUp(data.caughtUp
+        ? { subject: reporting.subject, actual: reporting.percent, planned: data.planned, addedMinutes: data.addedMinutes ?? 0 }
+        : null);
+      setReporting(null);
+      await fetchDetails();
+    } finally {
+      setSavingReport(false);
+    }
   }
 
   async function fetchStrategy() {
@@ -674,6 +759,27 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
         />
       </div>
 
+      {/* Continue / manage */}
+      <div className="flex flex-wrap items-center gap-2 px-4 pt-3">
+        {plan.next ? (
+          <Link
+            href={continueHref(plan.next.start)}
+            title={plan.next.title}
+            className="rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white"
+          >
+            {plan.next.ongoing ? "Continue plan · now" : `Continue plan · ${new Date(plan.next.start).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}`}
+          </Link>
+        ) : (
+          <span className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold text-muted">Nothing left to do</span>
+        )}
+        <Link
+          href={`/plans/new?edit=${plan.id}`}
+          className="rounded-full border border-border px-4 py-2 text-xs font-semibold"
+        >
+          Manage plan
+        </Link>
+      </div>
+
       {/* Knowledge pages: always visible, no need to expand the card */}
       <div className="flex flex-wrap gap-2 px-4 pt-3 pb-4">
         <Link
@@ -729,6 +835,45 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
                             style={{ width: `${pct}%`, background: color }}
                           />
                         </div>
+                        {(details.mocks?.[s.subject]?.available ?? 0) > 0 && (
+                          <p className="mt-1 text-[11px] text-muted">
+                            Mocks: {details.mocks[s.subject].done} done · {details.mocks[s.subject].planned} planned
+                            {details.mocks[s.subject].reserve > 0 && ` · ${details.mocks[s.subject].reserve} in reserve`}
+                          </p>
+                        )}
+                        {details.cheatsheet?.[s.subject] && (
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[11px] text-muted">
+                            <span>
+                              Cheatsheet: {details.cheatsheet[s.subject].actual}% {details.cheatsheet[s.subject].reported ? "reported" : "done"}
+                              {" · "}{details.cheatsheet[s.subject].planned}% planned by now
+                            </span>
+                            {reporting?.subject === s.subject ? (
+                              <span className="flex items-center gap-1">
+                                <input
+                                  aria-label={`${s.subject} cheatsheet progress in percent`}
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={reporting.percent}
+                                  onChange={(e) => setReporting({ subject: s.subject, percent: Math.min(100, Math.max(0, Number(e.target.value) || 0)) })}
+                                  className="w-14 rounded-md border border-border bg-background px-1.5 py-0.5"
+                                />
+                                %
+                                <button onClick={() => void reportCheatsheet()} disabled={savingReport} className="font-semibold text-accent disabled:opacity-50">
+                                  {savingReport ? "Saving…" : "Save"}
+                                </button>
+                                <button onClick={() => setReporting(null)}>Cancel</button>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => setReporting({ subject: s.subject, percent: details.cheatsheet[s.subject].actual })}
+                                className="font-semibold text-accent"
+                              >
+                                Update progress
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </li>
                     );
                   })}
@@ -748,6 +893,44 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
                     </button>
                   )}
                 </div>
+
+                {caughtUp && (
+                  <div className="mb-3 space-y-1 rounded-2xl bg-surface-2 p-3 text-xs">
+                    <p className="font-semibold">Catching up on your {caughtUp.subject} cheatsheet</p>
+                    <p className="text-muted">
+                      {caughtUp.actual}% done, {caughtUp.planned}% was planned by now — your remaining schedule now has
+                      {caughtUp.addedMinutes > 0 ? ` ${Math.round((caughtUp.addedMinutes / 60) * 10) / 10} h more` : " more"} cheatsheet time.
+                      Completed sessions, results and blocks you moved stay.
+                    </p>
+                    <button onClick={() => setCaughtUp(null)} className="font-semibold text-muted">Dismiss</button>
+                  </div>
+                )}
+
+                {mockChanges && (
+                  <div className="mb-3 space-y-2 rounded-2xl bg-surface-2 p-3 text-xs">
+                    <p className="font-semibold">Your result changes your mock plan</p>
+                    <ul className="space-y-1 text-muted">
+                      {mockChanges.map((c) => (
+                        <li key={c.subject}>
+                          <span className="font-medium text-foreground">{c.subject}</span>: {c.from} → {c.to} planned mock{c.to === 1 ? "" : "s"}. {c.reason}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => void applyMockChanges()}
+                        disabled={updatingMocks}
+                        className="rounded-full bg-accent px-3 py-1.5 font-semibold text-white disabled:opacity-50"
+                      >
+                        {updatingMocks ? "Updating…" : "Update schedule"}
+                      </button>
+                      <button onClick={() => setMockChanges(null)} className="rounded-full px-3 py-1.5 font-semibold text-muted">
+                        Not now
+                      </button>
+                    </div>
+                    <p className="text-muted">Updating rebuilds your remaining schedule; completed sessions and results stay.</p>
+                  </div>
+                )}
 
                 {showForm && (
                   <LogScoreForm

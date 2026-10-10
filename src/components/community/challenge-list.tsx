@@ -93,7 +93,12 @@ function ChallengeCard({ challenge, side }: { challenge: Challenge; side: Side }
       <div className="mt-3 rounded-2xl bg-surface-2 px-3 py-2.5">
         <p className="font-semibold">{source.title}</p>
         <p className="text-sm text-muted">
-          <span className={subjectColor(source.subject).text}>{source.subject}</span> · to beat:{" "}
+          {source.subject && (
+            <>
+              <span className={subjectColor(source.subject).text}>{source.subject}</span> ·{" "}
+            </>
+          )}
+          to beat:{" "}
           <span className="font-medium text-foreground">{formatEffort(source)}</span>
         </p>
       </div>

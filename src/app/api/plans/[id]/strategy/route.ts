@@ -1,6 +1,6 @@
 import { and, asc, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { handle, isId, notFound } from "@/lib/http";
-import { getCurrentUser } from "@/lib/queries";
+import { academic, getCurrentUser } from "@/lib/queries";
 import { db, schema as s } from "@/db";
 import { runStrategyAgent, type HourlyActivity } from "@/lib/strategy-agent";
 
@@ -25,13 +25,13 @@ export async function GET(_request: Request, ctx: Ctx) {
     const [subjects, scores, completedSessions] = await Promise.all([
       db
         .select({
-          subject: s.sessions.subject,
+          subject: sql<string>`${s.sessions.subject}`,
           total: sql<number>`count(*)::int`,
           done: sql<number>`count(${s.sessions.completedAt})::int`,
           examDate: sql<string | null>`min(case when ${s.sessions.type} = 'exam' then ${s.sessions.scheduledAt}::text end)`,
         })
         .from(s.sessions)
-        .where(and(eq(s.sessions.userPlanId, id), ne(s.sessions.type, "lecture")))
+        .where(and(eq(s.sessions.userPlanId, id), academic, ne(s.sessions.type, "lecture")))
         .groupBy(s.sessions.subject)
         .orderBy(asc(s.sessions.subject)),
 
