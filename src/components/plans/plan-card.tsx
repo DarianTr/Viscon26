@@ -2,6 +2,7 @@
 
 import { useState, useTransition, useRef } from "react";
 import { Card } from "@/components/ui/primitives";
+import { AddSubjectWizard } from "@/components/plans/add-subject-wizard";
 import type { CustomPlan } from "@/lib/queries";
 
 type ExamScore = {
@@ -20,9 +21,31 @@ type SubjectStat = {
   examDate: string | null;
 };
 
+type StoredConfig = {
+  weeklyHours: number;
+  studyDays: string[];
+  sessionLength: number;
+  vacationRanges: { start: string; end: string }[];
+} | null;
+
+type SubjectRecommendation = {
+  subject: string;
+  insight: string;
+  urgency: "low" | "medium" | "high";
+  suggestedApproach?: "foundation" | "balanced" | "exam";
+  confidenceDelta: number;
+  priorityTopics: string[];
+};
+
+type StrategyResult = {
+  recommendations: SubjectRecommendation[];
+  overallInsight: string | null;
+};
+
 type PlanDetails = {
   subjects: SubjectStat[];
   scores: ExamScore[];
+  config: StoredConfig;
 };
 
 const PALETTE = [
@@ -304,6 +327,113 @@ function LogScoreForm({
   );
 }
 
+// ─── Strategy section ────────────────────────────────────────────────────────
+
+const URGENCY_STYLE: Record<
+  "low" | "medium" | "high",
+  { bg: string; color: string; label: string }
+> = {
+  high:   { bg: "color-mix(in srgb, var(--intervals) 15%, transparent)", color: "var(--intervals)", label: "High" },
+  medium: { bg: "color-mix(in srgb, #f59e0b 15%, transparent)",          color: "#d97706",           label: "Medium" },
+  low:    { bg: "color-mix(in srgb, var(--recovery) 15%, transparent)",  color: "var(--recovery)",   label: "Low" },
+};
+
+function StrategySection({
+  subjectNames,
+  hasScores,
+  strategy,
+  loading,
+  error,
+  onAnalyse,
+}: {
+  planId: string;
+  subjectNames: string[];
+  hasScores: boolean;
+  strategy: StrategyResult | null;
+  loading: boolean;
+  error: string | null;
+  onAnalyse: () => void;
+}) {
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">AI Strategy</p>
+        <button
+          onClick={onAnalyse}
+          disabled={loading || !hasScores}
+          className="text-xs font-semibold text-accent hover:opacity-80 disabled:opacity-40"
+        >
+          {loading ? "Analysing…" : strategy ? "Refresh" : "Analyse"}
+        </button>
+      </div>
+
+      {!hasScores && !strategy && (
+        <p className="text-xs text-muted">Log exam scores first to unlock AI strategy insights.</p>
+      )}
+
+      {error && <p className="text-xs text-red-500">{error}</p>}
+
+      {loading && (
+        <p className="py-4 text-center text-sm text-muted">Analysing your results…</p>
+      )}
+
+      {strategy && !loading && (
+        <div className="space-y-3">
+          {strategy.overallInsight && (
+            <p className="text-sm italic text-muted">{strategy.overallInsight}</p>
+          )}
+          {strategy.recommendations.map((rec) => {
+            const style = URGENCY_STYLE[rec.urgency];
+            return (
+              <div key={rec.subject} className="space-y-2 rounded-2xl bg-surface-2 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="size-2 shrink-0 rounded-full"
+                      style={{ background: subjectColor(subjectNames, rec.subject) }}
+                    />
+                    <span className="text-sm font-medium">{rec.subject}</span>
+                  </span>
+                  <span
+                    className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                    style={{ background: style.bg, color: style.color }}
+                  >
+                    {style.label}
+                  </span>
+                </div>
+
+                <p className="text-xs leading-relaxed text-muted">{rec.insight}</p>
+
+                {rec.priorityTopics.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {rec.priorityTopics.map((topic) => (
+                      <span
+                        key={topic}
+                        className="rounded-full bg-surface px-2 py-0.5 text-xs text-foreground"
+                      >
+                        {topic}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {rec.suggestedApproach && (
+                  <p className="text-xs text-muted">
+                    Suggested approach:{" "}
+                    <span className="font-medium capitalize text-foreground">
+                      {rec.suggestedApproach}
+                    </span>
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main card ───────────────────────────────────────────────────────────────
 
 export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
@@ -311,22 +441,28 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
   const [details, setDetails] = useState<PlanDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
+  const [strategy, setStrategy] = useState<StrategyResult | null>(null);
+  const [strategyLoading, setStrategyLoading] = useState(false);
+  const [strategyError, setStrategyError] = useState<string | null>(null);
 
   const progress = plan.totalSessions > 0 ? plan.doneSessions / plan.totalSessions : 0;
   const progressPct = Math.round(progress * 100);
 
+  async function fetchDetails() {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/plans/${plan.id}`);
+      if (res.ok) setDetails(await res.json());
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleToggle() {
     const next = !expanded;
     setExpanded(next);
-    if (next && !details) {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/plans/${plan.id}`);
-        if (res.ok) setDetails(await res.json());
-      } finally {
-        setLoading(false);
-      }
-    }
+    if (next && !details) await fetchDetails();
   }
 
   function handleScoreSaved(score: ExamScore) {
@@ -334,11 +470,45 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
       prev ? { ...prev, scores: [...prev.scores, score].sort((a, b) => a.takenAt.localeCompare(b.takenAt)) } : prev
     );
     setShowForm(false);
+    // Invalidate cached strategy so the user is prompted to refresh
+    setStrategy(null);
+  }
+
+  async function fetchStrategy() {
+    setStrategyLoading(true);
+    setStrategyError(null);
+    try {
+      const res = await fetch(`/api/plans/${plan.id}/strategy`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setStrategyError(data.error ?? "Analysis failed — please try again.");
+        return;
+      }
+      setStrategy(await res.json());
+    } catch {
+      setStrategyError("Network error — please try again.");
+    } finally {
+      setStrategyLoading(false);
+    }
   }
 
   const subjectNames = details?.subjects.map((s) => s.subject) ?? plan.subjects;
 
   return (
+    <>
+    {showWizard && (
+      <AddSubjectWizard
+        planId={plan.id}
+        storedConfig={details?.config ?? null}
+        onClose={() => setShowWizard(false)}
+        onDone={async () => {
+          setShowWizard(false);
+          setDetails(null);
+          await fetchDetails();
+        }}
+      />
+    )}
+
     <Card className="overflow-hidden p-0">
       {/* Header — always visible, click to expand */}
       <button
@@ -379,7 +549,15 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
             <>
               {/* Per-subject progress */}
               <div>
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Subject progress</p>
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">Subject progress</p>
+                  <button
+                    onClick={() => setShowWizard(true)}
+                    className="text-xs font-semibold text-accent hover:opacity-80"
+                  >
+                    + Add subject
+                  </button>
+                </div>
                 <ul className="space-y-2.5">
                   {details.subjects.map((s) => {
                     const pct = s.total > 0 ? Math.round((s.done / s.total) * 100) : 0;
@@ -459,6 +637,17 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
                   </ul>
                 )}
               </div>
+
+              {/* AI Strategy section */}
+              <StrategySection
+                planId={plan.id}
+                subjectNames={subjectNames}
+                hasScores={details.scores.length > 0}
+                strategy={strategy}
+                loading={strategyLoading}
+                error={strategyError}
+                onAnalyse={fetchStrategy}
+              />
             </>
           ) : (
             <p className="py-4 text-center text-sm text-muted">Failed to load plan details.</p>
@@ -466,5 +655,6 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
         </div>
       )}
     </Card>
+    </>
   );
 }
