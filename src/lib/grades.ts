@@ -30,3 +30,20 @@ export function normalCdf(z: number): number {
 /** Chance that a normal(mean, sd) score reaches at least `target` (both as scores). */
 export const chanceAtLeast = (mean: number, sd: number, target: number) =>
   1 - normalCdf((target - mean) / Math.max(sd, 1e-9));
+
+// --- Dates in Zurich -----------------------------------------------------------
+
+const TZ = "Europe/Zurich";
+
+/** Today's date in Zurich as YYYY-MM-DD. */
+export const zurichToday = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(now);
+
+/** 12:00 in Zurich on `date` (YYYY-MM-DD) as an ISO string with that day's offset (+01:00 or +02:00). */
+export function zurichNoon(date: string): string {
+  const offset =
+    new Intl.DateTimeFormat("en-US", { timeZone: TZ, timeZoneName: "longOffset" })
+      .formatToParts(new Date(`${date}T10:00:00Z`))
+      .find((p) => p.type === "timeZoneName")
+      ?.value.replace("GMT", "") || "+00:00";
+  return `${date}T12:00:00${offset}`;
+}

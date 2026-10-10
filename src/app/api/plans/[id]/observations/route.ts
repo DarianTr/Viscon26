@@ -9,7 +9,7 @@ import {
   logObservation,
   syncTopics,
 } from "@/lib/knowledge";
-import { fromGrade } from "@/lib/grades";
+import { fromGrade, zurichNoon, zurichToday } from "@/lib/grades";
 
 type Ctx = RouteContext<"/api/plans/[id]/observations">;
 
@@ -56,6 +56,8 @@ export async function POST(request: Request, ctx: Ctx) {
     const { id } = await ctx.params;
     if (!isId(id)) return notFound("Plan");
     const data = createSchema.parse(await request.json());
+    const today = zurichToday();
+    if (data.takenOn > today) return jsonError(400, "The date can't be in the future");
     try {
       const plan = await getOwnedPlan(user.id, id);
       if (!plan) return notFound("Plan");
@@ -68,8 +70,9 @@ export async function POST(request: Request, ctx: Ctx) {
       await syncTopics(plan);
       const observation = await logObservation(user.id, id, {
         type: data.type,
-        // Midday in Zurich, so the date never shifts across time zones.
-        observedAt: `${data.takenOn}T12:00:00+02:00`,
+        // Today: now, so the model counts it immediately (it only replays data points up
+        // to now). Earlier days: midday in Zurich, so the date never shifts across zones.
+        observedAt: data.takenOn === today ? new Date().toISOString() : zurichNoon(data.takenOn),
         ...("grade" in data.score
           ? { score: fromGrade(data.score.grade) } // points default to the type's usual count
           : { score: data.score.points / data.score.maxPoints, nPoints: data.score.maxPoints }),

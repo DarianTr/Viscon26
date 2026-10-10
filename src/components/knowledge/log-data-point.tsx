@@ -25,6 +25,7 @@ export function LogDataPointForm({ planId, subjects }: { planId: string; subject
   const [mode, setMode] = useState<"points" | "grade">("points");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [pending, startTransition] = useTransition();
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
@@ -41,11 +42,12 @@ export function LogDataPointForm({ planId, subjects }: { planId: string; subject
       setError("Tick at least one topic the data point covered.");
       return;
     }
+    setSaving(true);
     const res = await fetch(`/api/plans/${planId}/observations`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ type, subject: subject.id, topics: [...covered], takenOn: fd.get("takenOn"), score }),
-    });
+    }).finally(() => setSaving(false));
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       setError(body.error === "Invalid request" ? "Check the score: points can't exceed the maximum." : (body.error ?? "Couldn't save the data point"));
@@ -166,10 +168,10 @@ export function LogDataPointForm({ planId, subjects }: { planId: string; subject
       {saved && <p className="text-sm text-recovery">{saved}</p>}
       <button
         type="submit"
-        disabled={pending}
+        disabled={saving || pending}
         className="rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background disabled:opacity-60"
       >
-        {pending ? "Updating…" : "Log data point"}
+        {saving ? "Saving…" : pending ? "Updating…" : "Log data point"}
       </button>
     </form>
   );
