@@ -7,7 +7,7 @@ import { ChevronLeftIcon, ChevronRightIcon, ClockIcon, PlusIcon, SkipIcon, UndoI
 import { Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import { eventLabel, formatMinutes, phaseLabels, sessionTypes, subjectColor } from "@/lib/session-types";
-import type { CalendarEvent, SubjectChoice, TaskRecord } from "@/lib/types";
+import type { CalendarEvent, SessionType, SubjectChoice, TaskRecord } from "@/lib/types";
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const firstCalendarHour = 5;
@@ -123,7 +123,7 @@ function Calendar({
   const [calendarEvents, setCalendarEvents] = useState(list);
   const [month, setMonth] = useState(() => new Date(initial.getFullYear(), initial.getMonth(), 1));
   const [selected, setSelected] = useState(initial);
-  const [catchUp, setCatchUp] = useState<{ id: string; subject: string; minutes: number } | null>(null);
+  const [catchUp, setCatchUp] = useState<{ id: string; subject: string; type: SessionType; minutes: number } | null>(null);
   const [adding, setAdding] = useState<AddSessionMode | null>(null);
   const subjects = useMemo(
     () => [...new Set(calendarEvents.filter((e) => e.subject && isStudy(e)).map((e) => e.subject!))].sort(),
@@ -211,7 +211,7 @@ function Calendar({
     const response = await fetch(`/api/tasks/${catchUp.id}/catch-up`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ subject: catchUp.subject, minutes: catchUp.minutes }),
+      body: JSON.stringify({ subject: catchUp.subject, type: catchUp.type, minutes: catchUp.minutes }),
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
@@ -524,6 +524,16 @@ function Calendar({
                         >
                           {subjects.map((subject) => <option key={subject}>{subject}</option>)}
                         </select>
+                        <select
+                          aria-label="Kind of study"
+                          value={catchUp.type}
+                          onChange={(event) => setCatchUp({ ...catchUp, type: event.target.value as SessionType })}
+                          className="rounded-lg border border-border bg-background px-2 py-1"
+                        >
+                          {(Object.keys(sessionTypes) as SessionType[]).map((t) => (
+                            <option key={t} value={t}>{sessionTypes[t].label}</option>
+                          ))}
+                        </select>
                         <input
                           aria-label="Minutes studied"
                           type="number"
@@ -542,7 +552,7 @@ function Calendar({
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setCatchUp({ id: e.id, subject: subjects[0], minutes: e.minutes })}
+                        onClick={() => setCatchUp({ id: e.id, subject: subjects[0], type: "theory", minutes: e.minutes })}
                         className="mt-2 text-xs font-semibold text-accent"
                       >
                         Log study done in this time

@@ -1,7 +1,7 @@
 import { and, count, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema as s } from "@/db";
-import { handle, isId, jsonError, notFound } from "@/lib/http";
+import { handle, isId, notFound } from "@/lib/http";
 import { logObservation } from "@/lib/knowledge";
 import { getCurrentUser } from "@/lib/queries";
 

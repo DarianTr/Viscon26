@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { chanceAtLeast, formatGrade, fromGrade, gradeSd, Z90 } from "@/lib/grades";
 import type { KnowledgeSubject, MeanSd, Timeline } from "@/lib/knowledge";
+import { formatPredictedGrade, predictionFor } from "@/lib/predictions";
 import { DAY, formatDay, useWidth } from "./chart-utils";
 import { Segmented } from "./forecast-chart";
 
 type Compare = "week" | "exam";
 const ALL = "all";
 const BANDS = [2.2, 1.645, 1.15, 0.67, 0.3];
+const BAND_OPACITY = [0.08, 0.1, 0.125, 0.165, 0.215];
 
 /** One axis of the spider chart: a topic, with its values pulled out of the timeline. */
 type Axis = {
@@ -21,9 +23,9 @@ type Axis = {
   target: number | null;
 };
 
-export function TopicProfile({ timeline, subjects }: { timeline: Timeline; subjects: KnowledgeSubject[] }) {
+export function TopicProfile({ timeline, subjects, initialSubjectId, showSubjectSelector = true, showRadar = true, showProgressList = true }: { timeline: Timeline; subjects: KnowledgeSubject[]; initialSubjectId?: string; showSubjectSelector?: boolean; showRadar?: boolean; showProgressList?: boolean }) {
   const [compare, setCompare] = useState<Compare>("week");
-  const [focus, setFocus] = useState<string>(ALL);
+  const [focus, setFocus] = useState<string>(initialSubjectId ?? ALL);
   const asOf = Date.parse(timeline.asOf);
 
   const weekAgo = asOf - 7 * DAY;
@@ -72,12 +74,12 @@ export function TopicProfile({ timeline, subjects }: { timeline: Timeline; subje
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        <Segmented
+        {showSubjectSelector && <Segmented
           label="Subjects"
           value={focus}
           onChange={setFocus}
           options={[{ value: ALL, label: "All subjects" }, ...subjects.map((s) => ({ value: s.id, label: s.name }))]}
-        />
+        />}
         <Segmented
           label="Compare with"
           value={compare}
@@ -88,31 +90,31 @@ export function TopicProfile({ timeline, subjects }: { timeline: Timeline; subje
           ]}
         />
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted">
+      {showRadar && <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted">
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-5 rounded-sm bg-foreground/25" />
-          Level now: shading is the distribution
+          <svg width="22" height="12" aria-hidden><rect x="1" y="1" width="20" height="10" rx="2" fill="var(--slate)" fillOpacity="0.2" /><line x1="1" x2="21" y1="6" y2="6" stroke="var(--teal)" strokeWidth="3" /></svg>
+          Level now · uncertainty range
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <svg width="22" height="8" aria-hidden><line x1="0" x2="22" y1="4" y2="4" className="stroke-muted" strokeWidth="1.5" strokeDasharray={compare === "exam" ? "2 3" : "6 4"} /></svg>
+          <svg width="22" height="8" aria-hidden><line x1="0" x2="22" y1="4" y2="4" stroke="var(--slate)" strokeWidth="2.5" strokeDasharray={compare === "exam" ? "2 3" : "6 4"} /></svg>
           {cmpLabel}
         </span>
         {axes.some((a) => a.target !== null) && (
           <span className="inline-flex items-center gap-1.5">
-            <svg width="22" height="8" aria-hidden><line x1="0" x2="22" y1="4" y2="4" stroke="var(--accent)" strokeWidth="1.5" strokeDasharray="5 4" /></svg>
+            <svg width="22" height="8" aria-hidden><line x1="0" x2="22" y1="4" y2="4" stroke="var(--accent)" strokeWidth="2.5" strokeDasharray="5 4" /></svg>
             Target grade
           </span>
         )}
-      </div>
-      {radarAxes.length >= 3 ? (
+      </div>}
+      {showRadar && (radarAxes.length >= 3 ? (
         <Radar axes={radarAxes} compareAhead={compare === "exam"} grouped={false} />
       ) : (
         <p className="text-sm text-muted">The spider chart needs at least three axes; pick a subject to see its topics.</p>
-      )}
-      {bySubject && (
+      ))}
+      {showRadar && bySubject && (
         <p className="text-xs text-muted">One axis per subject: the average of its topics. Pick a subject above to see each topic.</p>
       )}
-      <ProgressList axes={axes} timeline={timeline} compareAhead={compare === "exam"} />
+      {showProgressList && <ProgressList axes={axes} timeline={timeline} compareAhead={compare === "exam"} />}
     </div>
   );
 }
@@ -155,31 +157,34 @@ function Radar({ axes, compareAhead, grouped }: { axes: Axis[]; compareAhead: bo
             ))}
           {[2, 3, 4, 5, 6].map((g) => (
             <g key={g}>
-              <polygon points={poly(Array(K).fill(fromGrade(g)))} className="fill-none stroke-border" />
-              <text x={pt(0, fromGrade(g))[0] + 5} y={pt(0, fromGrade(g))[1] + 4} className="fill-muted font-mono text-[10px]">
+              <polygon points={poly(Array(K).fill(fromGrade(g)))} fill="none" stroke="#D6D6B1" strokeWidth={1.25} />
+              <text x={pt(0, fromGrade(g))[0] + 5} y={pt(0, fromGrade(g))[1] + 4} fill="#63768D" className="font-mono text-[10px]">
                 {g}
               </text>
             </g>
           ))}
           {axes.map((_, i) => {
             const [x2, y2] = pt(i, 1);
-            return <line key={i} x1={c} y1={c} x2={x2} y2={y2} className="stroke-border" />;
+            return <line key={i} x1={c} y1={c} x2={x2} y2={y2} stroke="#D6D6B1" strokeWidth={1.25} />;
           })}
-          {/* Nested rings between m − zσ and m + zσ overlap into a fading band. */}
-          {BANDS.map((z) => (
+          {BANDS.map((z, i) => (
             <path
               key={z}
               d={path(axes.map((a) => a.now.mean + z * a.now.sd)) + path(axes.map((a) => Math.max(0, a.now.mean - z * a.now.sd)))}
               fillRule="evenodd"
-              className="fill-foreground"
-              fillOpacity={0.09}
+              fill="var(--slate)"
+              fillOpacity={BAND_OPACITY[i]}
             />
           ))}
-          <polygon points={poly(axes.map((a) => a.compare.mean))} className="fill-none stroke-muted" strokeWidth={1.5} strokeDasharray={compareAhead ? "2 3" : "6 4"} />
+          <polygon points={poly(axes.map((a) => a.compare.mean))} fill="none" stroke="var(--slate)" strokeWidth={2.5} strokeDasharray={compareAhead ? "2 3" : "6 4"} />
           {axes.every((a) => a.target !== null) && (
-            <polygon points={poly(axes.map((a) => a.target!))} fill="none" stroke="var(--accent)" strokeWidth={1.5} strokeDasharray="5 4" />
+            <polygon points={poly(axes.map((a) => a.target!))} fill="none" stroke="var(--accent)" strokeWidth={2.5} strokeDasharray="5 4" />
           )}
-          <polygon points={poly(axes.map((a) => a.now.mean))} className="fill-none stroke-foreground" strokeWidth={2} strokeLinejoin="round" />
+          <polygon points={poly(axes.map((a) => a.now.mean))} fill="var(--teal)" fillOpacity={0.08} stroke="var(--teal)" strokeWidth={3.5} strokeLinejoin="round" />
+          {axes.map((a, i) => {
+            const [x, y] = pt(i, a.now.mean);
+            return <circle key={`level-point-${a.id}`} cx={x} cy={y} r={3.5} fill="var(--teal)" stroke="var(--surface)" strokeWidth={1.5} />;
+          })}
           {axes.map((a, i) => {
             const ang = angle(i);
             const lx = c + Math.cos(ang) * (R + 14);
@@ -188,10 +193,10 @@ function Radar({ axes, compareAhead, grouped }: { axes: Axis[]; compareAhead: bo
             const dy = Math.sin(ang) < -0.5 ? -14 : Math.sin(ang) > 0.5 ? 12 : 0;
             return (
               <g key={a.id}>
-                <text x={lx} y={ly + dy} textAnchor={anchor} className="fill-foreground text-[11.5px] font-semibold">
+                <text x={lx} y={ly + dy} textAnchor={anchor} fill="#250A04" className="text-[11.5px] font-semibold">
                   {a.name.length > 20 ? `${a.name.slice(0, 19)}…` : a.name}
                 </text>
-                <text x={lx} y={ly + dy + 13} textAnchor={anchor} className="fill-muted font-mono text-[10.5px]">
+                <text x={lx} y={ly + dy + 13} textAnchor={anchor} fill="#63768D" className="font-mono text-[10.5px]">
                   {formatGrade(a.now.mean)} ± {gradeSd(Z90 * a.now.sd).toFixed(1)}
                 </text>
               </g>
@@ -226,16 +231,17 @@ function ProgressList({ axes, timeline, compareAhead }: { axes: Axis[]; timeline
       {[...bySubject.values()].map((group) => {
         const subject = group[0].subject;
         const g = groupIndex.get(subject.id);
-        const level = g !== undefined ? timeline.current.groupLevels[g] : null;
         const forecast = g !== undefined ? timeline.current.groupForecasts[g] : null;
+        // The subject's grades, as everywhere else (lib/predictions.ts).
+        const prediction = predictionFor(timeline, subject);
         const target = subject.targetGrade ? fromGrade(subject.targetGrade) : null;
         return (
           <section key={subject.id} className="border-t border-border pt-2.5 pb-1">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
               <h3 className="font-semibold">{subject.name}</h3>
-              {level && forecast && (
+              {prediction && forecast && (
                 <p className="text-xs text-muted tabular-nums">
-                  now {formatGrade(level.mean)} · exam forecast {formatGrade(forecast.mean)}
+                  now {formatPredictedGrade(prediction.current.grade)} · exam forecast {formatPredictedGrade(prediction.examDay.grade)}
                   {target !== null && ` · ${Math.round(100 * chanceAtLeast(forecast.mean, forecast.sd, target))}% chance of ${formatGrade(target)}`}
                 </p>
               )}
@@ -244,8 +250,8 @@ function ProgressList({ axes, timeline, compareAhead }: { axes: Axis[]; timeline
               const { mean: m, sd: s } = a.now;
               const stops = Array.from({ length: 41 }, (_, k) => {
                 const v = k / 40;
-                const alpha = 0.8 * Math.exp(-0.5 * ((v - m) / s) ** 2);
-                return `color-mix(in srgb, var(--foreground) ${(100 * alpha).toFixed(1)}%, transparent) ${(100 * v).toFixed(1)}%`;
+                const alpha = Math.exp(-0.5 * ((v - m) / s) ** 2);
+                return `color-mix(in srgb, var(--slate) ${(95 * alpha).toFixed(1)}%, transparent) ${(100 * v).toFixed(1)}%`;
               });
               const d = change(a);
               return (
@@ -267,7 +273,7 @@ function ProgressList({ axes, timeline, compareAhead }: { axes: Axis[]; timeline
                     {a.target !== null && (
                       <span className="absolute inset-y-0 w-0 border-l-[1.5px] border-dashed" style={{ left: `${100 * a.target}%`, borderColor: "var(--accent)" }} />
                     )}
-                    <span className="absolute inset-y-1 -ml-px w-0.5 rounded bg-foreground" style={{ left: `${100 * m}%` }} />
+                    <span className="absolute inset-y-1 z-20 -ml-px w-0.5 rounded" style={{ left: `${100 * m}%`, backgroundColor: "var(--teal)", boxShadow: "0 0 3px var(--teal)" }} />
                   </div>
                   <div className="text-right font-mono text-[13px] tabular-nums">
                     {formatGrade(m)}

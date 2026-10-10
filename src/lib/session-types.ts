@@ -5,37 +5,37 @@ export const sessionTypes: Record<
   SessionType,
   { label: string; blurb: string; color: string; soft: string }
 > = {
-  deep: {
-    label: "Deep Focus",
-    blurb: "One long, uninterrupted block — your long run.",
+  theory: {
+    label: "Theory Recap",
+    blurb: "Work through the lecture material and summarise it actively.",
     color: "bg-deep",
     soft: "bg-deep/12 text-deep",
   },
-  intervals: {
-    label: "Intervals",
-    blurb: "Pomodoro reps: 25 min on, 5 min off.",
+  exercises: {
+    label: "Exercise Sheet",
+    blurb: "Solve problems on your own before checking solutions — 25 min on, 5 min off.",
     color: "bg-intervals",
     soft: "bg-intervals/12 text-intervals",
   },
-  tempo: {
-    label: "Tempo",
-    blurb: "Timed past-paper problems at exam pace.",
+  mock_exam: {
+    label: "Mock Exam",
+    blurb: "Past or mock exam papers, ideally under exam conditions.",
     color: "bg-tempo",
     soft: "bg-tempo/12 text-tempo",
   },
-  recovery: {
-    label: "Recovery",
-    blurb: "Light review — flashcards, skim notes.",
+  quiz: {
+    label: "Quiz",
+    blurb: "Test yourself without notes — recall first, then check the gaps.",
     color: "bg-recovery",
     soft: "bg-recovery/12 text-recovery",
   },
 };
 
 const eventTypeLabels: Record<EventType, string> = {
-  deep: sessionTypes.deep.label,
-  intervals: sessionTypes.intervals.label,
-  tempo: sessionTypes.tempo.label,
-  recovery: sessionTypes.recovery.label,
+  theory: sessionTypes.theory.label,
+  exercises: sessionTypes.exercises.label,
+  mock_exam: sessionTypes.mock_exam.label,
+  quiz: sessionTypes.quiz.label,
   exam: "Exam",
   lecture: "Lecture",
   buffer: "Buffer / Catch-up Time",

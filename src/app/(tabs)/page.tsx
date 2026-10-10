@@ -1,11 +1,12 @@
 import { LogDataSection } from "@/components/today/log-data-section";
+import { PracticeSectionToday } from "@/components/today/practice-section-today";
 import { TodayBoard } from "@/components/today/today-board";
 import { TIME_ZONE } from "@/db";
 import { getCurrentUser, getStreak, getSubjectChoices, getTodaysTasks } from "@/lib/queries";
 
 export default async function TodayPage({ searchParams }: PageProps<"/">) {
   const user = await getCurrentUser();
-  const { log } = await searchParams;
+  const { log, practice } = await searchParams;
   const [tasks, streak, subjects] = await Promise.all([
     getTodaysTasks(user.id),
     getStreak(user.id),
@@ -31,6 +32,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/">) {
         defaultShared={user.shareSessionsByDefault}
       />
       <LogDataSection userId={user.id} open={typeof log === "string" ? log : undefined} />
+      <PracticeSectionToday userId={user.id} open={typeof practice === "string" ? practice : undefined} />
     </>
   );
 }

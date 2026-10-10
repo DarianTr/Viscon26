@@ -12,7 +12,7 @@ export type ProgressRow = {
   done: boolean;
 };
 
-const STUDY_TYPES: EventType[] = ["deep", "intervals", "tempo", "recovery"];
+const STUDY_TYPES: EventType[] = ["theory", "exercises", "mock_exam", "quiz"];
 
 /** What a block is for; blocks saved before activities existed are recognised by type and title. */
 export function activityOf(row: Pick<ProgressRow, "type" | "activity" | "title">): BlockActivity | null {
@@ -76,4 +76,15 @@ export function cheatsheetProgress(
     p.reported = true;
   }
   return out;
+}
+
+/** A logged mock or real exam result, from the exam scores or the prediction model's data points. */
+export type MockResult = { subject: string; takenOn: string; grade: number };
+
+/** The latest mock/exam grade per subject, whichever source logged it; a later log wins a tie. */
+export function latestMockGrades(results: MockResult[]): Record<string, number> {
+  const latest: Record<string, number> = {};
+  const ordered = results.map((r, i) => ({ ...r, i })).sort((a, b) => a.takenOn.localeCompare(b.takenOn) || a.i - b.i);
+  for (const r of ordered) latest[r.subject] = r.grade;
+  return latest;
 }

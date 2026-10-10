@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { chanceAtLeast, formatGrade, fromGrade, gradeSd, Z90 } from "@/lib/grades";
 import type { KnowledgeSubject, MeanSd, Timeline } from "@/lib/knowledge";
+import { formatPredictedGrade, predictionFor } from "@/lib/predictions";
 import {
   DAY,
   type Density,
@@ -23,9 +24,9 @@ const M = { l: 34, r: 84, t: 14, b: 28 };
 const HEIGHT = 320;
 const BELL_W = 46;
 
-export function ForecastChart({ timeline, subjects }: { timeline: Timeline; subjects: KnowledgeSubject[] }) {
+export function ForecastChart({ timeline, subjects, initialSubjectId, showSubjectSelector = true }: { timeline: Timeline; subjects: KnowledgeSubject[]; initialSubjectId?: string; showSubjectSelector?: boolean }) {
   const topics = subjects;
-  const [selected, setSelected] = useState(0);
+  const [selected, setSelected] = useState(() => Math.max(0, subjects.findIndex((subject) => subject.id === initialSubjectId)));
   // The timeline's group for the selected subject (its topics' equal average).
   const group = selected === ALL ? -1 : timeline.groups.findIndex((g) => g.id === subjects[selected]?.id);
   const [modeChoice, setMode] = useState<Mode>("trajectory");
@@ -51,6 +52,15 @@ export function ForecastChart({ timeline, subjects }: { timeline: Timeline; subj
   const pick = (step: { groupForecasts: MeanSd[]; overall: MeanSd }) =>
     selected === ALL ? step.overall : step.groupForecasts[group];
   const forecastNow = pick(timeline.current);
+  // A subject's grades, as everywhere else (lib/predictions.ts); "All" is the plan-wide average.
+  const prediction = topic ? predictionFor(timeline, topic) : null;
+  const predicted = prediction
+    ? { grade: formatPredictedGrade(prediction.examDay.grade), low: formatPredictedGrade(prediction.examDay.low), high: formatPredictedGrade(prediction.examDay.high) }
+    : {
+        grade: formatGrade(forecastNow.mean),
+        low: formatGrade(forecastNow.mean - Z90 * forecastNow.sd),
+        high: formatGrade(forecastNow.mean + Z90 * forecastNow.sd),
+      };
 
   const steps = timeline.steps.map((s) => ({ ...s, t: Date.parse(s.at) }));
   const t0 = Math.min(steps[0]?.t ?? asOf, asOf - 7 * DAY);
@@ -75,17 +85,17 @@ export function ForecastChart({ timeline, subjects }: { timeline: Timeline; subj
     return (t: number): Density => {
       if (t <= asOf) {
         const seg = segs.findLast((g) => g.from <= t);
-        return seg ? { m: seg.value.mean, s: seg.value.sd, peak: 0.8 } : null;
+        return seg ? { m: seg.value.mean, s: seg.value.sd, peak: 0.95 } : null;
       }
       if (mode === "history" || selected === ALL) return null;
       const p = interpolate(ahead, t);
-      return p ? { m: p.m, s: p.s, peak: 0.32 } : null;
+      return p ? { m: p.m, s: p.s, peak: 0.48 } : null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeline, selected, group, mode, asOf]);
 
   useEffect(() => {
-    if (canvasRef.current && width > 0) paintDensity(canvasRef.current, plotW, plotH, t0, t1, lookup);
+    if (canvasRef.current && width > 0) paintDensity(canvasRef.current, plotW, plotH, t0, t1, lookup, 0, 1, "--slate");
   }, [lookup, width, plotW, plotH, t0, t1, scheme]);
 
   // Bell curve of the forecast, lying on its side at the exam (trajectory) or now (history).
@@ -126,7 +136,7 @@ export function ForecastChart({ timeline, subjects }: { timeline: Timeline; subj
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
-        <Segmented
+        {showSubjectSelector && <Segmented
           label="Subject"
           value={selected}
           onChange={setSelected}
@@ -134,7 +144,7 @@ export function ForecastChart({ timeline, subjects }: { timeline: Timeline; subj
             ...(topics.length > 1 ? [{ value: ALL, label: "All (average)" }] : []),
             ...topics.map((t, i) => ({ value: i, label: t.name })),
           ]}
-        />
+        />}
         <Segmented
           label="View"
           value={mode}
@@ -148,11 +158,8 @@ export function ForecastChart({ timeline, subjects }: { timeline: Timeline; subj
       </div>
 
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label={exam ? `Predicted grade, ${formatDay(exam)}` : "Predicted grade"} value={formatGrade(forecastNow.mean)} />
-        <Stat
-          label="90% range"
-          value={`${formatGrade(forecastNow.mean - Z90 * forecastNow.sd)}–${formatGrade(forecastNow.mean + Z90 * forecastNow.sd)}`}
-        />
+        <Stat label={exam ? `Predicted grade, ${formatDay(exam)}` : "Predicted grade"} value={predicted.grade} />
+        <Stat label="90% range" value={`${predicted.low}–${predicted.high}`} />
         <Stat
           label={target !== null ? `Chance of ${formatGrade(target)} or better` : "Target"}
           value={chance !== null ? `${Math.round(100 * chance)}%` : "not set"}
@@ -211,7 +218,7 @@ export function ForecastChart({ timeline, subjects }: { timeline: Timeline; subj
                   </text>
                 </>
               )}
-              <path d={bell} className="fill-surface stroke-foreground" fillOpacity={0.55} strokeWidth={1.5} />
+              <path d={bell} fill="var(--surface)" fillOpacity={0.55} stroke="var(--teal)" strokeWidth={2} />
               <text x={x(bellAt) + BELL_W + 6} y={y(forecastNow.mean) + 4} className="fill-foreground text-[12px] font-semibold">
                 {formatGrade(forecastNow.mean)}
               </text>
@@ -266,19 +273,25 @@ export function ForecastChart({ timeline, subjects }: { timeline: Timeline; subj
         )}
       </div>
 
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted">
-        <span>
+      <div className="space-y-1.5 text-xs text-muted">
+        <p>
           {mode === "history"
-            ? "Shading: the exam-day forecast as known on each day, darker where more likely."
-            : "Shading: estimated level, darker where more likely; lighter after today is the projection to the exam."}
-        </span>
-        {Object.entries(TYPE_LABEL).map(([type, label]) => (
-          <span key={type} className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3.5 w-1.5 rounded-full" style={{ background: TYPE_COLOR[type] }} />
-            {label}
+            ? "Shading: exam forecast over time (darker = more likely)."
+            : "Shading: grades over time (darker = more likely); after today, projected to exam."}
+        </p>
+        <div className="flex items-center gap-x-4 overflow-x-auto whitespace-nowrap pb-1">
+          {Object.entries(TYPE_LABEL).map(([type, label]) => (
+            <span key={type} className="inline-flex shrink-0 items-center gap-1.5">
+              <span className="inline-block h-3.5 w-1.5 rounded-full" style={{ background: TYPE_COLOR[type] }} />
+              {label}
+            </span>
+          ))}
+          <span className="inline-flex shrink-0 items-center gap-1.5">
+            <svg width="22" height="12" aria-hidden><path d="M1 10 C6 10 6 2 11 2 S16 10 21 10" fill="none" stroke="var(--teal)" strokeWidth="2" /></svg>
+            Exam-grade distribution
           </span>
-        ))}
-        <span>Bars: each score&apos;s own measurement noise.</span>
+        </div>
+        <p>Bars: each score&apos;s own measurement noise.</p>
       </div>
     </div>
   );

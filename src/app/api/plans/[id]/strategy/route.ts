@@ -2,14 +2,18 @@ import { and, asc, eq, isNotNull, ne, sql } from "drizzle-orm";
 import { handle, isId, notFound } from "@/lib/http";
 import { academic, getCurrentUser } from "@/lib/queries";
 import { db, schema as s } from "@/db";
-import { runStrategyAgent, type HourlyActivity } from "@/lib/strategy-agent";
+import { toGrade } from "@/lib/grades";
+import { getOwnedPlan, getTimeline, KnowledgeError, listObservations, syncTopics } from "@/lib/knowledge";
+import { subjectOfDataPoint, subjectPredictions, type SubjectPrediction } from "@/lib/predictions";
+import { runStrategyAgent, type DataPointEntry, type HourlyActivity } from "@/lib/strategy-agent";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 // GET /api/plans/:id/strategy
-// Runs the AI strategy agent over the plan's exam scores + session timing data
-// and returns per-subject recommendations plus a preferred start hour.
-// Returns empty recommendations if no scores have been logged yet.
+// Runs the AI strategy agent over the plan's grade predictions (the same model
+// output the plan shows, lib/predictions.ts), its logged results and session
+// timing, and returns per-subject recommendations plus a preferred start hour.
+// Returns empty recommendations if no results have been logged yet.
 export async function GET(_request: Request, ctx: Ctx) {
   return handle(async () => {
     const user = await getCurrentUser();
@@ -54,7 +58,28 @@ export async function GET(_request: Request, ctx: Ctx) {
         .where(and(eq(s.sessions.userPlanId, id), isNotNull(s.sessions.completedAt))),
     ]);
 
-    if (scores.length === 0) {
+    // The prediction model's view of each subject, and the results it's based on.
+    let predictions: SubjectPrediction[] = [];
+    let dataPoints: DataPointEntry[] = [];
+    const owned = await getOwnedPlan(user.id, id);
+    if (owned && owned.subjects.length > 0) {
+      try {
+        await syncTopics(owned);
+        const [timeline, observations] = await Promise.all([getTimeline(user.id, id), listObservations(user.id, id)]);
+        predictions = subjectPredictions(timeline, owned.subjects);
+        dataPoints = observations.flatMap((o) => {
+          const subject = subjectOfDataPoint(o.weights, owned.subjects);
+          return subject
+            ? [{ subject, type: o.type, takenOn: o.observedAt.slice(0, 10), grade: toGrade(o.score), points: o.nPoints }]
+            : [];
+        });
+      } catch (e) {
+        // Without the model the agent still has the exam scores; it never guesses grades.
+        if (!(e instanceof KnowledgeError)) throw e;
+      }
+    }
+
+    if (scores.length === 0 && dataPoints.length === 0) {
       return Response.json({ recommendations: [], overallInsight: null, preferredStartHour: null });
     }
 
@@ -76,7 +101,7 @@ export async function GET(_request: Request, ctx: Ctx) {
       }))
       .sort((a, b) => a.hour - b.hour);
 
-    const result = await runStrategyAgent(scores, subjects, hourlyActivity);
+    const result = await runStrategyAgent(scores, subjects, hourlyActivity, { predictions, dataPoints });
     return Response.json(result);
   });
 }

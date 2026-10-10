@@ -18,14 +18,14 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Study sessions use running vocabulary (deep = long run, etc.); lectures and
- * exams live in the same table so the calendar reads from one place.
+ * Study sessions are theory recaps, exercise sheets, mock exams or quizzes;
+ * lectures and exams live in the same table so the calendar reads from one place.
  */
 export const sessionType = pgEnum("session_type", [
-  "deep",
-  "intervals",
-  "tempo",
-  "recovery",
+  "theory",
+  "exercises",
+  "mock_exam",
+  "quiz",
   "lecture",
   "exam",
   "buffer",
@@ -151,6 +151,8 @@ export type StoredPlanConfig = {
   focusDates?: Record<string, string>;
   /** Exam Eve days: "YYYY-MM-DD" → subject(s). Nothing else is moved onto them. */
   eveDates?: Record<string, string[]>;
+  /** Saved edits the schedule doesn't reflect yet; cleared by a recalibration (see lib/plan-changes.ts). */
+  pendingChanges?: string[];
 };
 
 /** A custom study plan created by the user via the plan wizard. */

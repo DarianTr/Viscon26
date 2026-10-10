@@ -178,38 +178,45 @@
       "breakpoints": true
     },
     {
-      "idx": 24,
+      "idx": 25,
       "version": "7",
-      "when": 1791720001010,
+      "when": 1791720001011,
       "tag": "0022_questions",
-      "breakpoints": true
-    },
-    {
-      "idx": 25,
-      "version": "7",
-      "when": 1791720001011,
-      "tag": "0021_plan_archive",
-      "breakpoints": true
-    },
-    {
-      "idx": 25,
-      "version": "7",
-      "when": 1791720001011,
-      "tag": "0023_quiz_activity",
       "breakpoints": true
     },
     {
       "idx": 26,
       "version": "7",
       "when": 1791720001012,
-      "tag": "0024_session_skips",
+      "tag": "0021_plan_archive",
       "breakpoints": true
     },
     {
       "idx": 27,
       "version": "7",
       "when": 1791720001013,
-      "tag": "0025_default_post_privacy",
+      "tag": "0023_quiz_activity",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791720001014,
+      "tag": "0024_session_skips",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791720001015,
+      "tag": "0025_semantic_session_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791720001016,
+      "tag": "0026_default_post_privacy",
       "breakpoints": true
     }
   ]

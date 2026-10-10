@@ -7,8 +7,8 @@ export type Item = {
   createdAt: string;
 };
 
-/** Study session types, modelled on run types in a training plan. */
-export type SessionType = "deep" | "intervals" | "tempo" | "recovery";
+/** Study session types: what the student is working on in the block. */
+export type SessionType = "theory" | "exercises" | "mock_exam" | "quiz";
 
 /** Everything the calendar can show. */
 /**

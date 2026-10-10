@@ -8,15 +8,16 @@ type Ctx = RouteContext<"/api/plans/[id]/regenerate">;
 
 const bodySchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
-  config: planConfigSchema,
-  /** false: only preview what would change; true: replace the uncompleted schedule. */
+  /** New settings; without them, the plan's saved settings ("Recalibrate plan"). */
+  config: planConfigSchema.optional(),
+  /** false: only preview what would change; true: replace the upcoming uncompleted schedule. */
   apply: z.boolean(),
 });
 
-// POST /api/plans/:id/regenerate — "Manage plan": save new settings and
-// regenerate the uncompleted schedule. Completed blocks and logged exam
-// scores stay; their work isn't scheduled again. Preview first with
-// apply: false to see what would be replaced.
+// POST /api/plans/:id/regenerate — "Recalibrate plan": regenerate the schedule
+// from now on, with new or the saved settings. Everything before now, completed
+// blocks and logged exam scores stay; their work isn't scheduled again. Preview
+// first with apply: false to see what would be replaced.
 export async function POST(request: Request, ctx: Ctx) {
   return handle(async () => {
     const user = await getCurrentUser();

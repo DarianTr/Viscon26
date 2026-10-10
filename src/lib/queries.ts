@@ -51,7 +51,7 @@ const weekStart = sql`(date_trunc('week', now() at time zone ${tz}) at time zone
  */
 export const academic = and(isNotNull(s.sessions.subject), notInArray(s.sessions.type, ["buffer", "break"]));
 
-const studyTypes: SessionType[] = ["deep", "intervals", "tempo", "recovery"];
+const studyTypes: SessionType[] = ["theory", "exercises", "mock_exam", "quiz"];
 
 const f = s.friendships;
 
@@ -279,11 +279,7 @@ export async function listPlans(): Promise<Plan[]> {
     .from(s.plans)
     .leftJoin(counts, eq(counts.planId, s.plans.id))
     .orderBy(desc(sql`coalesce(${counts.enrolled}, 0)`));
-  return rows.map(({ plan, enrolled }) => ({
-    ...plan,
-    title: plan.id === "analysis-exam" ? "DiskMath Exam Prep" : plan.title,
-    enrolled,
-  }));
+  return rows.map(({ plan, enrolled }) => ({ ...plan, enrolled }));
 }
 
 const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
