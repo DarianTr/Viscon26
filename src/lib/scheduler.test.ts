@@ -613,11 +613,12 @@ describe("cheatsheets", () => {
     const done = generateStudyPlan(plan("gradual"), NOW, { progress: { Analysis: { studyMinutes: 0, mocksDone: 0, cheatsheet: 100 } } });
     assert.deepEqual(targets(done.sessions), [], "a finished cheatsheet needs no more time");
 
-    // The theory phase is over, but the cheatsheet only at 10%: there are no theory
-    // sessions left to hold it, so additional catch-up sessions are planned.
+    // The theory phase (and the spaced reviews spread through it) is over, but the
+    // cheatsheet only at 10%: there are no theory sessions left to hold it, so
+    // additional catch-up sessions are planned.
     const cfg = plan("gradual");
     const theory = generateStudyPlan(cfg, NOW).sessions
-      .filter((s) => /Theory Recap \+ Cheatsheet|Theory recap/.test(s.title))
+      .filter((s) => /Theory Recap \+ Cheatsheet|Theory recap|Spaced review/.test(s.title))
       .reduce((t, s) => t + s.plannedMinutes, 0);
     const progress = { Analysis: { studyMinutes: theory, mocksDone: 0, cheatsheet: 10 } };
     const late = generateStudyPlan(cfg, NOW, { progress });
@@ -1037,5 +1038,38 @@ describe("subject phases", () => {
     assert.equal(numericsThen.prepPhase, "build");
     // Every study block carries its phase.
     assert.ok(sessions.filter(isStudy).every((s) => s.prepPhase));
+  });
+});
+
+describe("session types", () => {
+  it("types every block by what the student does in it", () => {
+    const cfg = config({ subjects: [subject({ cheatsheet: "gradual" })] });
+    const { sessions } = generateStudyPlan(cfg, NOW, { quizGaps: { Analysis: 0.5 } });
+    const expected: Record<string, string> = {
+      mock_exam: "mock_exam", mock_review: "mock_exam", quiz: "quiz", cheatsheet: "theory", exam_eve: "theory",
+    };
+    for (const s of sessions) {
+      if (expected[s.activity]) assert.equal(s.type, expected[s.activity], s.title);
+    }
+    const study = sessions.filter((s) => s.activity === "study" && !s.title.includes("Immersion"));
+    const phaseType: [RegExp, string][] = [
+      [/Theory recap|Final revision/, "theory"], [/Exercises/, "exercises"],
+      [/Spaced review/, "quiz"], [/Past-exam practice/, "mock_exam"],
+    ];
+    for (const s of study) {
+      const match = phaseType.find(([re]) => re.test(s.title));
+      if (match) assert.equal(s.type, match[1], s.title);
+    }
+    assert.ok(sessions.some((s) => s.type === "quiz" && s.activity === "quiz"), "knowledge-gap quizzes are planned");
+  });
+
+  it("spreads spaced reviews through the subject's study instead of running them back to back", () => {
+    const { sessions } = generateStudyPlan(config(), NOW);
+    const study = sessions.filter((s) => s.activity === "study").sort((a, b) => +a.scheduledAt - +b.scheduledAt);
+    const reviews = study.flatMap((s, i) => (/Spaced review/.test(s.title) ? [i] : []));
+    assert.ok(reviews.length > 1);
+    for (let k = 1; k < reviews.length; k++) assert.ok(reviews[k] - reviews[k - 1] > 1, `reviews at ${reviews}`);
+    const firstExercise = study.findIndex((s) => /Exercises/.test(s.title));
+    assert.ok(reviews[0] < firstExercise, "the first review comes during the theory phase");
   });
 });

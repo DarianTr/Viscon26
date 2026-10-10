@@ -19,7 +19,7 @@ import type { Challenge, SessionType } from "./types";
 const c = s.challenges;
 const source = alias(s.sessions, "source");
 const response = alias(s.sessions, "response");
-const studyTypes: SessionType[] = ["deep", "intervals", "tempo", "recovery"];
+const studyTypes: SessionType[] = ["theory", "exercises", "mock_exam", "quiz"];
 const INBOX = "/community?tab=challenges";
 
 const minutesOf = (row: { actualMinutes: number | null; plannedMinutes: number }) =>
@@ -154,7 +154,7 @@ export async function respondToChallenge(user: SessionUser, id: string, accept: 
       .insert(s.sessions)
       .values({
         userId: user.id,
-        type: studyTypes.includes(src.type as SessionType) ? src.type : "deep",
+        type: studyTypes.includes(src.type as SessionType) ? src.type : "theory",
         subject: src.subject,
         title: src.title,
         detail: `⚔️ Challenge from ${challenger?.name ?? "a friend"}: beat ${formatEffort(effort(src))}`,

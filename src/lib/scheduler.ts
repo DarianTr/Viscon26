@@ -7,8 +7,8 @@
  *   warm-up and closes with an exit quiz, forcing active memory retrieval
  *   rather than passive re-reading.
  *
- * Spacing — each approach plan budgets a "Spaced review" phase (recovery
- *   sessions) and distributes them throughout the calendar. Session details
+ * Spacing — each approach plan budgets a "Spaced review" phase (quiz
+ *   sessions) and spreads them through the subject's other study. Session details
  *   explicitly cue students to the 1 → 3 → 7 → 14 day recall intervals.
  *
  * Phases — each subject moves through its own Foundation (optional
@@ -70,7 +70,7 @@
 import { nextFreeStart, type Interval } from "./intervals";
 import type { BlockActivity } from "./types";
 
-export type SchedulerSessionType = "deep" | "intervals" | "tempo" | "recovery" | "exam" | "buffer" | "break";
+export type SchedulerSessionType = "theory" | "exercises" | "mock_exam" | "quiz" | "exam" | "buffer" | "break";
 
 
 export interface ScheduledSession {
@@ -272,34 +272,34 @@ type PhaseSpec = { name: string; fraction: number; type: SchedulerSessionType };
 
 const APPROACH_PHASES: Record<string, PhaseSpec[]> = {
   foundation: [
-    { name: "Theory recap",       fraction: 0.28, type: "deep"      },
-    { name: "Exercises",          fraction: 0.24, type: "intervals" },
-    { name: "Spaced review",      fraction: 0.12, type: "recovery"  },
-    { name: "Past-exam practice", fraction: 0.22, type: "tempo"     },
-    { name: "Final revision",     fraction: 0.14, type: "recovery"  },
+    { name: "Theory recap",       fraction: 0.28, type: "theory"    },
+    { name: "Exercises",          fraction: 0.24, type: "exercises" },
+    { name: "Spaced review",      fraction: 0.12, type: "quiz"      },
+    { name: "Past-exam practice", fraction: 0.22, type: "mock_exam" },
+    { name: "Final revision",     fraction: 0.14, type: "theory"    },
   ],
   balanced: [
-    { name: "Theory recap",       fraction: 0.18, type: "deep"      },
-    { name: "Exercises",          fraction: 0.20, type: "intervals" },
-    { name: "Spaced review",      fraction: 0.12, type: "recovery"  },
-    { name: "Past-exam practice", fraction: 0.36, type: "tempo"     },
-    { name: "Final revision",     fraction: 0.14, type: "recovery"  },
+    { name: "Theory recap",       fraction: 0.18, type: "theory"    },
+    { name: "Exercises",          fraction: 0.20, type: "exercises" },
+    { name: "Spaced review",      fraction: 0.12, type: "quiz"      },
+    { name: "Past-exam practice", fraction: 0.36, type: "mock_exam" },
+    { name: "Final revision",     fraction: 0.14, type: "theory"    },
   ],
   exam: [
-    { name: "Spaced review",      fraction: 0.10, type: "recovery"  },
-    { name: "Past-exam practice", fraction: 0.50, type: "tempo"     },
-    { name: "Timed practice",     fraction: 0.25, type: "tempo"     },
-    { name: "Final revision",     fraction: 0.15, type: "recovery"  },
+    { name: "Spaced review",      fraction: 0.10, type: "quiz"      },
+    { name: "Past-exam practice", fraction: 0.50, type: "mock_exam" },
+    { name: "Timed practice",     fraction: 0.25, type: "mock_exam" },
+    { name: "Final revision",     fraction: 0.15, type: "theory"    },
   ],
 };
 
 const CUSTOM_PHASE_TYPE: Record<string, SchedulerSessionType> = {
-  "Theory recap":           "deep",
-  "Semester exercises":     "intervals",
-  "Iterative exam solving": "tempo",
-  "Full exam solving":      "tempo",
-  "Timed exam solving":     "tempo",
-  "Final revision":         "recovery",
+  "Theory recap":           "theory",
+  "Semester exercises":     "exercises",
+  "Iterative exam solving": "mock_exam",
+  "Full exam solving":      "mock_exam",
+  "Timed exam solving":     "mock_exam",
+  "Final revision":         "theory",
 };
 
 // Detail strings are kept ≤ 500 chars for the API constraint.
@@ -330,7 +330,7 @@ const PHASE_DETAIL: Record<string, string> = {
     "Debrief immediately: score yourself and log weak topics for final revision.",
 
   "Final revision":
-    "Low-intensity recovery session. Read your summary — cover each section and recall before checking. " +
+    "Low-intensity theory recap. Read your summary — cover each section and recall before checking. " +
     "Focus on weak spots identified from past-exam work. Finalise your cheatsheet if needed. " +
     "Aim for calm confidence, not new content.",
 
@@ -665,7 +665,24 @@ function buildPhaseQueue(
       queue.push({ type, activity: "study", phase: name, subject: subjectName, title: `${subjectName} — ${name} ${n}`, detail, plannedMinutes: sessionLength });
     }
   }
-  return queue;
+  return spreadReviews(queue);
+}
+
+/**
+ * Spaced reviews only space if they recur: spread them evenly between the
+ * subject's other sessions (never first, always before the final revision)
+ * instead of running back to back as one phase.
+ */
+function spreadReviews(queue: QueueItem[]): QueueItem[] {
+  const reviews = queue.filter((q) => q.phase === "Spaced review");
+  const rest = queue.filter((q) => q.phase !== "Spaced review");
+  const finalAt = rest.findIndex((q) => q.phase === "Final revision");
+  const span = finalAt < 0 ? rest.length : finalAt;
+  // From the back, so the earlier positions stay where they were computed.
+  for (let k = reviews.length - 1; k >= 0; k--) {
+    rest.splice(Math.max(1, Math.round(((k + 1) * span) / (reviews.length + 1))), 0, reviews[k]);
+  }
+  return rest;
 }
 
 function buildCustomPhases(selected: string[]): PhaseSpec[] {
@@ -674,9 +691,9 @@ function buildCustomPhases(selected: string[]): PhaseSpec[] {
   const phases: PhaseSpec[] = nonMock.map((p) => ({
     name: p,
     fraction: baseFrac,
-    type: CUSTOM_PHASE_TYPE[p] ?? "deep",
+    type: CUSTOM_PHASE_TYPE[p] ?? "theory",
   }));
-  phases.push({ name: "Spaced review", fraction: 0.15, type: "recovery" });
+  phases.push({ name: "Spaced review", fraction: 0.15, type: "quiz" });
   return phases;
 }
 
@@ -731,7 +748,7 @@ export function dedicatedCheatsheetMinutes(mode: CheatsheetMode, budget: number,
 }
 
 const cheatsheetItem = (subject: string, title: string, minutes: number, kind: NonNullable<QueueItem["cheat"]>["kind"]): QueueItem => ({
-  type: kind === "creation" || kind === "catchup" ? "deep" : "recovery",
+  type: "theory",
   activity: "cheatsheet",
   subject,
   title: `${subject} — ${title}`,
@@ -1344,7 +1361,7 @@ export function generateStudyPlan(
       if (s.eveMinutes <= 0) continue;
       const minutes = s.eveMinutes + s.eveSheetMinutes;
       place(day, {
-        type: "recovery",
+        type: "theory",
         activity: "exam_eve",
         prepPhase: "taper",
         subject: s.name,
@@ -1381,7 +1398,7 @@ export function generateStudyPlan(
       candidates.sort((a, b) => Math.abs(a - target) - Math.abs(b - target) || a - b);
 
       const mock: QueueItem = {
-        type: "tempo",
+        type: "mock_exam",
         activity: "mock_exam",
         subject: s.name,
         title: `${s.name} — Mock exam ${number}`,
@@ -1395,7 +1412,7 @@ export function generateStudyPlan(
         if (free(day) < s.mockMinutes || !canTake(day, si)) continue;
 
         const review: QueueItem = {
-          type: "deep",
+          type: "mock_exam",
           activity: "mock_review",
           subject: s.name,
           title: `${s.name} — Mock Exam Review ${number}`,
@@ -1507,7 +1524,7 @@ export function generateStudyPlan(
       const d = candidates.find((c) => free(days[c]) >= QUIZ_MINUTES && canTake(days[c], si));
       if (d === undefined) continue;
       place(days[d], {
-        type: "intervals",
+        type: "quiz",
         activity: "quiz",
         subject: s.name,
         title: `${s.name} — Practice Quiz ${q + 1}`,

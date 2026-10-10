@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { blockActivities } from "@/lib/types";
 
-const taskType = z.enum(["deep", "intervals", "tempo", "recovery", "lecture", "exam", "buffer", "break"]);
+const taskType = z.enum(["theory", "exercises", "mock_exam", "quiz", "lecture", "exam", "buffer", "break"]);
 const timestamp = z.iso.datetime({ offset: true }).transform((v) => new Date(v));
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 

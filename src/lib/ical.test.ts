@@ -5,7 +5,7 @@ import type { CalendarEvent } from "./types";
 
 const event = (over: Partial<CalendarEvent> = {}): CalendarEvent => ({
   id: "0b6c1a52-8f4e-4a43-9a4e-2f1b0c8d9e01",
-  type: "deep",
+  type: "theory",
   activity: "study",
   subject: "Linear Algebra",
   planId: null,

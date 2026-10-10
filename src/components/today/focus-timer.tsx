@@ -22,8 +22,8 @@ export function FocusTimer({
   /** Called with the total minutes actually studied (at least 1). */
   onFinish: (minutes: number) => void;
 }) {
-  // Intervals run as 25-minute reps; everything else as one block.
-  const blockSeconds = (task.type === "intervals" ? 25 : task.minutes) * 60;
+  // Exercise sheets run as 25-minute Pomodoro reps; everything else as one block.
+  const blockSeconds = (task.type === "exercises" ? 25 : task.minutes) * 60;
   const [elapsed, setElapsed] = useState(initialElapsed);
   const [paused, setPaused] = useState(false);
 
@@ -87,7 +87,7 @@ export function FocusTimer({
             style={{ borderColor: "var(--focus-border)", color: "var(--focus-muted)" }}
           >
             {type.label}
-            {task.type === "intervals" && ` · Rep ${rep}`}
+            {task.type === "exercises" && ` · Rep ${rep}`}
           </span>
           {isResumed && (
             <span

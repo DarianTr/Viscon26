@@ -4,7 +4,7 @@ import { activityOf, cheatsheetProgress, progressFromRows, type ProgressRow } fr
 
 const row = (overrides: Partial<ProgressRow>): ProgressRow => ({
   subject: "Analysis",
-  type: "deep",
+  type: "theory",
   activity: "study",
   title: "Analysis — Theory recap 1",
   plannedMinutes: 120,
@@ -30,9 +30,9 @@ describe("plan progress", () => {
     const progress = progressFromRows([
       row({ subject: null, type: "buffer", activity: "buffer", title: "Buffer / Catch-up Time", plannedMinutes: 90 }),
       row({ subject: null, type: "break", activity: "lunch", title: "Lunch", plannedMinutes: 60 }),
-      row({ activity: null, type: "tempo", title: "Analysis — Mock exam 3" }),
-      row({ activity: null, type: "deep", title: "Analysis — Mock Exam Review 3", plannedMinutes: 60 }),
-      row({ activity: null, type: "recovery", title: "Analysis — Spaced review 2", plannedMinutes: 90 }),
+      row({ activity: null, type: "mock_exam", title: "Analysis — Mock exam 3" }),
+      row({ activity: null, type: "mock_exam", title: "Analysis — Mock Exam Review 3", plannedMinutes: 60 }),
+      row({ activity: null, type: "quiz", title: "Analysis — Spaced review 2", plannedMinutes: 90 }),
     ]);
     assert.deepEqual(progress, { Analysis: { studyMinutes: 90, mocksDone: 1, cheatsheet: 0 } });
     assert.equal(activityOf({ type: "buffer", activity: null, title: "Buffer / Catch-up Time" }), "buffer");
