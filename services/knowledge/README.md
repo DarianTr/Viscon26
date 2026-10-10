@@ -78,6 +78,65 @@ Known limitations:
 - **No learner types or forgetting yet.** Learner-type mixtures and
   forgetting toward a baseline are not modelled.
 
+## Testbench
+
+`tests/` checks the math against the model's own assumptions. `bench/`
+checks it against learners who **don't** follow them.
+
+```bash
+uv run python -m bench            # ~10 s; writes bench/out/report.md and results.json
+uv run python -m bench --quick    # smaller run
+uv run python -m bench --schedules rich sparse --archetypes crammer forgetter --learners 100
+```
+
+**Archetypes** (`bench/truth.py`, each with per-learner variation):
+
+| Archetype | Learning curve |
+| --------- | -------------- |
+| steady | slow, near-linear gains |
+| fast_plateau | prior knowledge, flat after week one |
+| catch_up | starts low, levels off after ~3 weeks |
+| crammer | flat, then a late surge |
+| forgetter | per-topic peaks, then decay |
+| specialist | one topic near mastery, one barely started |
+| stalled | no progress |
+| erratic | large day-to-day swings |
+| notes_heavy | practice ~15 points above ability |
+| ceiling | scores near 100% |
+
+Scores are beta-binomial with the true overdispersion, so they are bounded
+to 0–1 like real ones.
+
+**Schedules** (`bench/schedules.py`):
+
+| Schedule | What gets logged |
+| -------- | ---------------- |
+| rich | daily practice, weekly quizzes, 3 mocks |
+| sparse | practice every 3 days, 1 mock |
+| no_mocks | like rich, without mocks |
+| mixed_only | every assessment covers 3 topics |
+
+**How a run works.** Per schedule, MAP is fitted on a mixed training cohort.
+Then five estimators are scored on fresh learners at days 10, 24 and 42:
+
+| Estimator | What it is |
+| --------- | ---------- |
+| fitted | the model with fitted parameters |
+| default | seeded priors, no fit |
+| linear | no slope decay |
+| no_trend | slope fixed at 0 |
+| naive | recency-weighted mean score per topic |
+
+**Metrics:**
+- exam-forecast RMSE and 90% interval coverage;
+- per-topic level RMSE and coverage;
+- how often the estimated weakest topic is the true weakest one;
+- fit-vs-truth for the noise parameters;
+- innovation calibration.
+
+`tests/test_bench.py` runs a small version with loose thresholds as a
+regression guard.
+
 ## API
 
 JSON is camelCase. Errors are `{ error, details? }`: 400 for invalid input or
