@@ -10,6 +10,7 @@ import {
   toKnowledgeSubjects,
   topicsPayload,
 } from "./knowledge-topics";
+import { fromGrade } from "./grades";
 
 /*
  * Client for the knowledge service (services/knowledge), which estimates each
@@ -180,4 +181,43 @@ export async function deleteObservation(userId: string, planId: string, id: stri
 
 export function getTimeline(userId: string, planId: string) {
   return call<Timeline>(`/users/${userId}/plans/${encodeURIComponent(planId)}/timeline`);
+}
+
+// --- Study focus / topic recommendations ------------------------------------
+
+export type TopicRecommendation = {
+  topicId: string;
+  topicName: string;
+  subjectId: string | null;
+  /** 0–100: share of the next session this topic should receive. */
+  allocation: number;
+  currentMean: number;
+  currentSd: number;
+  gap: number;
+  daysToExam: number | null;
+  tags: string[]; // "weakest" | "least certain" | "exam soon"
+};
+
+export type StudyFocus = {
+  userId: string;
+  planId: string;
+  asOf: string;
+  topics: TopicRecommendation[];
+};
+
+const clampFraction = (x: number) => Math.min(0.95, Math.max(0.05, x));
+
+/** Fetch per-topic study recommendations for the learner's next session. */
+export function getRecommendedTopics(userId: string, plan: OwnedPlan): Promise<StudyFocus> {
+  const targets: Record<string, number> = {};
+  for (const subject of plan.subjects) {
+    if (subject.targetGrade !== null) {
+      const t = clampFraction(fromGrade(subject.targetGrade));
+      for (const topic of subject.topics) targets[topic.id] = t;
+    }
+  }
+  return call<StudyFocus>(
+    `/users/${userId}/plans/${encodeURIComponent(plan.id)}/recommended-topics`,
+    { method: "POST", body: JSON.stringify({ targets }) },
+  );
 }

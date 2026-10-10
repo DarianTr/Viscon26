@@ -36,6 +36,8 @@ from .schemas import (
     ObservationsOut,
     PlanParamsBody,
     ProjectionPoint,
+    RecommendedTopicsIn,
+    RecommendedTopicsOut,
     Slope,
     StateOut,
     TimelineGroup,
@@ -43,6 +45,7 @@ from .schemas import (
     TimelineOut,
     TimelineStep,
     TimelineTopic,
+    TopicRecommendation,
     TopicsIn,
     TopicsOut,
     TopicState,
@@ -373,6 +376,107 @@ def _routes(app: FastAPI) -> None:
             ],
             skipped=tl.skipped,
         )
+
+    # --- Study focus ---------------------------------------------------------
+
+    @app.post(
+        "/users/{user_id}/plans/{plan_id}/recommended-topics",
+        response_model=RecommendedTopicsOut,
+    )
+    def get_recommended_topics(user_id: UUID, plan_id: str, body: RecommendedTopicsIn, conn: Conn):
+        """
+        Rank topics by priority for the learner's next study session.
+
+        Priority = gap × urgency + 0.3 × uncertainty, where:
+          gap      = max(0, target − current_level)
+          urgency  = 30 / max(days_to_exam, 3)   (1.0 when exam is in 30 days)
+          uncertainty = current_sd
+
+        Returns topics sorted by priority, with allocation percentages that sum
+        to 100. Topics missing from `targets` use a default target of 0.75 (~grade 5).
+        """
+        model = repo.load_model(conn, plan_id)
+        if model is None:
+            raise HTTPException(404, "Plan has no topics")
+
+        as_of = datetime.now(UTC)
+        rows = repo.list_observations(conn, plan_id=plan_id, user_id=user_id, end=as_of)
+        result = model.run([repo.to_observation(r) for r in rows], until=repo.to_days(as_of))
+        state = result.state
+
+        topic_rows = {r["id"]: r for r in repo.list_topics(conn, plan_id)}
+        levels_arr, level_sds_arr = model.levels(state)
+
+        scored = []
+        for i, topic in enumerate(model.topics):
+            row = topic_rows.get(topic.id)
+            if row is None:
+                continue
+            level = float(levels_arr[i])
+            sd = float(level_sds_arr[i])
+            target = float(body.targets.get(topic.id, 0.75))
+            gap = max(0.0, target - level)
+
+            exam_days: int | None = None
+            if row["exam_date"] is not None:
+                exam_dt = repo.exam_datetime(row["exam_date"])
+                remaining = (exam_dt.timestamp() - as_of.timestamp()) / 86400
+                exam_days = max(1, round(remaining))
+
+            urgency = 30.0 / max(exam_days if exam_days is not None else 30, 3)
+            priority = gap * urgency + 0.3 * sd
+
+            scored.append(
+                dict(
+                    topic_id=topic.id,
+                    topic_name=row["name"],
+                    subject_id=topic.parent_id,
+                    priority=priority,
+                    level=level,
+                    sd=sd,
+                    gap=gap,
+                    exam_days=exam_days,
+                )
+            )
+
+        if not scored:
+            return RecommendedTopicsOut(user_id=user_id, plan_id=plan_id, as_of=as_of, topics=[])
+
+        total = sum(s["priority"] for s in scored)
+        for s in scored:
+            s["allocation"] = (100.0 * s["priority"] / total) if total > 0 else (100.0 / len(scored))
+
+        scored.sort(key=lambda s: s["priority"], reverse=True)
+
+        weakest_id = min(scored, key=lambda s: s["level"])["topic_id"]
+        most_uncertain_id = max(scored, key=lambda s: s["sd"])["topic_id"]
+        with_exam = [s for s in scored if s["exam_days"] is not None and s["exam_days"] > 0]
+        soonest_id = min(with_exam, key=lambda s: s["exam_days"])["topic_id"] if with_exam else None
+
+        topics_out = []
+        for s in scored:
+            tags = []
+            if s["topic_id"] == weakest_id:
+                tags.append("weakest")
+            if s["topic_id"] == most_uncertain_id and s["sd"] > 0.05:
+                tags.append("least certain")
+            if soonest_id and s["topic_id"] == soonest_id:
+                tags.append("exam soon")
+            topics_out.append(
+                TopicRecommendation(
+                    topic_id=s["topic_id"],
+                    topic_name=s["topic_name"],
+                    subject_id=s["subject_id"],
+                    allocation=round(s["allocation"], 1),
+                    current_mean=round(s["level"], 4),
+                    current_sd=round(s["sd"], 4),
+                    gap=round(s["gap"], 4),
+                    days_to_exam=s["exam_days"],
+                    tags=tags,
+                )
+            )
+
+        return RecommendedTopicsOut(user_id=user_id, plan_id=plan_id, as_of=as_of, topics=topics_out)
 
     # --- Fit -----------------------------------------------------------------
 
