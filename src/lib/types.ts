@@ -11,7 +11,8 @@ export type Item = {
 export type SessionType = "deep" | "intervals" | "tempo" | "recovery";
 
 /** Everything the calendar can show. */
-export type EventType = SessionType | "lecture" | "exam";
+/** "buffer" is the daily catch-up block — on the calendar, but not focused study. */
+export type EventType = SessionType | "lecture" | "exam" | "buffer";
 
 export type Task = {
   id: string;

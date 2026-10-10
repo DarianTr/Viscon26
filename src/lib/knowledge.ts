@@ -1,6 +1,6 @@
 import "server-only";
 import { cache } from "react";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, notInArray } from "drizzle-orm";
 import { db, schema as s } from "@/db";
 import {
   type KnowledgeSubject,
@@ -123,7 +123,7 @@ export const getOwnedPlan = cache(async (userId: string, planId: string): Promis
     const rows = await db
       .selectDistinct({ subject: s.sessions.subject })
       .from(s.sessions)
-      .where(and(eq(s.sessions.userPlanId, planId), ne(s.sessions.type, "lecture")));
+      .where(and(eq(s.sessions.userPlanId, planId), notInArray(s.sessions.type, ["lecture", "buffer"])));
     subjects = rows.map((r) => ({ name: r.subject, examDate: null, targetGrade: null, currentGrade: null }));
   }
 

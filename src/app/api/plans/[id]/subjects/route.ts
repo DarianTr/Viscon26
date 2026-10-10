@@ -78,6 +78,7 @@ export async function POST(request: Request, ctx: Ctx) {
       studyDays: cfg.studyDays,
       sessionLength: cfg.sessionLength,
       vacationRanges: cfg.vacationRanges,
+      workloadBasisWeeklyMinutes: plan.config?.workloadBasisWeeklyMinutes,
       subjects: [{ ...subject, allocation: 100 }],
     });
 
@@ -95,6 +96,6 @@ export async function POST(request: Request, ctx: Ctx) {
 
     const count = await createTasksBulk(tasks);
 
-    return Response.json({ count, breakdown: result.breakdown }, { status: 201 });
+    return Response.json({ count, breakdown: result.breakdown, warnings: result.warnings }, { status: 201 });
   });
 }

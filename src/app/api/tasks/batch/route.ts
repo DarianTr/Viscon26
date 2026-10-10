@@ -28,6 +28,7 @@ const planConfigSchema = z.object({
   vacationRanges: z.array(z.object({ start: z.string(), end: z.string() })),
   subjects: z.array(storedSubjectSchema).optional(),
   preferredStartHour: z.number().optional(),
+  workloadBasisWeeklyMinutes: z.number().positive().optional(),
 }).optional();
 
 const batchSchema = z.object({

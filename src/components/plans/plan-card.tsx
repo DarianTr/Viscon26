@@ -409,7 +409,7 @@ function StrategySection({
   onReschedule: () => void;
 }) {
   const [applying, setApplying] = useState(false);
-  const [applyResult, setApplyResult] = useState<{ count: number; breakdown: Record<string, number> } | null>(null);
+  const [applyResult, setApplyResult] = useState<{ count: number; breakdown: Record<string, number>; warnings?: string[] } | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
 
   async function applyToSchedule() {
@@ -541,6 +541,9 @@ function StrategySection({
                     <span>{count} sessions</span>
                   </p>
                 ))}
+              {applyResult.warnings?.map((w) => (
+                <p key={w} className="text-xs text-red-600">{w}</p>
+              ))}
             </div>
           ) : (
             <button

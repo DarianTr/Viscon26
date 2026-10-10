@@ -1,4 +1,4 @@
-import { and, asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, eq, notInArray, sql } from "drizzle-orm";
 import { handle, isId, notFound } from "@/lib/http";
 import { getCurrentUser } from "@/lib/queries";
 import { db, schema as s } from "@/db";
@@ -27,7 +27,7 @@ export async function GET(_request: Request, ctx: Ctx) {
         examDate: sql<string | null>`min(case when ${s.sessions.type} = 'exam' then ${s.sessions.scheduledAt}::text end)`,
       })
       .from(s.sessions)
-      .where(and(eq(s.sessions.userPlanId, id), ne(s.sessions.type, "lecture")))
+      .where(and(eq(s.sessions.userPlanId, id), notInArray(s.sessions.type, ["lecture", "buffer"])))
       .groupBy(s.sessions.subject)
       .orderBy(asc(s.sessions.subject));
 

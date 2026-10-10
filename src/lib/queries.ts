@@ -1,7 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { connection } from "next/server";
-import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, ilike, inArray, isNotNull, isNull, ne, notInArray, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db, schema as s, TIME_ZONE } from "@/db";
 import { requireUser, type SessionUser } from "./auth";
@@ -198,7 +198,7 @@ export async function getUserCustomPlans(userId: string): Promise<CustomPlan[]> 
       lastDate: sql<string | null>`max(${s.sessions.scheduledAt})::text`,
     })
     .from(s.sessions)
-    .where(and(inArray(s.sessions.userPlanId, planIds), ne(s.sessions.type, "exam")))
+    .where(and(inArray(s.sessions.userPlanId, planIds), notInArray(s.sessions.type, ["exam", "buffer"])))
     .groupBy(s.sessions.userPlanId);
 
   const statsByPlanId = new Map(stats.map((r) => [r.userPlanId, r]));

@@ -3,7 +3,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { generateStudyPlan } from "@/lib/scheduler";
+import { dailyBufferMinutes, dailyWindowMinutes, generateStudyPlan } from "@/lib/scheduler";
 import type { PlanConfig, ScheduleResult } from "@/lib/scheduler";
 
 type StudyApproach = "foundation" | "balanced" | "exam" | "custom";
@@ -54,6 +54,8 @@ const studyPhases = [
     "Mock exams",
     "Final revision",
 ];
+
+const formatHours = (minutes: number) => `${Math.round(minutes / 60)} h`;
 
 const subjectColors = [
     "#A8D5F2", // Pastel blue
@@ -113,6 +115,10 @@ function NewPlanForm() {
         ? weeklyHours / studyDays.length
         : 0;
 
+    // Each study day ends with a buffer that isn't focused study.
+    const dailyBufferHours =
+        dailyBufferMinutes(dailyWindowMinutes({ weeklyHours, studyDays })) / 60;
+
     const validVacationRanges = vacationRanges.every(
         (r) => r.start && r.end && r.end >= r.start
     );
@@ -144,6 +150,11 @@ function NewPlanForm() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [scheduleResult, setScheduleResult] = useState<ScheduleResult | null>(null);
     const [generationError, setGenerationError] = useState<string | null>(null);
+    // Saved once the user accepts the plan (straight away when it fits).
+    const [planSaved, setPlanSaved] = useState(false);
+    // The workload is sized from the first generation's hours, so adjusting
+    // availability afterwards actually closes a gap.
+    const [workloadBasis, setWorkloadBasis] = useState<number | null>(null);
 
 
     // Update a single subject without losing other subjects' answers.
@@ -274,12 +285,16 @@ function NewPlanForm() {
         return allocatePercentages(weights);
     }
 
-    // Open Step 6 with the recommended distribution.
+    // Open Step 6 with the recommended distribution, keeping one the user
+    // already adjusted (e.g. when coming back via "Adjust my plan").
     function openDistribution() {
         const recommended = calculateRecommendedDistribution();
+        const customized =
+            distribution.length === subjects.length &&
+            distribution.some((value, i) => value !== recommendedDistribution[i]);
 
         setRecommendedDistribution(recommended);
-        setDistribution([...recommended]);
+        if (!customized) setDistribution([...recommended]);
         setStep(6);
     }
 
@@ -319,10 +334,11 @@ function NewPlanForm() {
         });
     }
 
-    async function generatePlan() {
-        setIsGenerating(true);
+    // Build the schedule; save it right away unless the goals need more time.
+    function generatePlan() {
         setScheduleResult(null);
         setGenerationError(null);
+        setPlanSaved(false);
         setStep(7);
 
         const config: PlanConfig = {
@@ -331,15 +347,33 @@ function NewPlanForm() {
             studyDays,
             sessionLength,
             vacationRanges,
+            ...(workloadBasis !== null ? { workloadBasisWeeklyMinutes: workloadBasis } : {}),
             subjects: subjects.map((subject, index) => ({
                 ...subject,
                 allocation: distribution[index] ?? 0,
             })),
         };
 
-        try {
-            const result = generateStudyPlan(config);
+        const result = generateStudyPlan(config);
+        setWorkloadBasis(result.workloadBasisWeeklyMinutes);
+        setScheduleResult(result);
 
+        if (!result.feasibility.needsMoreTime) void savePlan(result);
+    }
+
+    // Back to the availability step with every answer kept.
+    function adjustPlan() {
+        setScheduleResult(null);
+        setGenerationError(null);
+        setStep(2);
+        window.scrollTo({ top: 0 });
+    }
+
+    async function savePlan(result: ScheduleResult) {
+        setIsGenerating(true);
+        setGenerationError(null);
+
+        try {
             const response = await fetch("/api/tasks/batch", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -350,6 +384,7 @@ function NewPlanForm() {
                         studyDays,
                         sessionLength,
                         vacationRanges,
+                        workloadBasisWeeklyMinutes: result.workloadBasisWeeklyMinutes,
                         subjects: subjects.map(({ completed: _, ...subject }, index) => ({
                             ...subject,
                             allocation: distribution[index] ?? 0,
@@ -372,7 +407,7 @@ function NewPlanForm() {
                 throw new Error(text || `HTTP ${response.status}`);
             }
 
-            setScheduleResult(result);
+            setPlanSaved(true);
         } catch (err) {
             setGenerationError(err instanceof Error ? err.message : "Unknown error");
         } finally {
@@ -566,7 +601,13 @@ function NewPlanForm() {
                         </p>
 
                         <p className="mt-1 text-xs text-muted">
-                            Average focused hours per selected study day
+                            Average hours per selected study day
+                            {studyDays.length > 0 && (
+                                <>
+                                    {" "}— {(averageHoursPerDay - dailyBufferHours).toFixed(1)}h
+                                    focused study + {dailyBufferHours.toFixed(1)}h buffer / catch-up time
+                                </>
+                            )}
                         </p>
                     </div>
 
@@ -1291,7 +1332,7 @@ function NewPlanForm() {
                         /* Loading */
                         <div className="flex flex-col items-center gap-4 py-8 text-center">
                             <div className="size-10 animate-spin rounded-full border-4 border-border border-t-foreground" />
-                            <p className="font-semibold">Building your schedule…</p>
+                            <p className="font-semibold">Saving your schedule…</p>
                             <p className="text-sm text-muted">
                                 Scheduling sessions with spacing, interleaving, and exam practice.
                             </p>
@@ -1309,7 +1350,95 @@ function NewPlanForm() {
                                 ← Go back
                             </button>
                         </div>
-                    ) : scheduleResult ? (
+                    ) : scheduleResult && !planSaved && scheduleResult.feasibility.needsMoreTime ? (
+                        /* Goals need more time than the plan has */
+                        <div className="space-y-6">
+                            <div>
+                                <p className="text-xs font-semibold uppercase tracking-widest text-muted">
+                                    Before we save
+                                </p>
+                                <h2 className="mt-2 text-2xl font-bold">
+                                    Your study goals need a little more time
+                                </h2>
+                                <p className="mt-2 text-sm text-muted">
+                                    Based on your target grades, exam dates, and available study
+                                    hours, your current plan may not provide enough time to reach
+                                    your goals.
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3 text-center">
+                                {([
+                                    ["Needed (approx.)", scheduleResult.feasibility.requiredMinutes],
+                                    ["Available", scheduleResult.feasibility.availableMinutes],
+                                    ["Short by", scheduleResult.feasibility.shortfallMinutes],
+                                ] as const).map(([label, minutes]) => (
+                                    <div key={label} className="rounded-xl bg-surface-2 p-3">
+                                        <p className="text-xl font-bold tabular-nums">
+                                            {formatHours(minutes)}
+                                        </p>
+                                        <p className="mt-1 text-xs text-muted">{label}</p>
+                                    </div>
+                                ))}
+                            </div>
+                            <p className="text-xs text-muted">
+                                Focused study hours before your last exam, without buffer time.
+                                &quot;Needed&quot; is an estimate from your target grades, confidence,
+                                and mock exams.
+                            </p>
+
+                            {/* Subjects under the most time pressure */}
+                            <div className="space-y-2">
+                                <p className="text-sm font-semibold">Where time is tightest</p>
+                                {scheduleResult.feasibility.subjects
+                                    .filter((s) => s.shortfallMinutes > 0)
+                                    .map((s) => (
+                                        <div key={s.name} className="flex items-center justify-between gap-3 text-sm">
+                                            <span>{s.name}</span>
+                                            <span className="tabular-nums text-muted">
+                                                {formatHours(s.shortfallMinutes)} short of{" "}
+                                                {formatHours(s.requiredMinutes)}
+                                            </span>
+                                        </div>
+                                    ))}
+                            </div>
+
+                            {scheduleResult.feasibility.suggestions.length > 0 && (
+                                <div className="space-y-2 rounded-xl bg-surface-2 p-4">
+                                    <p className="text-sm font-semibold">What would help</p>
+                                    <ul className="list-disc space-y-1 pl-5 text-sm text-muted">
+                                        {scheduleResult.feasibility.suggestions.map((suggestion) => (
+                                            <li key={suggestion}>{suggestion}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            <div className="space-y-3">
+                                <button
+                                    type="button"
+                                    onClick={adjustPlan}
+                                    className={`${primaryButton} w-full`}
+                                >
+                                    Adjust my plan
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={scheduleResult.feasibility.scheduledMinutes === 0}
+                                    onClick={() => void savePlan(scheduleResult)}
+                                    className={`${secondaryButton} w-full disabled:opacity-50`}
+                                >
+                                    Continue with current plan
+                                </button>
+                                <p className="text-center text-xs text-muted">
+                                    Your answers are kept — adjusting takes you back to your
+                                    availability, then through your subjects. Continuing keeps
+                                    every session within your study days and hours; your targets
+                                    may just be ambitious.
+                                </p>
+                            </div>
+                        </div>
+                    ) : scheduleResult && planSaved ? (
                         /* Success */
                         <div className="space-y-6">
                             <div>
@@ -1330,6 +1459,31 @@ function NewPlanForm() {
                                     )}
                                 </p>
                             </div>
+
+                            {scheduleResult.feasibility.needsMoreTime && (
+                                <p className="rounded-xl bg-surface-2 p-4 text-sm text-muted">
+                                    Your targets are ambitious: about{" "}
+                                    {formatHours(scheduleResult.feasibility.shortfallMinutes)} of the
+                                    study they need didn&apos;t fit into your available time.
+                                </p>
+                            )}
+
+                            {scheduleResult.feasibility.unusedMinutes >= 60 && (
+                                <p className="rounded-xl bg-surface-2 p-4 text-sm text-muted">
+                                    About {formatHours(scheduleResult.feasibility.unusedMinutes)} of
+                                    your available study time is left free: your goals don&apos;t need
+                                    it, so we didn&apos;t pad it with extra tasks. Those days simply
+                                    end earlier.
+                                </p>
+                            )}
+
+                            {!scheduleResult.feasibility.needsMoreTime && scheduleResult.warnings.length > 0 && (
+                                <ul className="list-disc space-y-1 rounded-xl bg-surface-2 p-4 pl-8 text-xs text-muted">
+                                    {scheduleResult.warnings.map((warning) => (
+                                        <li key={warning}>{warning}</li>
+                                    ))}
+                                </ul>
+                            )}
 
                             {/* Per-subject breakdown */}
                             <div className="space-y-2">
@@ -1366,11 +1520,11 @@ function NewPlanForm() {
                                     </li>
                                     <li>
                                         <span className="font-medium text-foreground">Exam practice</span>
-                                        {" "}— mock exams are reserved in the final days before each exam date.
+                                        {" "}— mock exams match the real exam&apos;s length, are spread over the final stretch before it, and each one is followed by a review that gets shorter as the exam approaches (minimum 1 h).
                                     </li>
                                     <li>
-                                        <span className="font-medium text-foreground">Sustainability</span>
-                                        {" "}— sessions are capped at 4 per day, run 09:00–19:00, and 1 in 10 study days is kept free as a buffer.
+                                        <span className="font-medium text-foreground">Your availability</span>
+                                        {" "}— sessions only fall on your selected days, never during vacations, and never exceed your daily hours; each study day ends with buffer / catch-up time.
                                     </li>
                                     <li>
                                         <span className="font-medium text-foreground">Hours formula</span>

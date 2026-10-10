@@ -28,6 +28,7 @@ export const sessionType = pgEnum("session_type", [
   "recovery",
   "lecture",
   "exam",
+  "buffer",
 ]);
 
 export const planLevel = pgEnum("plan_level", ["Beginner", "Intermediate", "Advanced"]);
@@ -115,6 +116,8 @@ export type StoredPlanConfig = {
   subjects?: StoredSubjectConfig[];
   /** Preferred session start hour (e.g. 9 = 09:00), set by the strategy agent from behavioral data. */
   preferredStartHour?: number;
+  /** Focused weekly minutes the scheduler sizes the workload from (see scheduler.ts). */
+  workloadBasisWeeklyMinutes?: number;
 };
 
 /** A custom study plan created by the user via the plan wizard. */

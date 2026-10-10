@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, asc, eq, gt, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, notInArray, sql } from "drizzle-orm";
 import { handle, isId, notFound } from "@/lib/http";
 import { getCurrentUser } from "@/lib/queries";
 import { createTasksBulk } from "@/lib/tasks";
@@ -64,7 +64,7 @@ export async function POST(request: Request, ctx: Ctx) {
           examMinutes: sql<number | null>`max(case when ${s.sessions.type} = 'exam' then ${s.sessions.plannedMinutes} end)`,
         })
         .from(s.sessions)
-        .where(and(eq(s.sessions.userPlanId, id), ne(s.sessions.type, "lecture")))
+        .where(and(eq(s.sessions.userPlanId, id), notInArray(s.sessions.type, ["lecture", "buffer"])))
         .groupBy(s.sessions.subject)
         .orderBy(asc(s.sessions.subject));
 
@@ -137,6 +137,7 @@ export async function POST(request: Request, ctx: Ctx) {
       sessionLength: baseCfg.sessionLength,
       vacationRanges: baseCfg.vacationRanges,
       preferredStartHour: updatedConfig.preferredStartHour,
+      workloadBasisWeeklyMinutes: baseCfg.workloadBasisWeeklyMinutes,
       subjects: updatedSubjects.map((sub) => ({
         ...sub,
         allocation: Math.round((sub.allocation / totalAlloc) * 100),
@@ -160,6 +161,6 @@ export async function POST(request: Request, ctx: Ctx) {
       db.update(s.userPlans).set({ config: updatedConfig }).where(eq(s.userPlans.id, id)),
     ]);
 
-    return Response.json({ count, breakdown: result.breakdown }, { status: 200 });
+    return Response.json({ count, breakdown: result.breakdown, warnings: result.warnings }, { status: 200 });
   });
 }

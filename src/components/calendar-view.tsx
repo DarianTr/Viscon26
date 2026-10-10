@@ -14,6 +14,7 @@ const eventStyles: Record<CalendarEvent["type"], { label: string; color: string;
   ...sessionTypes,
   exam: { label: "Exam", color: "bg-foreground", soft: "bg-foreground text-background" },
   lecture: { label: "Lecture", color: "bg-muted", soft: "bg-surface-2 text-muted" },
+  buffer: { label: "Buffer / Catch-up Time", color: "bg-muted/50", soft: "bg-surface-2 text-muted" },
 };
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
@@ -71,7 +72,7 @@ function Calendar({ today, events: list }: { today: Date; events: CalendarEvent[
 
   const dayEvents = events.get(dayKey(selected)) ?? [];
   const totalMinutes = dayEvents
-    .filter((e) => e.type !== "lecture" && e.type !== "exam")
+    .filter((e) => e.type !== "lecture" && e.type !== "exam" && e.type !== "buffer")
     .reduce((s, e) => s + e.minutes, 0);
 
   function shiftMonth(delta: number) {
@@ -205,19 +206,28 @@ function Calendar({ today, events: list }: { today: Date; events: CalendarEvent[
                   const hour = firstCalendarHour + index;
                   return <div key={hour} className="h-16 border-b border-border pr-2 pt-1 text-right font-mono text-[10px] text-muted">{timeFormat.format(new Date(2000, 0, 1, hour))}</div>;
                 })}</div>
-                {weekDays.map((date) => <div key={dayKey(date)} className="border-l border-border">
+                {weekDays.map((date) => <div key={dayKey(date)} className="relative border-l border-border">
                   {Array.from({ length: calendarHourCount }, (_, index) => {
                     const hour = firstCalendarHour + index;
-                    const slotEvents = (events.get(dayKey(date)) ?? []).filter((event) => new Date(event.start).getHours() === hour);
                     return <div key={hour} onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
                       event.preventDefault();
                       const id = event.dataTransfer.getData("text/plain") || draggedId;
                       if (id) void placeEvent(id, date, hour);
-                    }} className="h-16 border-b border-border p-0.5 hover:bg-accent/5">
-                      {slotEvents.map((event) => <div key={event.id} draggable={!savingOrder} onDragStart={(e) => { setDraggedId(event.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", event.id); }} onDragEnd={() => setDraggedId(null)}
-                        title={`${timeFormat.format(new Date(event.start))} · ${event.title} · drag to move`} className={`h-full overflow-hidden rounded-md px-1.5 py-1 text-[10px] leading-tight ${eventStyles[event.type].soft} ${draggedId === event.id ? "opacity-40" : "cursor-grab active:cursor-grabbing"}`}>
-                        <span className="block font-semibold">{timeFormat.format(new Date(event.start))}</span><span className="line-clamp-2">{event.title}</span>
-                      </div>)}
+                    }} className="h-16 border-b border-border hover:bg-accent/5" />;
+                  })}
+                  {/* Events sit at their exact start minute and are as tall as they are long. */}
+                  {(events.get(dayKey(date)) ?? []).map((event) => {
+                    const start = new Date(event.start);
+                    const offset = start.getHours() * 60 + start.getMinutes() - firstCalendarHour * 60;
+                    const top = Math.max(0, offset);
+                    const height = Math.min(event.minutes - (top - offset), calendarHourCount * 60 - top);
+                    if (height <= 0) return null;
+                    const range = `${timeFormat.format(start)}–${timeFormat.format(new Date(start.getTime() + event.minutes * 60_000))}`;
+                    return <div key={event.id} draggable={!savingOrder} onDragStart={(e) => { setDraggedId(event.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", event.id); }} onDragEnd={() => setDraggedId(null)}
+                      title={`${range} · ${event.title} · drag to move`}
+                      style={{ top: `${(top / 60) * 4}rem`, height: `${(height / 60) * 4}rem` }}
+                      className={`absolute inset-x-0.5 overflow-hidden rounded-md border border-background px-1.5 py-1 text-[10px] leading-tight ${eventStyles[event.type].soft} ${draggedId ? "pointer-events-none" : ""} ${draggedId === event.id ? "opacity-40" : "cursor-grab active:cursor-grabbing"}`}>
+                      <span className="block font-semibold">{range}</span><span className="line-clamp-2">{event.title}</span>
                     </div>;
                   })}
                 </div>)}
@@ -329,7 +339,7 @@ function Calendar({ today, events: list }: { today: Date; events: CalendarEvent[
                     <p className="mt-1.5 font-semibold">{e.title}</p>
                     <p className="mt-1 flex items-center gap-1.5 text-xs text-muted">
                       <ClockIcon className="size-3.5" />
-                      {formatMinutes(e.minutes)}
+                      {formatMinutes(e.minutes)} · until {timeFormat.format(new Date(new Date(e.start).getTime() + e.minutes * 60_000))}
                     </p>
                   </Card>
                 </li>

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const taskType = z.enum(["deep", "intervals", "tempo", "recovery", "lecture", "exam"]);
+const taskType = z.enum(["deep", "intervals", "tempo", "recovery", "lecture", "exam", "buffer"]);
 const timestamp = z.iso.datetime({ offset: true }).transform((v) => new Date(v));
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 
