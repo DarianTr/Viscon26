@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { logout } from "@/app/(auth)/actions";
 import { ChevronLeftIcon } from "@/components/icons";
+import { NotificationSettings } from "@/components/notification-settings";
 import { SettingsForms } from "@/components/settings-forms";
 import { PageHeader } from "@/components/ui/primitives";
+import { vapidPublicKey } from "@/lib/push";
 import { getCurrentUser } from "@/lib/queries";
 
 export const metadata: Metadata = { title: "Settings" };
@@ -30,8 +32,8 @@ export default async function SettingsPage() {
           handle: user.handle,
           program: user.program,
           hue: user.hue,
-          weeklyGoalHours: user.weeklyGoalHours,
         }}
+        notifications={<NotificationSettings vapidPublicKey={vapidPublicKey} nudgeStyle={user.nudgeStyle} />}
       />
     </>
   );

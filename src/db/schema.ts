@@ -32,12 +32,16 @@ export const sessionType = pgEnum("session_type", [
   "break",
 ]);
 
+/** Where a subject's preparation is when a block happens — see PrepPhase in lib/scheduler.ts. */
+export const prepPhase = pgEnum("prep_phase", ["foundation", "build", "peak", "taper"]);
+
 /** What a scheduled block is for — see blockActivities in lib/types.ts. */
 export const blockActivity = pgEnum("block_activity", [
   "study",
   "mock_exam",
   "mock_review",
   "cheatsheet",
+  "exam_eve",
   "short_break",
   "lunch",
   "dinner",
@@ -63,8 +67,12 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash"),
   /** Admins can open /admin and edit the database directly. */
   isAdmin: boolean("is_admin").notNull().default(false),
+  /** Tone of the daily "go study" push: savage, gentle, or off. */
+  nudgeStyle: text("nudge_style").$type<NudgeStyle>().notNull().default("savage"),
   createdAt: createdAt(),
 });
+
+export type NudgeStyle = "savage" | "gentle" | "off";
 
 /** Login sessions. The cookie holds a random token; only its SHA-256 is stored. */
 export const authSessions = pgTable(
@@ -142,6 +150,8 @@ export type StoredPlanConfig = {
   planStart?: string;
   /** Initial focus days the scheduler planned: "YYYY-MM-DD" → subject. Moves respect them. */
   focusDates?: Record<string, string>;
+  /** Exam Eve days: "YYYY-MM-DD" → subject(s). Nothing else is moved onto them. */
+  eveDates?: Record<string, string[]>;
 };
 
 /** A custom study plan created by the user via the plan wizard. */
@@ -220,6 +230,8 @@ export const sessions = pgTable(
     cheatsheetMinutes: integer("cheatsheet_minutes"),
     /** Moved by hand in the calendar: regenerating the plan keeps it where feasible. */
     movedManually: boolean("moved_manually").notNull().default(false),
+    /** The subject's preparation phase at this block: foundation, build, peak or taper. */
+    prepPhase: prepPhase("prep_phase"),
     title: text("title").notNull(),
     detail: text("detail"),
     scheduledAt: timestamp("scheduled_at", { withTimezone: true }).notNull(),
@@ -328,6 +340,76 @@ export const examScores = pgTable(
   (t) => [index().on(t.userId), index().on(t.userPlanId)],
 );
 
+export type ChallengeStatus = "pending" | "accepted" | "declined" | "completed";
+
+/**
+ * "Beat this": a user dares a friend to do one of their completed sessions.
+ * Accepting copies the session into the friend's day (`responseSessionId`);
+ * completing that copy completes the challenge.
+ */
+export const challenges = pgTable(
+  "challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    challengerId: uuid("challenger_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    challengeeId: uuid("challengee_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    /** The challenger's completed session the friend has to match. */
+    sourceSessionId: uuid("source_session_id").notNull().references(() => sessions.id, { onDelete: "cascade" }),
+    /** The challengee's copy, created on accept. */
+    responseSessionId: uuid("response_session_id").references(() => sessions.id, { onDelete: "set null" }),
+    message: text("message"),
+    status: text("status").$type<ChallengeStatus>().notNull().default("pending"),
+    createdAt: createdAt(),
+    respondedAt: timestamp("responded_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    index().on(t.challengeeId, t.status),
+    index().on(t.challengerId),
+    uniqueIndex("challenges_response_session_index").on(t.responseSessionId),
+    // One open dare per session per friend; once answered, it can be sent again.
+    uniqueIndex("challenges_open_index")
+      .on(t.sourceSessionId, t.challengeeId)
+      .where(sql`status in ('pending', 'accepted')`),
+    check("challenges_not_self", sql`${t.challengerId} <> ${t.challengeeId}`),
+    check("challenges_status", sql`${t.status} in ('pending', 'accepted', 'declined', 'completed')`),
+  ],
+);
+
+/** A browser's Web Push subscription. A user has one per device they enabled push on. */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    endpoint: text("endpoint").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId)],
+);
+
+/**
+ * Everything we've pushed (or tried to) to a user. Doubles as the in-app inbox
+ * and, through `dedupeKey`, keeps scheduled nudges to one per user per day.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    /** Where tapping it leads, e.g. /community?tab=challenges. */
+    url: text("url").notNull().default("/"),
+    dedupeKey: text("dedupe_key").unique(),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index().on(t.userId, t.createdAt)],
+);
+
 /** The original starter example, kept for /api/items. */
 export const items = pgTable("items", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -353,6 +435,36 @@ export const courseProfiles = pgTable("course_profiles", {
   aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
   topics: jsonb("topics").$type<CourseProfileTopic[]>().notNull().default([]),
   description: text("description"),
+  /** What students should be able to do after the course (VVZ "Lernziel" section). */
+  learningObjectives: text("learning_objectives"),
+  /** Textbook references from VVZ "Literatur" section. */
+  literature: text("literature"),
+  /** Official course website URL, extracted from VVZ links section. */
+  websiteUrl: text("website_url"),
+  /** VVZ search/detail page URL where this data was fetched from. */
   sourceUrl: text("source_url"),
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type CourseResourceType = "script" | "exercises" | "slides" | "exam" | "solution" | "website" | "other";
+
+/**
+ * Course materials (PDFs, exercise sheets, scripts, etc.) discovered from
+ * course websites. Stored server-side so quiz generation can use them for all
+ * students studying the same course.
+ */
+export const courseResources = pgTable("course_resources", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  courseSlug: text("course_slug")
+    .notNull()
+    .references(() => courseProfiles.slug, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  /** Broad category for filtering in quiz generation. */
+  type: text("type").$type<CourseResourceType>().notNull().default("other"),
+  /** Canonical URL of the resource (PDF, HTML page, etc.). */
+  url: text("url").notNull().unique(),
+  /** Extracted plain text content, capped at ~100 k chars. Null if not yet fetched or PDF. */
+  content: text("content"),
+  contentFetchedAt: timestamp("content_fetched_at", { withTimezone: true }),
+  createdAt: createdAt(),
 });

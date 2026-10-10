@@ -1,4 +1,4 @@
-import { SideNav, TabBar } from "@/components/tab-bar";
+import { ProfileBubble, SideNav, TabBar } from "@/components/tab-bar";
 import { getActivePlan, getCurrentUser } from "@/lib/queries";
 
 export default async function TabsLayout({ children }: { children: React.ReactNode }) {
@@ -18,6 +18,7 @@ export default async function TabsLayout({ children }: { children: React.ReactNo
         {children}
       </main>
       <TabBar />
+      <ProfileBubble />
     </div>
   );
 }

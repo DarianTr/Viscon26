@@ -1,5 +1,5 @@
 import { activityOf } from "./plan-progress";
-import { dailyBufferMinutes, dailyWindowMinutes, MAX_SUBJECTS_PER_DAY } from "./scheduler";
+import { dailyBufferMinutes, dailyWindowMinutes, EXAM_EVE, MAX_SUBJECTS_PER_DAY } from "./scheduler";
 import type { BlockActivity, EventType } from "./types";
 
 /**
@@ -43,8 +43,17 @@ export function dayRule(
   blocks: DayBlock[],
   config: { weeklyHours: number; studyDays: string[] },
   focusSubject?: string,
+  /** Subjects whose Exam Eve this day is: it holds their final review and nothing else. */
+  eveSubjects?: string[],
 ): string | null {
   const work = blocks.filter(isStudyWork);
+  if (eveSubjects?.length) {
+    if (work.some((b) => b.activity !== "exam_eve")) {
+      return `That day is the eve of your ${eveSubjects.join(" and ")} exam — it holds the final review only.`;
+    }
+    const minutes = work.reduce((t, b) => t + b.minutes, 0);
+    return minutes > EXAM_EVE.maxMinutes ? `Exam Eve holds at most ${hours(EXAM_EVE.maxMinutes)} of study.` : null;
+  }
   const capacity = dailyWindowMinutes(config) - dailyBufferMinutes(dailyWindowMinutes(config));
   const minutes = work.reduce((t, b) => t + b.minutes, 0);
   if (minutes > capacity) {

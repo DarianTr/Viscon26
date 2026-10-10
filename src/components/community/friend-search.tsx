@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckIcon } from "@/components/icons";
-import { Brain } from "@/components/mascot/brain";
+import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Avatar, Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
@@ -106,7 +106,7 @@ export function FriendSearch({ friends }: { friends: Person[] }) {
 
       {shown.length === 0 && !loading && (
         <Card className="flex flex-col items-center gap-3 py-8 text-center">
-          <Brain expression="confused" size={72} />
+          <ExpressionMascot expression="sleepy" size={96} />
           <p className="max-w-[26ch] text-sm text-muted">
             {searching ? `No one matches “${query.trim()}”.` : emptyStateLines.noFriends}
           </p>

@@ -485,7 +485,7 @@ export function AddSubjectWizard({
     : ["Subject", "Level & resources", "Study approach"];
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background">
+    <div className="fixed inset-0 z-[60] flex flex-col bg-background">
       {/* Header */}
       <div className="flex items-center gap-3 border-b border-border px-4 py-4">
         <button

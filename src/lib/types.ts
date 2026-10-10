@@ -23,6 +23,7 @@ export const blockActivities = [
   "mock_exam",
   "mock_review",
   "cheatsheet",
+  "exam_eve",
   "short_break",
   "lunch",
   "dinner",
@@ -30,6 +31,9 @@ export const blockActivities = [
   "exam",
 ] as const;
 export type BlockActivity = (typeof blockActivities)[number];
+
+/** A subject's preparation phase: Foundation → Build → Peak → Taper. */
+export type PrepPhaseName = "foundation" | "build" | "peak" | "taper";
 
 export type Task = {
   id: string;
@@ -78,6 +82,8 @@ export type CalendarEvent = {
   /** Minutes of the block reserved for the cheatsheet, and the milestone it aims for. */
   cheatsheetMinutes: number | null;
   cheatsheetTarget: number | null;
+  /** The subject's preparation phase at this block. */
+  prepPhase: PrepPhaseName | null;
   title: string;
   /** ISO timestamp. */
   start: string;
@@ -150,13 +156,25 @@ export type Profile = {
   friends: number;
   streak: number;
   totals: { hours: number; sessions: number; kudos: number };
-  /** Hours per day this week, Monday first. */
+  /** Hours logged per day this week, Monday first. */
   week: number[];
-  weeklyGoal: number;
+  /** This week's target, from the active study plans — see `src/lib/weekly-goal.ts`. */
+  weeklyGoal: WeeklyGoal;
   /** Academic subjects only — breaks and buffers are never subjects. */
   subjects: { name: string; hours: number; minutes: number; examHoursRemaining: number | null }[];
   badges: { emoji: string; label: string; earned: boolean }[];
 };
+
+/**
+ * The Profile's weekly target. "plan": focused hours the active plans schedule
+ * this week (`planned` per day, Monday first; null for template plans, which
+ * only have a weekly figure). "upcoming": no plan runs this week, but one
+ * starts later. "none": no active plan.
+ */
+export type WeeklyGoal =
+  | { kind: "plan"; hours: number; planned: number[] | null; plans: string[] }
+  | { kind: "upcoming"; plan: string; start: string }
+  | { kind: "none" };
 
 /** A user as returned by /api/users. */
 export type User = {
@@ -184,6 +202,7 @@ export type TaskRecord = {
   subject: string | null;
   cheatsheetTarget: number | null;
   cheatsheetMinutes: number | null;
+  prepPhase: PrepPhaseName | null;
   title: string;
   detail: string | null;
   scheduledAt: string;
@@ -198,3 +217,21 @@ export type TaskRecord = {
   shared: boolean;
   createdAt: string;
 };
+
+export type ChallengeStatus = "pending" | "accepted" | "declined" | "completed";
+
+/** A dare to match one of the challenger's sessions, from either side. */
+export type Challenge = {
+  id: string;
+  status: ChallengeStatus;
+  message: string | null;
+  sentAgo: string;
+  /** The other person: the challenger on received ones, the challengee on sent ones. */
+  other: UserSummary;
+  /** What has to be beaten. */
+  source: { title: string; type: SessionType; subject: string | null; minutes: number; focus: number | null };
+  /** How the challengee did, once completed. */
+  result: { minutes: number; focus: number | null } | null;
+};
+
+export type NudgeStyle = "savage" | "gentle" | "off";

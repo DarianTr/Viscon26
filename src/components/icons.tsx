@@ -94,7 +94,15 @@ export const HeartIcon = (p: P) => (
 
 export const BrainIcon = (p: P) => (
   <Icon {...p}>
-    <path d="M9.5 2a4 4 0 0 0-4 4c0 .34.04.67.11.99A4 4 0 0 0 3 10.5c0 1.2.53 2.28 1.37 3.02A4.001 4.001 0 0 0 8 20h1v-2H8a2 2 0 0 1-2-2v-.5a2 2 0 0 1 2-2h1v-2H8a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.5V8c0-1.1.9-2 2-2s2 .9 2 2v.5H14a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-1v2h1a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-1v2h1a4 4 0 0 0 3.63-5.48A4.5 4.5 0 0 0 17 6a4 4 0 0 0-7.5-4z" />
+    <path d="M7 10.6 5.6 6.4M5.6 6.4 4.2 4M5.6 6.4 7.2 4.6" />
+    <path d="M9.4 10.2 9.9 5.6M9.9 5.6 8.6 3.2M9.9 5.6 11.4 3.8" />
+    <path d="M6.3 12.2 2.6 10.8M2.6 10.8 1.2 9.4" />
+    <ellipse cx="8.6" cy="13.4" rx="3.3" ry="3" />
+    <path d="M11.6 14 18.6 15.4" />
+    <path d="M18.6 15.4 21.2 13.6M18.6 15.4 21.6 15.8M18.6 15.4 20.8 18.2" />
+    <circle cx="21.2" cy="13.6" r="0.55" fill="currentColor" stroke="none" />
+    <circle cx="21.6" cy="15.8" r="0.55" fill="currentColor" stroke="none" />
+    <circle cx="20.8" cy="18.2" r="0.55" fill="currentColor" stroke="none" />
   </Icon>
 );
 
@@ -142,6 +150,20 @@ export const MapPinIcon = (p: P) => (
   </Icon>
 );
 
+export const LockIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="5" y="11" width="14" height="9" rx="2" />
+    <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+  </Icon>
+);
+
+export const GlobeIcon = (p: P) => (
+  <Icon {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M3 12h18M12 3a13 13 0 0 1 0 18 13 13 0 0 1 0-18z" />
+  </Icon>
+);
+
 export const XIcon = (p: P) => (
   <Icon {...p}>
     <path d="M6 6l12 12M18 6L6 18" />
@@ -166,5 +188,12 @@ export const UsersIcon = (p: P) => (
   <Icon {...p}>
     <circle cx="9" cy="8" r="3.5" />
     <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8" />
+  </Icon>
+);
+
+export const SwordsIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M14.5 17.5 3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2" />
+    <path d="M14.5 6.5 18 3h3v3l-3.5 3.5M5 14l4 4M7 17l-3 3M3 19l2 2" />
   </Icon>
 );

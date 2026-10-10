@@ -78,7 +78,11 @@ export function Avatar({
     <span
       className={`grid shrink-0 place-items-center rounded-full border-foreground font-display font-bold text-white ${sizes[size]}`}
       style={{
-        background: `linear-gradient(135deg, hsl(${hue} 70% 62%), hsl(${hue + 40} 65% 46%))`,
+        // Deeper, less saturated than the old 70%/62% formula — keeps each
+        // person's hue distinct but at the muted, ink-and-paper intensity
+        // the rest of the palette (accent, teal, slate) sits at, instead of
+        // reading like a bright, generic-app blue.
+        background: `linear-gradient(135deg, hsl(${hue} 55% 42%), hsl(${hue + 35} 50% 28%))`,
       }}
     >
       {initials}

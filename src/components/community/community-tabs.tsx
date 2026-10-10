@@ -1,15 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Brain } from "@/components/mascot/brain";
 import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { Avatar, Card } from "@/components/ui/primitives";
 import { emptyStateLines } from "@/lib/mascot";
-import type { Activity, LeaderboardEntry, Person } from "@/lib/types";
+import type { Activity, Challenge, LeaderboardEntry, Person } from "@/lib/types";
 import { ActivityCard } from "./activity-card";
+import { ChallengeList } from "./challenge-list";
 import { FriendSearch } from "./friend-search";
 
-const segments = ["Feed", "You", "Leaderboard", "Friends"] as const;
+const segments = ["Feed", "You", "Challenges", "Leaderboard", "Friends"] as const;
+type Segment = (typeof segments)[number];
 const medals = ["🥇", "🥈", "🥉"];
 
 export function CommunityTabs({
@@ -17,34 +18,44 @@ export function CommunityTabs({
   mine,
   leaderboard,
   friends,
+  challenges,
+  initialTab,
 }: {
   feed: Activity[];
   /** The user's own activities, private ones included. */
   mine: Activity[];
   leaderboard: LeaderboardEntry[];
   friends: Person[];
+  challenges: { received: Challenge[]; sent: Challenge[] };
+  /** Notifications link straight to a segment, e.g. ?tab=challenges. */
+  initialTab?: string;
 }) {
-  const [segment, setSegment] = useState<(typeof segments)[number]>("Feed");
-  const requests = friends.filter((p) => p.status === "received").length;
+  const [segment, setSegment] = useState<Segment>(
+    () => segments.find((s) => s.toLowerCase() === initialTab) ?? "Feed",
+  );
+  const badges: Partial<Record<Segment, number>> = {
+    Friends: friends.filter((p) => p.status === "received").length,
+    Challenges: challenges.received.filter((c) => c.status === "pending").length,
+  };
   return (
     <>
       <div className="sticky top-0 z-10 -mx-4 bg-background/90 px-4 pt-1 pb-3 backdrop-blur-xl sm:mx-0 sm:px-0">
-        <div className="grid grid-cols-4 rounded-full border-2 border-border bg-surface-2 p-1">
+        <div className="flex overflow-x-auto rounded-full border-2 border-border bg-surface-2 p-1 [scrollbar-width:none]">
           {segments.map((s) => (
             <button
               key={s}
               onClick={() => setSegment(s)}
-              className={`rounded-full py-2 text-sm font-bold transition-colors ${
+              className={`flex-1 shrink-0 rounded-full px-3 py-2 text-sm font-bold whitespace-nowrap transition-colors ${
                 segment === s ? "border-2 border-foreground bg-surface text-foreground" : "border-2 border-transparent text-muted"
               }`}
             >
               {s}
-              {s === "Friends" && requests > 0 && (
+              {!!badges[s] && (
                 <span
-                  aria-label={`${requests} friend requests`}
+                  aria-label={`${badges[s]} ${s === "Friends" ? "friend requests" : "open challenges"}`}
                   className="ml-1.5 inline-grid min-w-5 place-items-center rounded-full bg-accent px-1 text-[11px] leading-5 text-white"
                 >
-                  {requests}
+                  {badges[s]}
                 </span>
               )}
             </button>
@@ -52,9 +63,11 @@ export function CommunityTabs({
         </div>
       </div>
 
-      {segment === "Feed" && <ActivityList activities={feed} empty={emptyStateLines.noFriends} mood="confused" />}
+      {segment === "Feed" && <ActivityList activities={feed} empty={emptyStateLines.noFriends} />}
 
-      {segment === "You" && <ActivityList activities={mine} empty={emptyStateLines.noPosts} mood="sleepy" />}
+      {segment === "You" && <ActivityList activities={mine} empty={emptyStateLines.noPosts} />}
+
+      {segment === "Challenges" && <ChallengeList received={challenges.received} sent={challenges.sent} />}
 
       {segment === "Leaderboard" && (
         <Card className="p-2">
@@ -87,19 +100,11 @@ export function CommunityTabs({
   );
 }
 
-function ActivityList({
-  activities,
-  empty,
-  mood,
-}: {
-  activities: Activity[];
-  empty: string;
-  mood: "confused" | "sleepy";
-}) {
+function ActivityList({ activities, empty }: { activities: Activity[]; empty: string }) {
   if (activities.length === 0) {
     return (
       <Card className="flex flex-col items-center gap-3 py-8 text-center">
-        {mood === "sleepy" ? <ExpressionMascot expression="sleepy" size={96} /> : <Brain expression="confused" size={72} />}
+        <ExpressionMascot expression="sleepy" size={96} />
         <p className="max-w-[28ch] text-sm text-muted">{empty}</p>
       </Card>
     );

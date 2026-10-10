@@ -6,6 +6,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { db, schema as s, TIME_ZONE } from "@/db";
 import { requireUser, type SessionUser } from "./auth";
 import { initials } from "./session-types";
+import { isActiveInWeek, planSpan, plannedMinutes, weekBounds } from "./weekly-goal";
 import type {
   ActivePlan,
   Activity,
@@ -18,6 +19,7 @@ import type {
   Profile,
   SessionType,
   Task,
+  WeeklyGoal,
 } from "./types";
 
 /*
@@ -309,6 +311,7 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
       subject: s.sessions.subject,
       cheatsheetMinutes: s.sessions.cheatsheetMinutes,
       cheatsheetTarget: s.sessions.cheatsheetTarget,
+      prepPhase: s.sessions.prepPhase,
       title: s.sessions.title,
       start: s.sessions.scheduledAt,
       minutes: s.sessions.plannedMinutes,
@@ -348,7 +351,7 @@ const taggedUsers = sql<{ id: string; name: string; hue: number }[]>`coalesce((
   where ${s.sessionTags.sessionId} = ${s.sessions.id}
 ), '[]')`;
 
-function timeAgo(date: Date) {
+export function timeAgo(date: Date) {
   const minutes = Math.round((Date.now() - date.getTime()) / 60_000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes} min ago`;
@@ -441,12 +444,88 @@ export async function getLeaderboard(userId: string): Promise<LeaderboardEntry[]
   }));
 }
 
+/**
+ * This week's study target, from the plans active this week (see
+ * `./weekly-goal`): the focused time their blocks schedule, each minute counted
+ * once. Without an active custom plan, an active template plan's weekly hours.
+ */
+export async function getWeeklyGoal(userId: string): Promise<WeeklyGoal> {
+  const week = weekBounds(new Date(), TIME_ZONE);
+  const day = localDate(s.sessions.scheduledAt);
+  const plans = await db
+    .select({
+      id: s.userPlans.id,
+      title: s.userPlans.title,
+      config: s.userPlans.config,
+      firstBlock: sql<string | null>`min(${day})::text`,
+      lastBlock: sql<string | null>`max(${day})::text`,
+      lastExamBlock: sql<string | null>`(max(${day}) filter (where ${s.sessions.type} = 'exam'))::text`,
+    })
+    .from(s.userPlans)
+    .leftJoin(s.sessions, eq(s.sessions.userPlanId, s.userPlans.id))
+    .where(eq(s.userPlans.userId, userId))
+    .groupBy(s.userPlans.id)
+    .orderBy(asc(s.userPlans.createdAt));
+
+  const spans = plans.map((p) => ({
+    ...p,
+    span: planSpan({ ...p, planStart: p.config?.planStart, examDates: p.config?.subjects?.map((x) => x.examDate) }),
+  }));
+  const active = spans.filter((p) => isActiveInWeek(p.span, week));
+
+  if (active.length > 0) {
+    const blocks = await db
+      .select({
+        start: s.sessions.scheduledAt,
+        minutes: s.sessions.plannedMinutes,
+        dow: sql<number>`extract(isodow from ${s.sessions.scheduledAt} at time zone ${tz})::int`,
+      })
+      .from(s.sessions)
+      .where(
+        and(
+          eq(s.sessions.userId, userId),
+          inArray(s.sessions.userPlanId, active.map((p) => p.id)),
+          // Focused study only: no buffers, breaks, meals or the exam itself.
+          isNotNull(s.sessions.subject),
+          inArray(s.sessions.type, studyTypes),
+          sql`${s.sessions.scheduledAt} >= ${weekStart}`,
+          sql`${s.sessions.scheduledAt} < ${weekStart} + interval '7 days'`,
+        ),
+      );
+    const { byDay } = plannedMinutes(
+      blocks.map((b) => ({ start: b.start.getTime(), end: b.start.getTime() + b.minutes * 60_000, day: b.dow - 1 })),
+    );
+    const planned = byDay.map((m) => m / 60);
+    return { kind: "plan", hours: planned.reduce((a, b) => a + b, 0), planned, plans: active.map((p) => p.title) };
+  }
+
+  const [template] = await db
+    .select({ title: s.plans.title, hoursPerWeek: s.plans.hoursPerWeek })
+    .from(s.enrollments)
+    .innerJoin(s.plans, eq(s.plans.id, s.enrollments.planId))
+    .where(
+      and(
+        eq(s.enrollments.userId, userId),
+        eq(s.enrollments.active, true),
+        sql`${s.enrollments.startedOn} <= ${week.end}::date`,
+        sql`(${s.enrollments.examDate} is null or ${s.enrollments.examDate} >= ${week.start}::date)`,
+      ),
+    )
+    .limit(1);
+  if (template) return { kind: "plan", hours: template.hoursPerWeek, planned: null, plans: [template.title] };
+
+  const next = spans
+    .filter((p) => p.span.start && p.span.start > week.end)
+    .sort((a, b) => a.span.start!.localeCompare(b.span.start!))[0];
+  return next ? { kind: "upcoming", plan: next.title, start: next.span.start! } : { kind: "none" };
+}
+
 export async function getProfile(user: SessionUser): Promise<Profile> {
   const userId = user.id;
   const mine = eq(s.sessions.userId, userId);
   const done = and(mine, isNotNull(s.sessions.completedAt), academic);
 
-  const [[friends], [totals], [kudos], week, subjects, badges, streak, exams, plannedSubjects] =
+  const [[friends], [totals], [kudos], week, subjects, badges, streak, exams, plannedSubjects, weeklyGoal] =
     await Promise.all([
       db
         .select({ n: count() })
@@ -470,7 +549,8 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
           minutes: sql<number>`sum(${s.sessions.actualMinutes})::int`,
         })
         .from(s.sessions)
-        .where(and(done, sql`${s.sessions.completedAt} >= ${weekStart}`))
+        // Logged study time; the exam itself isn't study.
+        .where(and(done, ne(s.sessions.type, "exam"), sql`${s.sessions.completedAt} >= ${weekStart}`))
         .groupBy(sql`1`),
       db
         .select({
@@ -516,6 +596,7 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
         .selectDistinct({ name: sql<string>`${s.sessions.subject}` })
         .from(s.sessions)
         .where(and(mine, isNull(s.sessions.completedAt), academic)),
+      getWeeklyGoal(userId),
     ]);
 
   const hours = (minutes: number) => Math.round((minutes / 60) * 4) / 4;
@@ -560,7 +641,7 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
     streak,
     totals: { hours: Math.round(totals.minutes / 60), sessions: totals.sessions, kudos: kudos.n },
     week: weekdays.map((_, i) => hours(week.find((w) => w.dow === i + 1)?.minutes ?? 0)),
-    weeklyGoal: user.weeklyGoalHours,
+    weeklyGoal,
     subjects: [...subjectSummaries.values()],
     badges,
   };

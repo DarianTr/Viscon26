@@ -1,4 +1,4 @@
-import type { Comment, FriendStatus, Item, Person, TaskRecord } from "./types";
+import type { Challenge, Comment, FriendStatus, Item, Person, TaskRecord } from "./types";
 
 /**
  * Thin client for the backend in `src/app/api`. Relative URLs keep it working
@@ -51,6 +51,13 @@ export const api = {
       body: JSON.stringify(patch),
     }).then((r) => r.task),
 
+  /** Make your own activity visible to friends (shared) or private (only you). */
+  setActivityShared: (id: string, shared: boolean) =>
+    request<{ task: TaskRecord }>(`/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ shared }),
+    }).then((r) => r.task),
+
   setKudos: (taskId: string, on: boolean) =>
     request<void>(`/tasks/${taskId}/kudos`, { method: on ? "PUT" : "DELETE" }),
 
@@ -92,4 +99,26 @@ export const api = {
     request<{ status: FriendStatus }>(`/users/${userId}/friend`, { method: on ? "PUT" : "DELETE" }).then(
       (r) => r.status,
     ),
+
+  listChallenges: () => request<{ received: Challenge[]; sent: Challenge[] }>("/challenges"),
+
+  /** Dare friends to match one of your completed sessions. Resolves to how many were sent. */
+  sendChallenge: (sessionId: string, friendIds: string[], message: string) =>
+    request<{ sent: number }>("/challenges", {
+      method: "POST",
+      body: JSON.stringify({ sessionId, friendIds, message }),
+    }).then((r) => r.sent),
+
+  respondToChallenge: (id: string, accept: boolean) =>
+    request<void>(`/challenges/${id}`, { method: "PATCH", body: JSON.stringify({ accept }) }),
+
+  withdrawChallenge: (id: string) => request<void>(`/challenges/${id}`, { method: "DELETE" }),
+
+  savePushSubscription: (sub: PushSubscriptionJSON) =>
+    request<void>("/push/subscription", { method: "PUT", body: JSON.stringify(sub) }),
+
+  deletePushSubscription: (endpoint: string) =>
+    request<void>("/push/subscription", { method: "DELETE", body: JSON.stringify({ endpoint }) }),
+
+  sendTestPush: () => request<void>("/push/test", { method: "POST" }),
 };

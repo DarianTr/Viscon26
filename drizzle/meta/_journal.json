@@ -103,36 +103,57 @@
     {
       "idx": 14,
       "version": "7",
-      "when": 1791720000001,
-      "tag": "0013_buffer_session_type",
+      "when": 1791720001000,
+      "tag": "0018_challenges_and_push",
       "breakpoints": true
     },
     {
       "idx": 15,
       "version": "7",
-      "when": 1791720000002,
-      "tag": "0014_block_activity",
+      "when": 1791720001001,
+      "tag": "0013_buffer_session_type",
       "breakpoints": true
     },
     {
       "idx": 16,
       "version": "7",
-      "when": 1791720000003,
-      "tag": "0015_cheatsheet_and_subjectless_blocks",
+      "when": 1791720001002,
+      "tag": "0014_block_activity",
       "breakpoints": true
     },
     {
       "idx": 17,
       "version": "7",
-      "when": 1791720000004,
-      "tag": "0016_moved_manually",
+      "when": 1791720001003,
+      "tag": "0015_cheatsheet_and_subjectless_blocks",
       "breakpoints": true
     },
     {
       "idx": 18,
       "version": "7",
-      "when": 1791720000005,
+      "when": 1791720001004,
+      "tag": "0016_moved_manually",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791720001005,
       "tag": "0017_cheatsheet_progress",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791720001006,
+      "tag": "0019_exam_eve_and_phases",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791720001007,
+      "tag": "0019_course_resources",
       "breakpoints": true
     }
   ]

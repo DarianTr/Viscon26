@@ -1,21 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { logout } from "@/app/(auth)/actions";
-import { ActivityCard } from "@/components/community/activity-card";
-import { FlameIcon, SettingsIcon } from "@/components/icons";
-import { Brain } from "@/components/mascot/brain";
+import { FlameIcon, PlusIcon, SettingsIcon } from "@/components/icons";
 import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { BrainEvolution } from "@/components/profile/brain-evolution";
 import { SubjectInvestment } from "@/components/profile/subject-investment";
 import { Avatar, Button, Card, PageHeader, Ring, SectionTitle } from "@/components/ui/primitives";
-import { getCurrentUser, getFeed, getProfile, getStudyBehavior } from "@/lib/queries";
+import { getCurrentUser, getProfile, getStudyBehavior } from "@/lib/queries";
 import type { HourlyBucket } from "@/lib/queries";
 import { subjectColor } from "@/lib/session-types";
 
 export const metadata: Metadata = { title: "Profile" };
 
 const days = ["M", "T", "W", "T", "F", "S", "S"];
-const POSTS_STEP = 10;
 const spiritAnimalDetails: Record<string, { name: string; emoji: string }> = {
   owl: { name: "Owl", emoji: "🦉" },
   fox: { name: "Fox", emoji: "🦊" },
@@ -24,19 +21,14 @@ const spiritAnimalDetails: Record<string, { name: string; emoji: string }> = {
   deer: { name: "Deer", emoji: "🦌" },
 };
 
-export default async function ProfilePage({ searchParams }: PageProps<"/profile">) {
+export default async function ProfilePage() {
   const user = await getCurrentUser();
-  // ?posts=N shows the latest N posts; "Show more" bumps it.
-  const requested = Number((await searchParams).posts);
-  const shown = Number.isInteger(requested) ? Math.min(Math.max(requested, POSTS_STEP), 200) : POSTS_STEP;
-  const [profile, posts, behavior] = await Promise.all([
-    getProfile(user),
-    getFeed(user.id, { mineOnly: true, limit: shown + 1 }),
-    getStudyBehavior(user.id),
-  ]);
-  const hasMore = posts.length > shown;
+  const [profile, behavior] = await Promise.all([getProfile(user), getStudyBehavior(user.id)]);
   const weekHours = profile.week.reduce((a, b) => a + b, 0);
-  const maxDay = Math.max(...profile.week, 1);
+  const goal = profile.weeklyGoal;
+  const planned = goal.kind === "plan" ? goal.planned : null;
+  // Logged and planned bars share one scale, so a full bar means "as planned".
+  const maxDay = Math.max(...profile.week, ...(planned ?? []), 1);
   const maxSubject = Math.max(...profile.subjects.map((s) => s.hours), 1);
   const spiritAnimal = spiritAnimalDetails[profile.spiritAnimal] ?? spiritAnimalDetails.owl;
   // Only subjects with an upcoming exam get a countdown.
@@ -95,29 +87,63 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
         </div>
       </Card>
 
-      <SectionTitle>This week</SectionTitle>
-      <Card className="flex items-center gap-6">
-        <Ring value={weekHours / profile.weeklyGoal} size={96} stroke={10}>
-          <div className="text-center leading-none">
-            <p className="font-display text-xl font-bold">{weekHours.toFixed(1)}</p>
-            <p className="mt-1 text-[10px] text-muted">/ {profile.weeklyGoal} h</p>
-          </div>
-        </Ring>
-        <div className="flex h-28 flex-1 items-end gap-2">
-          {profile.week.map((h, i) => (
-            <div key={i} className="flex flex-1 flex-col items-center gap-1.5">
-              <div className="flex h-20 w-full items-end">
-                <div
-                  className={`w-full rounded-md ${h ? "bg-accent" : "bg-surface-2"}`}
-                  style={{ height: `${Math.max(6, (h / maxDay) * 100)}%` }}
-                  title={`${h} h`}
-                />
-              </div>
-              <span className="text-[11px] text-muted">{days[i]}</span>
+      <SectionTitle
+        action={goal.kind === "plan" && <span className="max-w-[55%] truncate text-xs text-muted">{goal.plans.join(" + ")}</span>}
+      >
+        This week
+      </SectionTitle>
+      {goal.kind === "plan" ? (
+        <Card className="flex items-center gap-6">
+          <Ring value={goal.hours > 0 ? weekHours / goal.hours : weekHours > 0 ? 1 : 0} size={96} stroke={10}>
+            <div className="text-center leading-none">
+              <p className="font-display text-xl font-bold">{weekHours.toFixed(1)}</p>
+              <p className="mt-1 text-[10px] text-muted">
+                {goal.hours > 0 ? `/ ${formatHours(goal.hours)} h` : "nothing planned"}
+              </p>
             </div>
-          ))}
-        </div>
-      </Card>
+          </Ring>
+          <div className="flex h-28 flex-1 items-end gap-2">
+            {profile.week.map((h, i) => (
+              <div key={i} className="flex flex-1 flex-col items-center gap-1.5">
+                <div className="relative flex h-20 w-full items-end">
+                  {/* What the plan schedules that day, behind what was logged */}
+                  {planned && planned[i] > 0 && (
+                    <div
+                      className="absolute inset-x-0 bottom-0 rounded-md bg-surface-2"
+                      style={{ height: `${(planned[i] / maxDay) * 100}%` }}
+                    />
+                  )}
+                  <div
+                    className={`relative w-full rounded-md ${h ? "bg-accent" : "bg-surface-2"}`}
+                    style={{ height: `${Math.max(6, (h / maxDay) * 100)}%` }}
+                    title={planned ? `${h} h of ${formatHours(planned[i])} h planned` : `${h} h`}
+                  />
+                </div>
+                <span className="text-[11px] text-muted">{days[i]}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : (
+        <Card className="flex flex-col items-center gap-3 py-8 text-center">
+          <ExpressionMascot expression="sleepy" size={96} />
+          <p className="max-w-[30ch] text-sm text-muted">
+            {goal.kind === "upcoming"
+              ? `${goal.plan} starts on ${new Date(`${goal.start}T00:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })} — your weekly goal comes from it.`
+              : "Create a study plan to set your weekly goal."}
+            {weekHours > 0 && ` You've logged ${weekHours.toFixed(1)} h this week.`}
+          </p>
+          {goal.kind === "none" && (
+            <Link
+              href="/plans/new"
+              className="mt-1 inline-flex items-center gap-1.5 rounded-full border-[2.5px] border-foreground bg-foreground px-5 py-2.5 text-sm font-bold text-background shadow-[0_3px_0_0_var(--border)] active:translate-y-[3px] active:shadow-none"
+            >
+              <PlusIcon className="size-4" />
+              Create a study plan
+            </Link>
+          )}
+        </Card>
+      )}
 
       <SectionTitle>All-time</SectionTitle>
       <div className="grid grid-cols-3 gap-3">
@@ -179,32 +205,13 @@ export default async function ProfilePage({ searchParams }: PageProps<"/profile"
         ))}
       </ul>
 
-      <SectionTitle>Your posts</SectionTitle>
-      {posts.length === 0 ? (
-        <Card className="flex flex-col items-center gap-3 py-8 text-center">
-          <ExpressionMascot expression="sleepy" size={96} />
-          <p className="text-sm text-muted">Finish a session and it shows up here.</p>
-        </Card>
-      ) : (
-        <ul className="flex flex-col gap-4">
-          {posts.slice(0, shown).map((activity) => (
-            <li key={activity.id}>
-              <ActivityCard activity={activity} />
-            </li>
-          ))}
-        </ul>
-      )}
-      {hasMore && (
-        <Link
-          href={`/profile?posts=${shown + POSTS_STEP}`}
-          scroll={false}
-          className="mt-4 block rounded-full border-2 border-border bg-surface-2 py-3 text-center text-sm font-bold"
-        >
-          Show more
-        </Link>
-      )}
     </>
   );
+}
+
+/** 42.5 → "42.5", 40 → "40". */
+function formatHours(hours: number) {
+  return String(Math.round(hours * 10) / 10);
 }
 
 function Count({ label, value, icon }: { label: string; value: number; icon?: boolean }) {
@@ -232,7 +239,7 @@ function StudyBehaviorCard({ behavior }: { behavior: { hourly: HourlyBucket[]; p
   if (behavior.totalSessions === 0) {
     return (
       <Card className="flex flex-col items-center gap-3 py-8 text-center">
-        <Brain expression="confused" size={72} />
+        <ExpressionMascot expression="sleepy" size={96} />
         <p className="text-sm text-muted">Complete sessions to see your study patterns here.</p>
       </Card>
     );

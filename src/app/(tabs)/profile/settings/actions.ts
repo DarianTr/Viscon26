@@ -27,7 +27,6 @@ const profileSchema = z.object({
     .max(200)
     .transform((v) => v || null),
   hue: z.coerce.number().pipe(userFields.hue),
-  weeklyGoalHours: z.coerce.number().pipe(userFields.weeklyGoalHours),
 });
 
 const passwordSchema = z
@@ -90,4 +89,15 @@ export async function deleteAccount(_prev: SettingsState, form: FormData): Promi
   // Cascades to sessions, kudos, friendships, enrollments, …
   await db.delete(s.users).where(eq(s.users.id, user.id));
   redirect("/signup");
+}
+
+const nudgeStyleSchema = z.enum(["savage", "gentle", "off"]);
+
+/** How the daily study nudge talks to the user (see `src/lib/nudges.ts`). */
+export async function setNudgeStyle(style: string): Promise<void> {
+  const user = await requireUser();
+  await db
+    .update(s.users)
+    .set({ nudgeStyle: nudgeStyleSchema.parse(style) })
+    .where(eq(s.users.id, user.id));
 }

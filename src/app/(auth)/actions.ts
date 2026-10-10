@@ -7,7 +7,7 @@ import { db, schema as s } from "@/db";
 import { hashPassword, verifyPassword } from "@/db/password";
 import { createSession, deleteSession } from "@/lib/auth";
 
-export type AuthState = { error?: string; handle?: string; name?: string } | undefined;
+export type AuthState = { error?: string; handle?: string; name?: string; program?: string } | undefined;
 
 const handleField = z
   .string()
@@ -24,6 +24,13 @@ const signupSchema = z.object({
   handle: handleField,
   name: z.string().trim().min(1, "Enter your name").max(100),
   password: z.string().min(8, "Password: at least 8 characters").max(200),
+  /** The degree they're pursuing — `users.program`, editable in Settings. */
+  program: z
+    .string()
+    .trim()
+    .max(200, "Degree: at most 200 characters")
+    .optional()
+    .transform((v) => v || null),
 });
 
 export async function login(_prev: AuthState, form: FormData): Promise<AuthState> {
@@ -41,7 +48,11 @@ export async function login(_prev: AuthState, form: FormData): Promise<AuthState
 
 export async function signup(_prev: AuthState, form: FormData): Promise<AuthState> {
   const parsed = signupSchema.safeParse(Object.fromEntries(form));
-  const echo = { handle: String(form.get("handle") ?? ""), name: String(form.get("name") ?? "") };
+  const echo = {
+    handle: String(form.get("handle") ?? ""),
+    name: String(form.get("name") ?? ""),
+    program: String(form.get("program") ?? ""),
+  };
   if (!parsed.success) return { error: parsed.error.issues[0].message, ...echo };
 
   const { password, ...data } = parsed.data;

@@ -449,7 +449,9 @@ def _routes(app: FastAPI) -> None:
 
         total = sum(s["priority"] for s in scored)
         for s in scored:
-            s["allocation"] = (100.0 * s["priority"] / total) if total > 0 else (100.0 / len(scored))
+            s["allocation"] = (
+                (100.0 * s["priority"] / total) if total > 0 else (100.0 / len(scored))
+            )
 
         scored.sort(key=lambda s: s["priority"], reverse=True)
 
@@ -481,7 +483,9 @@ def _routes(app: FastAPI) -> None:
                 )
             )
 
-        return RecommendedTopicsOut(user_id=user_id, plan_id=plan_id, as_of=as_of, topics=topics_out)
+        return RecommendedTopicsOut(
+            user_id=user_id, plan_id=plan_id, as_of=as_of, topics=topics_out
+        )
 
     # --- Fit -----------------------------------------------------------------
 

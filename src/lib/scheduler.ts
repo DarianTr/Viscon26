@@ -11,6 +11,22 @@
  *   sessions) and distributes them throughout the calendar. Session details
  *   explicitly cue students to the 1 → 3 → 7 → 14 day recall intervals.
  *
+ * Phases — each subject moves through its own Foundation (optional
+ *   immersion) → Build → Peak (exam practice) → Taper (Exam Eve). Subjects can
+ *   be in different phases at the same time.
+ *
+ * Exam Eve — the last study day before each exam is reserved, before
+ *   anything else is placed, for one calm "Exam Eve — Final Review" of that
+ *   subject only (EXAM_EVE): no new topics, no mocks, no catch-up.
+ *
+ * Foundation immersion — subjects that need substantial theory revision open
+ *   with 1–3 single-subject days (immersionDays): theory and topic map,
+ *   then exercises, then exam-style problems — followed by spaced retrieval.
+ *
+ * Priorities — exam dates and days off; Exam Eve; daily hours; mock exams
+ *   and cheatsheets; immersion; then regular study. A tight plan shortens
+ *   immersion before essential work goes.
+ *
  * Interleaving — a weighted round-robin rotates subjects across study days.
  *   A day holds at most two subjects (MAX_SUBJECTS_PER_DAY), each subject's
  *   blocks grouped together to keep context switches down. The Lernphase can
@@ -66,6 +82,8 @@ export interface ScheduledSession {
   cheatsheetTarget?: number;
   /** Minutes of this session reserved for the cheatsheet — all of it for cheatsheet sessions, part of it in combined ones. */
   cheatsheetMinutes?: number;
+  /** Where the subject's preparation is: Foundation → Build → Peak → Taper. */
+  prepPhase?: PrepPhase;
   title: string;
   detail: string;
   scheduledAt: Date;
@@ -116,6 +134,9 @@ export interface PlanConfig {
 
 export type StudyRhythm = "balanced" | "sprint" | "deep";
 
+/** A subject's preparation phases; each subject moves through them on its own timeline. */
+export type PrepPhase = "foundation" | "build" | "peak" | "taper";
+
 /** "recommended": focus days for subjects needing theory revision; "focus": for all; "mixed": none. */
 export type LernphaseStart = "recommended" | "focus" | "mixed";
 export const DEFAULT_FOCUS_DAYS = 3;
@@ -123,6 +144,37 @@ export const DEFAULT_FOCUS_DAYS = 3;
 const FOCUS_MAX_SHARE = 0.4;
 /** Distinct academic subjects allowed on one normal study day. */
 export const MAX_SUBJECTS_PER_DAY = 2;
+
+/** Exam Eve: the last study day before an exam — one final review, 2–3 h, never more than 4 h. */
+export const EXAM_EVE = { reviewMinutes: 150, maxMinutes: 240 };
+
+/**
+ * Foundation immersion: what each immersion day is for (drawn from the
+ * subject's own sessions of those phases), how many study days before the
+ * exam 3, 2 or 1 immersion days need, and when spaced retrieval revisits the
+ * subject afterwards (study days after the immersion ends).
+ */
+const IMMERSION = {
+  themes: [
+    {
+      label: "Core theory & topic map",
+      phases: ["Theory recap"],
+      detail: "Immersion day 1: review the core theory, map every topic on one page, and mark the gaps you find.",
+    },
+    {
+      label: "Exercises & active recall",
+      phases: ["Exercises", "Semester exercises"],
+      detail: "Immersion day 2: reinforce the theory through exercises; recall each method before you look it up.",
+    },
+    {
+      label: "Exam-style problems",
+      phases: ["Past-exam practice", "Iterative exam solving", "Full exam solving", "Timed practice", "Timed exam solving"],
+      detail: "Immersion day 3: attempt exam-style problems and write down every remaining weakness.",
+    },
+  ],
+  daysFor: [25, 12, 4],
+  retrievalAfter: [2, 5, 9],
+};
 
 /**
  * Cheatsheet time per subject (a share of its study, within bounds), the
@@ -708,8 +760,10 @@ function planCheatsheet(
   sessionLength: number,
   /** Study phases the subject's strategy has (before completed work came off the queue). */
   strategyPhases: Set<string | undefined>,
-): { queue: QueueItem[]; dedicated: DedicatedSheet[] } {
-  if (mode === "none" || progress >= 100) return { queue, dedicated: [] };
+  /** The finalization happens inside Exam Eve, so it isn't a session of its own. */
+  finalizeOnEve = false,
+): { queue: QueueItem[]; dedicated: DedicatedSheet[]; finalizeMinutes: number } {
+  if (mode === "none" || progress >= 100) return { queue, dedicated: [], finalizeMinutes: 0 };
   const remaining = Math.round((budget * (100 - progress)) / 100);
   /** `items` spread evenly between `from` and `to` of the preparation. */
   const spread = (items: QueueItem[], from: number, to: number): DedicatedSheet[] =>
@@ -718,11 +772,13 @@ function planCheatsheet(
   // Existing: pick one and get to know it, early on — no creation work.
   if (mode === "existing") {
     const item = cheatsheetItem(subject, "Cheatsheet Selection & Familiarization", familiarizeMinutes(budget), "existing");
-    return { queue, dedicated: [{ item, at: CHEATSHEET.when.familiarize }] };
+    return { queue, dedicated: [{ item, at: CHEATSHEET.when.familiarize }], finalizeMinutes: 0 };
   }
 
   const { creation, finalize: finalAt } = CHEATSHEET.when;
   const finalization = { item: cheatsheetItem(subject, "Cheatsheet Finalization", finalizeMinutes(remaining), "final"), at: finalAt };
+  const ending = finalizeOnEve ? [] : [finalization];
+  const finalizeMinutesOut = finalizeOnEve ? finalization.item.plannedMinutes : 0;
 
   // End: dedicated creation sessions spread over the later preparation, then a finalization.
   if (mode === "end") {
@@ -731,7 +787,7 @@ function planCheatsheet(
       blocks.push(Math.min(sessionLength, left));
     }
     const items = blocks.map((minutes, k) => cheatsheetItem(subject, `Cheatsheet Creation ${k + 1}`, minutes, "creation"));
-    return { queue, dedicated: [...spread(items, creation[0], creation[1]), finalization] };
+    return { queue, dedicated: [...spread(items, creation[0], creation[1]), ...ending], finalizeMinutes: finalizeMinutesOut };
   }
 
   // Gradual: theory recap sessions reserve part of their time for the cheatsheet
@@ -770,7 +826,15 @@ function planCheatsheet(
   for (let left = combinedMinutes; left >= MIN_SESSION_MINUTES; left -= sessionLength) {
     catchUps.push(cheatsheetItem(subject, `Cheatsheet Catch-up ${catchUps.length + 1}`, Math.min(sessionLength, left), "catchup"));
   }
-  return { queue, dedicated: [...spread(catchUps, creation[0], creation[1]), finalization] };
+  return { queue, dedicated: [...spread(catchUps, creation[0], creation[1]), ...ending], finalizeMinutes: finalizeMinutesOut };
+}
+
+/** What Exam Eve is for — optionally with the cheatsheet's last pass. */
+function examEveDetail(cheatsheetMinutes = 0): string {
+  return "Final review, calm and short — no new topics, no full mocks. Go over your weak topics and the problems " +
+    "you got wrong before, the key concepts, and formulas." +
+    (cheatsheetMinutes > 0 ? ` Cheatsheet (~${cheatsheetMinutes} min): final check against a past exam — reach 100%.` : "") +
+    " Stop early and rest.";
 }
 
 /**
@@ -796,7 +860,9 @@ function setCheatsheetMilestones(sessions: (ScheduledSession & { cheat?: QueueIt
             `Cheatsheet (~${s.cheatsheetMinutes} min): add those topics — reach ${target}% of your cheatsheet (cumulative).`
           : kind === "creation" || kind === "catchup"
             ? `Write your cheatsheet from your summaries and past-exam errors — reach ${target}% (cumulative).`
-            : PHASE_DETAIL[kind === "final" ? "Cheatsheet final" : "Cheatsheet existing"];
+            : s.activity === "exam_eve"
+              ? examEveDetail(s.cheatsheetMinutes)
+              : PHASE_DETAIL[kind === "final" ? "Cheatsheet final" : "Cheatsheet existing"];
       delete s.cheat;
     });
   }
@@ -825,6 +891,20 @@ export interface SubjectFeasibility {
   /** Focused study time on days before this subject's exam — shared with the other subjects. */
   availableBeforeExamMinutes: number;
   mocks: MockPlan;
+  /** The subject's own phases, in order: from and to are "YYYY-MM-DD". */
+  phases: { phase: PrepPhase; from: string; to: string }[];
+}
+
+/** Consecutive runs of the same phase, for one subject's sessions in time order. */
+function phaseTimeline(sessions: ScheduledSession[]): SubjectFeasibility["phases"] {
+  const out: SubjectFeasibility["phases"] = [];
+  for (const x of sessions) {
+    const key = toDateKey(x.scheduledAt);
+    const last = out[out.length - 1];
+    if (last && last.phase === x.prepPhase) last.to = key;
+    else out.push({ phase: x.prepPhase!, from: key, to: key });
+  }
+  return out;
 }
 
 /** How the plan's workload compares with the time the user made available. */
@@ -874,6 +954,8 @@ export interface ScheduleResult {
   planStart: string;
   /** Initial focus days: "YYYY-MM-DD" → subject. Stored so manual moves respect them. */
   focusDates: Record<string, string>;
+  /** Exam Eve days: "YYYY-MM-DD" → subject(s). Stored so nothing is moved onto them. */
+  eveDates: Record<string, string[]>;
 }
 
 type DayBlock = { item: QueueItem };
@@ -891,8 +973,13 @@ type DayPlan = {
   used: number;
   /** Subjects with academic work on this day (at most MAX_SUBJECTS_PER_DAY). */
   subjects: Set<string>;
-  /** Index of the subject this initial focus day belongs to. */
+  /** Index of the subject this initial focus (immersion) day belongs to. */
   focus?: number;
+  /** Which immersion day this is (1-based), and how many the subject has. */
+  focusDay?: number;
+  focusDays?: number;
+  /** Subjects whose Exam Eve this is: nothing else goes on this day. */
+  eve?: number[];
 };
 
 export type GenerateOptions = {
@@ -901,7 +988,28 @@ export type GenerateOptions = {
   busy?: Interval[];
   /** Per subject name: what is already done, when regenerating an existing plan. */
   progress?: Record<string, SubjectProgress>;
+  /** Internal: immersion days taken off each subject, when a tight plan needs the time back. */
+  immersionCut?: number;
 };
+
+/**
+ * Foundation immersion days for a subject in the recommended start: up to 3
+ * for "Build from the basics" (3 with real gaps and enough time, 2 when time
+ * is tighter, 1 — a diagnostic — when the exam is close), a 1-day refresher
+ * for "Revise & practice" only at low confidence, none for exam-focused.
+ */
+export function immersionDays(
+  cfg: Pick<SubjectConfig, "approach" | "confidence" | "currentGrade" | "targetGrade">,
+  studyDaysLeft: number,
+): number {
+  const tier = IMMERSION.daysFor.findIndex((need) => studyDaysLeft >= need);
+  const byTime = tier < 0 ? 0 : 3 - tier;
+  const lowConfidence = cfg.confidence === "little" || cfg.confidence === "some";
+  const gap = (Number(cfg.targetGrade) || 0) - (Number(cfg.currentGrade) || 0);
+  if (cfg.approach === "foundation") return Math.min(lowConfidence || gap >= 1 ? 3 : 2, byTime);
+  if (cfg.approach === "balanced") return lowConfidence ? Math.min(1, byTime) : 0;
+  return 0;
+}
 
 /** Whether a subject starts the Lernphase with focus days. */
 export function wantsFocusDays(mode: LernphaseStart, subject: Pick<SubjectConfig, "approach" | "confidence">): boolean {
@@ -968,6 +1076,12 @@ export function generateStudyPlan(
     cheatsheet: DedicatedSheet[];
     /** Day index of the cheatsheet finalization: combined theory + cheatsheet sessions go before it. */
     sheetDeadline: number;
+    /** Exam Eve: its day, review minutes, and the cheatsheet finalization folded into it. */
+    eveIdx: number;
+    /** The subject's share of its Exam Eve day, and the review and cheatsheet minutes within it. */
+    eveShare: number;
+    eveMinutes: number;
+    eveSheetMinutes: number;
     /** Remainders of sessions cut at a day's end; they fill later days' short last slot. */
     tailQueue: QueueItem[];
     /** Required work that was dropped (unplaced mocks/reviews, trimmed slivers). */
@@ -1001,6 +1115,10 @@ export function generateStudyPlan(
       lostMinutes: 0,
       cheatsheet: [],
       sheetDeadline: Infinity,
+      eveIdx: -1,
+      eveShare: 0,
+      eveMinutes: 0,
+      eveSheetMinutes: 0,
     };
   });
 
@@ -1066,6 +1184,34 @@ export function generateStudyPlan(
     return last;
   });
 
+  // ── 3b. Exam Eve: the last study day before each exam ───────────────────
+  // Reserved before anything else is placed. Normally the calendar day before
+  // the exam; if that's a day off, the last study day before it. Exams on
+  // consecutive days can share an eve — then each review is shorter.
+
+  subjects.forEach((s, i) => { s.eveIdx = lastIdxOf[i]; });
+  const eveGroups = new Map<number, number[]>();
+  subjects.forEach((s, i) => { if (s.eveIdx >= 0) eveGroups.set(s.eveIdx, [...(eveGroups.get(s.eveIdx) ?? []), i]); });
+  for (const [d, group] of eveGroups) {
+    days[d].eve = group;
+    for (const i of group) {
+      const s = subjects[i];
+      // Each subject's share of the day: never more than EXAM_EVE.maxMinutes, nor the day's capacity, in all.
+      s.eveShare = Math.floor(Math.min(EXAM_EVE.maxMinutes, days[d].capacity) / group.length);
+      s.eveMinutes = Math.min(EXAM_EVE.reviewMinutes, s.eveShare);
+      // Everything else for this subject happens before its eve.
+      lastIdxOf[i] = d - 1;
+      const before = new Date(s.examDate);
+      before.setDate(before.getDate() - 1);
+      if (days[d].key !== toDateKey(before)) {
+        adjustments.push(`${s.name}: Exam Eve is ${days[d].key}, the last study day before the exam — the day before isn't a study day.`);
+      }
+    }
+    if (group.length > 1) {
+      adjustments.push(`${group.map((i) => subjects[i].name).join(" and ")} share their Exam Eve on ${days[d].key} (consecutive exams) — each gets a shorter final review.`);
+    }
+  }
+
   // Size each subject's workload: its share of the basis over its weekdays, scaled by
   // the hours formula. Work already done comes off the front of the queue.
   const basisDaily = config.studyDays.length ? basisWeekly / config.studyDays.length : 0;
@@ -1098,7 +1244,8 @@ export function generateStudyPlan(
     const budget = mode === "none" ? 0 : cheatsheetBudgetMinutes(regularMin);
     const dedicated = dedicatedCheatsheetMinutes(mode, budget, done?.cheatsheet ?? 0);
 
-    const queue = buildPhaseQueue(s.name, Math.max(sessionLength, regularMin - dedicated), cfg.approach, cfg.customPhases, sessionLength);
+    // Exam Eve's review replaces part of the final revision: same total, never on top.
+    const queue = buildPhaseQueue(s.name, Math.max(sessionLength, regularMin - dedicated - s.eveMinutes), cfg.approach, cfg.customPhases, sessionLength);
     const strategyPhases = new Set(queue.map((q) => q.phase));
     let doneMinutes = done?.studyMinutes ?? 0;
     while (doneMinutes > 0 && queue.length > 0) {
@@ -1110,9 +1257,16 @@ export function generateStudyPlan(
         doneMinutes = 0;
       }
     }
-    const sheet = planCheatsheet(queue, s.name, mode, budget, done?.cheatsheet ?? 0, sessionLength, strategyPhases);
+    // The cheatsheet's final pass moves into Exam Eve only if the eve has room for it.
+    const finalizeNeed = mode === "gradual" || mode === "end"
+      ? finalizeMinutes(Math.round((budget * (100 - (done?.cheatsheet ?? 0))) / 100))
+      : 0;
+    const finalizeOnEve = s.eveMinutes > 0 && finalizeNeed > 0 && s.eveShare - s.eveMinutes >= finalizeNeed;
+    const sheet = planCheatsheet(queue, s.name, mode, budget, done?.cheatsheet ?? 0, sessionLength, strategyPhases, finalizeOnEve);
     s.regularQueue = sheet.queue;
     s.cheatsheet = sheet.dedicated;
+    // The cheatsheet's final pass happens on Exam Eve, within its 4 h.
+    s.eveSheetMinutes = Math.min(sheet.finalizeMinutes, Math.max(0, s.eveShare - s.eveMinutes));
   });
 
   const free = (day: DayPlan) => day.capacity - day.used;
@@ -1127,33 +1281,49 @@ export function generateStudyPlan(
   // vacations), happen once, and never take so long that a subject is left
   // without enough mixed days before its exam.
 
+  // Recommended: Foundation immersion sized per subject (immersionDays).
+  // Dedicated focus days: the student's number for every subject. Mixed: none.
   const lernphaseStart = config.lernphaseStart ?? "recommended";
   const focusWanted = Math.max(0, Math.round(config.focusDays ?? DEFAULT_FOCUS_DAYS));
-  if (focusWanted > 0) {
-    const order = subjects
-      .map((s, i) => ({ s, i, cfg: config.subjects[i] }))
-      .filter(({ cfg }) => wantsFocusDays(lernphaseStart, cfg))
-      .sort((a, b) => a.s.examKey.localeCompare(b.s.examKey) || b.s.allocation - a.s.allocation);
-    // The whole focus phase may use at most FOCUS_MAX_SHARE of any subject's study days.
-    const limit = Math.min(...subjects.map((_, i) => Math.floor(FOCUS_MAX_SHARE * (elapsedStudyDays + lastIdxOf[i] + 1))));
-    let cursor = 0;
-    for (const { s, i } of order) {
-      const granted = Math.max(0, Math.min(focusWanted, limit - cursor));
-      if (granted < focusWanted) {
-        adjustments.push(granted === 0
-          ? `${s.name} starts without focus days — there isn't enough time before the exams for a longer single-subject start.`
-          : `${s.name} gets ${granted} focus day${granted === 1 ? "" : "s"} instead of ${focusWanted}, so every subject keeps enough mixed study days before its exam.`);
-      }
-      for (let k = 0; k < granted; k++) {
-        const d = cursor + k - elapsedStudyDays;
-        if (d >= 0 && d < days.length) days[d].focus = i;
-      }
-      cursor += granted;
+  const cut = options.immersionCut ?? 0;
+  const wantedOf = (i: number) => Math.max(0, (
+    lernphaseStart === "mixed" ? 0
+      : lernphaseStart === "focus" ? focusWanted
+        : immersionDays(config.subjects[i], elapsedStudyDays + lastIdxOf[i] + 1)
+  ) - cut);
+  /** Day index where each subject's immersion ends (-1 without one). */
+  const immersionEnd = subjects.map(() => -1);
+  const order = subjects
+    .map((s, i) => ({ s, i, wanted: wantedOf(i) }))
+    .filter(({ wanted }) => wanted > 0)
+    .sort((a, b) => a.s.examKey.localeCompare(b.s.examKey) || b.s.allocation - a.s.allocation);
+  // The whole focus phase may use at most FOCUS_MAX_SHARE of any subject's study days.
+  const limit = Math.min(...subjects.map((_, i) => Math.floor(FOCUS_MAX_SHARE * (elapsedStudyDays + lastIdxOf[i] + 1))));
+  let cursor = 0;
+  let immersionGranted = 0;
+  for (const { s, i, wanted } of order) {
+    const granted = Math.max(0, Math.min(wanted, limit - cursor));
+    if (granted < wanted) {
+      adjustments.push(granted === 0
+        ? `${s.name} starts without immersion days — there isn't enough time before the exams for a single-subject start.`
+        : `${s.name} gets ${granted} immersion day${granted === 1 ? "" : "s"} instead of ${wanted}, so every subject keeps enough mixed study days before its exam.`);
     }
+    for (let k = 0; k < granted; k++) {
+      const d = cursor + k - elapsedStudyDays;
+      if (d >= 0 && d < days.length && !days[d].eve) {
+        days[d].focus = i;
+        days[d].focusDay = k + 1;
+        days[d].focusDays = granted;
+        immersionEnd[i] = d;
+      }
+    }
+    cursor += granted;
+    immersionGranted += granted;
   }
 
   /** At most MAX_SUBJECTS_PER_DAY subjects a day, and only the focus subject on a focus day. */
   const canTake = (day: DayPlan, si: number) => {
+    if (day.eve) return false;
     if (day.focus !== undefined) return day.focus === si;
     return day.subjects.has(subjects[si].name) || day.subjects.size < MAX_SUBJECTS_PER_DAY;
   };
@@ -1164,7 +1334,31 @@ export function generateStudyPlan(
     day.subjects.add(item.subject!);
   };
 
-  // ── 5. Mock exams and their reviews (placed first: they have priority) ───
+  // ── 4b. Exam Eve reviews (placed first: they have priority) ─────────────
+  for (const [d, group] of eveGroups) {
+    const day = days[d];
+    for (const i of group) {
+      const s = subjects[i];
+      if (s.eveMinutes <= 0) continue;
+      const minutes = s.eveMinutes + s.eveSheetMinutes;
+      place(day, {
+        type: "recovery",
+        activity: "exam_eve",
+        prepPhase: "taper",
+        subject: s.name,
+        title: `${s.name} — Exam Eve — Final Review`,
+        detail: examEveDetail(),
+        plannedMinutes: minutes,
+        ...(s.eveSheetMinutes > 0 ? { cheat: { minutes: s.eveSheetMinutes, kind: "final" as const } } : {}),
+      });
+      // Theory + cheatsheet sessions belong before the final pass.
+      if (s.eveSheetMinutes > 0) s.sheetDeadline = d;
+    }
+    // The day holds the eve and nothing else; the rest of it is rest.
+    day.capacity = day.used;
+  }
+
+  // ── 5. Mock exams and their reviews ──────────────────────────────────────
 
   subjects.forEach((s, si) => {
     const lastIdx = lastIdxOf[si];
@@ -1266,6 +1460,31 @@ export function generateStudyPlan(
     }
   });
 
+  // ── 5c. Spaced retrieval after immersion ─────────────────────────────────
+  // The subject's own spaced-review sessions revisit it a few study days after
+  // its immersion, so what was built there is recalled before it fades.
+  subjects.forEach((s, si) => {
+    if (immersionEnd[si] < 0) return;
+    let prev = immersionEnd[si];
+    IMMERSION.retrievalAfter.forEach((after, k) => {
+      const at = s.regularQueue.findIndex((q) => q.phase === "Spaced review");
+      if (at < 0) return;
+      const target = immersionEnd[si] + after;
+      const d = [...Array(Math.max(0, lastIdxOf[si] - prev)).keys()]
+        .map((x) => prev + 1 + x)
+        .sort((a, b) => Math.abs(a - target) - Math.abs(b - target) || a - b)
+        .find((c) => free(days[c]) >= s.regularQueue[at].plannedMinutes && canTake(days[c], si));
+      if (d === undefined) return;
+      const [item] = s.regularQueue.splice(at, 1);
+      place(days[d], {
+        ...item,
+        title: `${s.name} — Spaced Retrieval ${k + 1} (after immersion)`,
+        detail: "Recall what you built in your immersion days without notes: write down each topic's key ideas, then check and fix the gaps.",
+      });
+      prev = d;
+    });
+  });
+
   // ── 6. Weighted round-robin over at most two subjects a day ──────────────
   // Days are filled minute by minute: the last session of a full day is
   // shortened to fit and its remainder continues on a later day.
@@ -1278,12 +1497,16 @@ export function generateStudyPlan(
   const hasWork = (s: Subject) => s.regularQueue.length > 0 || s.tailQueue.length > 0;
 
   /** Takes up to `room` minutes of the subject's next work; null if nothing worth a session fits. */
-  function takeWork(s: Subject, room: number, dayIdx: number): QueueItem | null {
+  function takeWork(s: Subject, room: number, dayIdx: number, preferPhases: string[] = []): QueueItem | null {
     // From the cheatsheet finalization's day on, theory + cheatsheet sessions wait
     // (they belong before it); the subject's other work goes ahead.
     const usable = (q: QueueItem) => !(q.cheat?.kind === "combined" && dayIdx >= s.sheetDeadline);
-    const tailAt = s.tailQueue.findIndex(usable);
-    const regularAt = s.regularQueue.findIndex(usable);
+    // An immersion day draws its theme's sessions first (still the subject's own work);
+    // leftovers of other phases only fill in when the theme has nothing left.
+    const themed = (queue: QueueItem[]) => queue.findIndex((q) => usable(q) && preferPhases.includes(q.phase ?? ""));
+    const onTheme = preferPhases.length > 0 && (themed(s.tailQueue) >= 0 || themed(s.regularQueue) >= 0);
+    const tailAt = onTheme ? themed(s.tailQueue) : s.tailQueue.findIndex(usable);
+    const regularAt = onTheme ? themed(s.regularQueue) : s.regularQueue.findIndex(usable);
     if (tailAt < 0 && regularAt < 0) return null;
     // Whole sessions fill the day's full blocks; leftovers from earlier cuts
     // fill the short slot at its end, so the next day still starts on the template.
@@ -1350,11 +1573,23 @@ export function generateStudyPlan(
       if (bestIdx === -1) break;
 
       const s = subjects[bestIdx];
-      const item = takeWork(s, Math.min(room, free(day)), di);
-      if (!item) {
+      // Immersion days follow their theme: theory & topic map, exercises, exam-style problems.
+      const theme = day.focus === bestIdx && day.focusDay
+        ? IMMERSION.themes[Math.min(2, Math.floor((3 * (day.focusDay - 1)) / Math.max(day.focusDays ?? 3, 3)))]
+        : undefined;
+      const taken = takeWork(s, Math.min(room, free(day)), di, theme?.phases);
+      if (!taken) {
         stuck.add(bestIdx);
         continue;
       }
+      const item: QueueItem = theme
+        ? {
+            ...taken,
+            title: `${s.name} — Immersion Day ${day.focusDay}: ${theme.label} (${taken.title.replace(`${s.name} — `, "")})`,
+            detail: `${theme.detail} ${taken.detail}`.slice(0, 500),
+            prepPhase: "foundation",
+          }
+        : taken;
       place(day, item);
       room -= item.plannedMinutes;
       lastBlock = { block: day.blocks[day.blocks.length - 1], subject: bestIdx };
@@ -1414,7 +1649,8 @@ export function generateStudyPlan(
       day.start,
       day.blocks.map((b) => ({ minutes: b.item.plannedMinutes, standalone: b.item.activity !== "study" })),
       rhythm,
-      bufferMin,
+      // Exam Eve has no catch-up buffer: unfinished work doesn't move there.
+      day.eve ? 0 : bufferMin,
       day.busy,
     );
     for (const seg of segments) {
@@ -1473,6 +1709,19 @@ export function generateStudyPlan(
   result.sort((a, b) => a.scheduledAt.getTime() - b.scheduledAt.getTime());
   setCheatsheetMilestones(result, Object.fromEntries(subjects.map((s) => [s.name, progress[s.name]?.cheatsheet ?? 0])));
 
+  // Each subject's phase: immersion is Foundation, Exam Eve is Taper; Peak starts
+  // with its exam practice (first mock, or the last 40% of its days); Build before.
+  const peakFrom = new Map(subjects.map((s, si) => {
+    const firstMock = result.find((x) => x.subject === s.name && x.activity === "mock_exam");
+    const fallback = days[Math.max(0, Math.floor(0.6 * lastIdxOf[si]))]?.key ?? s.examKey;
+    const mockKey = firstMock ? toDateKey(firstMock.scheduledAt) : fallback;
+    return [s.name, mockKey < fallback ? mockKey : fallback];
+  }));
+  for (const x of result) {
+    if (!x.subject || x.type === "exam" || x.type === "buffer" || x.type === "break") continue;
+    x.prepPhase ??= toDateKey(x.scheduledAt) >= (peakFrom.get(x.subject) ?? "") ? "peak" : "build";
+  }
+
   // ── 9. Build result metadata ──────────────────────────────────────────────
 
   const breakdown: Record<string, number> = {};
@@ -1494,6 +1743,7 @@ export function generateStudyPlan(
         shortfallMinutes,
         availableBeforeExamMinutes: days.slice(0, lastIdxOf[si] + 1).reduce((t, d) => t + d.capacity, 0),
         mocks: s.mocks,
+        phases: phaseTimeline(result.filter((x) => x.subject === s.name && x.prepPhase)),
       };
     })
     .sort((a, b) => b.shortfallMinutes - a.shortfallMinutes);
@@ -1507,7 +1757,7 @@ export function generateStudyPlan(
   const overallShortfallMinutes = Math.max(0, requiredMinutes - availableMinutes);
   const weeks = Math.max(1, (maxExamDate.getTime() - today.getTime()) / (7 * 86400000));
 
-  return {
+  const outcome: ScheduleResult = {
     sessions: result,
     breakdown,
     firstDate: result[0]?.scheduledAt ?? null,
@@ -1535,7 +1785,30 @@ export function generateStudyPlan(
     workloadBasisWeeklyMinutes: basisWeekly,
     planStart,
     focusDates: Object.fromEntries(days.filter((d) => d.focus !== undefined).map((d) => [d.key, subjects[d.focus!].name])),
+    eveDates: Object.fromEntries([...eveGroups].map(([d, group]) => [days[d].key, group.map((i) => subjects[i].name)])),
   };
+
+  // Immersion ranks below essential work: if the plan is short, try shorter
+  // immersion blocks and keep the version that fits more.
+  if (!options.immersionCut && immersionGranted > 0 && outcome.feasibility.needsMoreTime) {
+    let best = outcome;
+    let bestCut = 0;
+    for (let c = 1; c <= 3; c++) {
+      const trial = generateStudyPlan(config, now, { ...options, suggest: false, immersionCut: c });
+      if (trial.feasibility.shortfallMinutes + SHORTFALL_THRESHOLD_MIN <= best.feasibility.shortfallMinutes) {
+        best = trial;
+        bestCut = c;
+      }
+    }
+    if (bestCut > 0) {
+      const shorter = suggest ? generateStudyPlan(config, now, { ...options, immersionCut: bestCut }) : best;
+      shorter.feasibility.adjustments.push(
+        `Immersion blocks were shortened by ${bestCut} day${bestCut === 1 ? "" : "s"} so more of the essential work fits before the exams.`,
+      );
+      return shorter;
+    }
+  }
+  return outcome;
 }
 
 /** Concrete, checkable changes that would give the plan the time it needs. */

@@ -32,4 +32,5 @@ export const planConfigSchema = z.object({
   focusDays: z.number().int().min(1).max(10).optional(),
   planStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   focusDates: z.record(z.string(), z.string()).optional(),
+  eveDates: z.record(z.string(), z.array(z.string())).optional(),
 });

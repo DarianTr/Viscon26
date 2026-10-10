@@ -35,7 +35,7 @@ const lernphaseOptions: { value: LernphaseStart; title: string; description: str
     {
         value: "recommended",
         title: "Recommended",
-        description: "Focus days for subjects that need substantial theory revision; the rest rotate from day one.",
+        description: "Immersion days (1–3) for subjects that need substantial theory revision; the rest rotate from day one.",
     },
     {
         value: "focus",
@@ -620,6 +620,7 @@ function NewPlanForm() {
                         ...storedConfig(result.workloadBasisWeeklyMinutes),
                         planStart: result.planStart,
                         focusDates: result.focusDates,
+                        eveDates: result.eveDates,
                     },
                     tasks: result.sessions.map((s) => ({
                         type: s.type,
@@ -631,6 +632,7 @@ function NewPlanForm() {
                         activity: s.activity,
                         cheatsheetTarget: s.cheatsheetTarget ?? null,
                         cheatsheetMinutes: s.cheatsheetMinutes ?? null,
+                        prepPhase: s.prepPhase ?? null,
                         shared: false,
                     })),
                 }),
@@ -1933,6 +1935,14 @@ function NewPlanForm() {
                                     <li>
                                         <span className="font-medium text-foreground">Your availability</span>
                                         {" "}— sessions only fall on your selected days, never during vacations, and never exceed your daily hours; each study day ends with buffer / catch-up time.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Exam Eve</span>
+                                        {" "}— the day before each exam is a short final review of that subject only: weak topics, past mistakes, key formulas — no new material, no mocks.
+                                    </li>
+                                    <li>
+                                        <span className="font-medium text-foreground">Phases</span>
+                                        {" "}— each subject moves through Foundation (immersion), Build, Peak (exam practice) and Taper on its own timeline.
                                     </li>
                                     <li>
                                         <span className="font-medium text-foreground">Cheatsheet</span>

@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition, useRef } from "react";
+import { useState } from "react";
 import { Card } from "@/components/ui/primitives";
 import { AddSubjectWizard } from "@/components/plans/add-subject-wizard";
+import { ForecastChart } from "@/components/knowledge/forecast-chart";
+import { TopicProfile } from "@/components/knowledge/topic-profile";
 import type { CustomPlan } from "@/lib/queries";
+import type { KnowledgeSubject, Timeline } from "@/lib/knowledge";
 
 type ExamScore = {
   id: string;
@@ -49,6 +52,8 @@ type PlanDetails = {
   scores: ExamScore[];
   /** Per subject: cheatsheet % the plan expects by now, and actual progress (reported, else completed sessions). */
   cheatsheet: Record<string, { planned: number; actual: number; reported: boolean }>;
+  /** Per subject: the preparation phase it is in now. */
+  phases?: Record<string, "foundation" | "build" | "peak" | "taper">;
   /** Per subject: past/mock exams available, done, still planned, and held in reserve. */
   mocks: Record<string, { available: number; done: number; planned: number; reserve: number }>;
   config: StoredConfig;
@@ -580,7 +585,6 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
   const [expanded, setExpanded] = useState(false);
   const [details, setDetails] = useState<PlanDetails | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showForm, setShowForm] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [strategy, setStrategy] = useState<StrategyResult | null>(() => {
     if (typeof window === "undefined") return null;
@@ -597,6 +601,10 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
   const [savingReport, setSavingReport] = useState(false);
   const [caughtUp, setCaughtUp] = useState<{ subject: string; actual: number; planned: number; addedMinutes: number } | null>(null);
   const [strategyError, setStrategyError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"forecast" | "subjects">("forecast");
+  const [knowledge, setKnowledge] = useState<{ timeline: Timeline; subjects: KnowledgeSubject[] } | null>(null);
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
 
   const progress = plan.totalSessions > 0 ? plan.doneSessions / plan.totalSessions : 0;
   const progressPct = Math.round(progress * 100);
@@ -605,27 +613,41 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
     setLoading(true);
     try {
       const res = await fetch(`/api/plans/${plan.id}`);
-      if (res.ok) setDetails(await res.json());
+      if (res.ok) {
+        const data: PlanDetails = await res.json();
+        setDetails(data);
+        if (data.scores.length > 0 && !strategy) fetchStrategy();
+      }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchKnowledge() {
+    setKnowledgeLoading(true);
+    setKnowledgeError(null);
+    try {
+      const res = await fetch(`/api/plans/${plan.id}/knowledge`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setKnowledgeError(data.error ?? "Could not load knowledge data.");
+        return;
+      }
+      setKnowledge(await res.json());
+    } catch {
+      setKnowledgeError("Network error — please try again.");
+    } finally {
+      setKnowledgeLoading(false);
     }
   }
 
   async function handleToggle() {
     const next = !expanded;
     setExpanded(next);
-    if (next && !details) await fetchDetails();
-  }
-
-  function handleScoreSaved(score: ExamScore) {
-    setDetails((prev) =>
-      prev ? { ...prev, scores: [...prev.scores, score].sort((a, b) => a.takenAt.localeCompare(b.takenAt)) } : prev
-    );
-    setShowForm(false);
-    // Invalidate cached strategy so the user is prompted to refresh
-    setStrategy(null);
-    localStorage.removeItem(`strategy-${plan.id}`);
-    void reassessMocks();
+    if (next) {
+      if (!details) fetchDetails();
+      if (!knowledge) fetchKnowledge();
+    }
   }
 
   // A new result can change how many mocks are worth doing: preview the plan, and
@@ -776,22 +798,6 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
         </Link>
       </div>
 
-      {/* Knowledge pages: always visible, no need to expand the card */}
-      <div className="flex flex-wrap gap-2 px-4 pt-3 pb-4">
-        <Link
-          href={`/plans/${plan.id}/forecast`}
-          className="rounded-full bg-foreground px-4 py-2 text-xs font-semibold text-background"
-        >
-          Grade forecast
-        </Link>
-        <Link href={`/plans/${plan.id}/topics`} className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold">
-          Subjects
-        </Link>
-        <Link href={`/plans/${plan.id}/log`} className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold">
-          Log data
-        </Link>
-      </div>
-
       {/* Expanded content */}
       {expanded && (
         <div className="space-y-5 border-t border-border px-4 pt-4 pb-4">
@@ -822,6 +828,9 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
                             {s.subject}
                           </span>
                           <span className="text-xs text-muted tabular-nums">
+                            {details.phases?.[s.subject] && (
+                              <span className="mr-2 font-medium capitalize text-foreground">{details.phases[s.subject]}</span>
+                            )}
                             {s.done}/{s.total} sessions
                           </span>
                         </div>
@@ -875,115 +884,65 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
                   })}
                 </ul>
               </div>
-
-              {/* Exam scores section */}
-              <div>
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted">Exam scores</p>
-                  {!showForm && (
-                    <button
-                      onClick={() => setShowForm(true)}
-                      className="text-xs font-semibold text-accent hover:opacity-80"
-                    >
-                      + Log score
-                    </button>
-                  )}
-                </div>
-
-                {caughtUp && (
-                  <div className="mb-3 space-y-1 rounded-2xl bg-surface-2 p-3 text-xs">
-                    <p className="font-semibold">Catching up on your {caughtUp.subject} cheatsheet</p>
-                    <p className="text-muted">
-                      {caughtUp.actual}% done, {caughtUp.planned}% was planned by now — your remaining schedule now has
-                      {caughtUp.addedMinutes > 0 ? ` ${Math.round((caughtUp.addedMinutes / 60) * 10) / 10} h more` : " more"} cheatsheet time.
-                      Completed sessions, results and blocks you moved stay.
-                    </p>
-                    <button onClick={() => setCaughtUp(null)} className="font-semibold text-muted">Dismiss</button>
-                  </div>
-                )}
-
-                {mockChanges && (
-                  <div className="mb-3 space-y-2 rounded-2xl bg-surface-2 p-3 text-xs">
-                    <p className="font-semibold">Your result changes your mock plan</p>
-                    <ul className="space-y-1 text-muted">
-                      {mockChanges.map((c) => (
-                        <li key={c.subject}>
-                          <span className="font-medium text-foreground">{c.subject}</span>: {c.from} → {c.to} planned mock{c.to === 1 ? "" : "s"}. {c.reason}
-                        </li>
-                      ))}
-                    </ul>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => void applyMockChanges()}
-                        disabled={updatingMocks}
-                        className="rounded-full bg-accent px-3 py-1.5 font-semibold text-white disabled:opacity-50"
-                      >
-                        {updatingMocks ? "Updating…" : "Update schedule"}
-                      </button>
-                      <button onClick={() => setMockChanges(null)} className="rounded-full px-3 py-1.5 font-semibold text-muted">
-                        Not now
-                      </button>
-                    </div>
-                    <p className="text-muted">Updating rebuilds your remaining schedule; completed sessions and results stay.</p>
-                  </div>
-                )}
-
-                {showForm && (
-                  <LogScoreForm
-                    planId={plan.id}
-                    subjects={subjectNames}
-                    onSaved={handleScoreSaved}
-                    onCancel={() => setShowForm(false)}
-                  />
-                )}
-
-                <ScoreChart scores={details.scores} subjects={subjectNames} />
-
-                {/* Recent scores list */}
-                {details.scores.length > 0 && (
-                  <ul className="mt-3 space-y-1">
-                    {[...details.scores].reverse().slice(0, 5).map((s) => (
-                      <li key={s.id} className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1.5">
-                          <span
-                            className="size-2 rounded-full"
-                            style={{ background: subjectColor(subjectNames, s.subject) }}
-                          />
-                          <span className="font-medium">{s.subject}</span>
-                          <span className="text-muted">
-                            {s.examType === "mock" ? "Mock" : "Past"} ·{" "}
-                            {new Date(s.takenAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                          </span>
-                        </span>
-                        <span
-                          className="font-semibold tabular-nums"
-                          style={{ color: s.score >= 4 ? "var(--recovery)" : "var(--intervals)" }}
-                        >
-                          {s.score.toFixed(1)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-
-              {/* AI Strategy section */}
-              <StrategySection
-                planId={plan.id}
-                subjectNames={subjectNames}
-                hasScores={details.scores.length > 0}
-                strategy={strategy}
-                loading={strategyLoading}
-                error={strategyError}
-                onAnalyse={fetchStrategy}
-                onReschedule={async () => {
-                  setDetails(null);
-                  await fetchDetails();
-                }}
-              />
             </>
           ) : (
             <p className="py-4 text-center text-sm text-muted">Failed to load plan details.</p>
+          )}
+
+          {/* Tab bar */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setTab("forecast")}
+              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${tab === "forecast" ? "bg-foreground text-background" : "bg-surface-2 text-foreground"}`}
+            >
+              Grade forecast
+            </button>
+            <button
+              onClick={() => setTab("subjects")}
+              className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${tab === "subjects" ? "bg-foreground text-background" : "bg-surface-2 text-foreground"}`}
+            >
+              Subjects
+            </button>
+            <Link href={`/plans/${plan.id}/log`} className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold">
+              Log data
+            </Link>
+            <button
+              onClick={() => setShowWizard(true)}
+              className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold hover:opacity-80"
+            >
+              + Add subject
+            </button>
+          </div>
+
+          {/* Tab content */}
+          {knowledgeLoading && (
+            <p className="py-4 text-center text-sm text-muted">Loading…</p>
+          )}
+          {!knowledgeLoading && knowledgeError && (
+            <p className="text-xs text-red-500">{knowledgeError}</p>
+          )}
+          {!knowledgeLoading && !knowledgeError && knowledge && tab === "forecast" && (
+            <ForecastChart timeline={knowledge.timeline} subjects={knowledge.subjects} />
+          )}
+          {!knowledgeLoading && !knowledgeError && knowledge && tab === "subjects" && (
+            <TopicProfile timeline={knowledge.timeline} subjects={knowledge.subjects} />
+          )}
+
+          {/* AI Strategy */}
+          {details && (
+            <StrategySection
+              planId={plan.id}
+              subjectNames={subjectNames}
+              hasScores={details.scores.length > 0}
+              strategy={strategy}
+              loading={strategyLoading}
+              error={strategyError}
+              onAnalyse={fetchStrategy}
+              onReschedule={async () => {
+                setDetails(null);
+                await fetchDetails();
+              }}
+            />
           )}
         </div>
       )}
