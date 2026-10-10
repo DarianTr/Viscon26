@@ -47,12 +47,11 @@ const namedSubjectColors = {
 
 /** Stable colors for a subject name across profile, schedule, and feed views. */
 export function subjectColor(subject: string) {
-  const canonical = subject === "Physics" ? "EProg" : subject === "Analysis II" ? "DiskMath" : subject;
-  const known = namedSubjectColors[canonical as keyof typeof namedSubjectColors];
+  const known = namedSubjectColors[subject as keyof typeof namedSubjectColors];
   if (known) return known;
 
   let hash = 0;
-  for (const character of canonical) hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  for (const character of subject) hash = (hash * 31 + character.charCodeAt(0)) | 0;
   return subjectPalette[((hash % subjectPalette.length) + subjectPalette.length) % subjectPalette.length];
 }
 

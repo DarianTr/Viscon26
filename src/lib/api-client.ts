@@ -44,6 +44,13 @@ export const api = {
       body: JSON.stringify({ done, actualMinutes }),
     }).then((r) => r.task),
 
+  /** Rename your own activity's title and/or caption. */
+  updateActivity: (id: string, patch: { title?: string; note?: string | null }) =>
+    request<{ task: TaskRecord }>(`/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }).then((r) => r.task),
+
   setKudos: (taskId: string, on: boolean) =>
     request<void>(`/tasks/${taskId}/kudos`, { method: on ? "PUT" : "DELETE" }),
 
