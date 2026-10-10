@@ -28,6 +28,35 @@ jobs:
       # The DB client connects lazily, so the build needs no database.
       - run: npm run build
 
+  knowledge:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/knowledge
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: stride
+          POSTGRES_PASSWORD: stride
+          POSTGRES_DB: stride
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U stride" --health-interval 2s
+          --health-timeout 3s --health-retries 15
+    env:
+      DATABASE_URL: postgres://stride:stride@localhost:5432/stride
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: services/knowledge/uv.lock
+      - run: uv sync --frozen
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run pytest
+
   docker:
     runs-on: ubuntu-latest
     steps:
@@ -40,3 +69,9 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - uses: docker/build-push-action@v6
+        with:
+          context: services/knowledge
+          push: false
+          cache-from: type=gha,scope=knowledge
+          cache-to: type=gha,mode=max,scope=knowledge

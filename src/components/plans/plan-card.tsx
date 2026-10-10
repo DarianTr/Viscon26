@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition, useRef } from "react";
 import { Card } from "@/components/ui/primitives";
 import { AddSubjectWizard } from "@/components/plans/add-subject-wizard";
@@ -673,9 +674,25 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
         />
       </div>
 
+      {/* Knowledge pages: always visible, no need to expand the card */}
+      <div className="flex flex-wrap gap-2 px-4 pt-3 pb-4">
+        <Link
+          href={`/plans/${plan.id}/forecast`}
+          className="rounded-full bg-foreground px-4 py-2 text-xs font-semibold text-background"
+        >
+          Grade forecast
+        </Link>
+        <Link href={`/plans/${plan.id}/topics`} className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold">
+          Subjects
+        </Link>
+        <Link href={`/plans/${plan.id}/log`} className="rounded-full bg-surface-2 px-4 py-2 text-xs font-semibold">
+          Log data
+        </Link>
+      </div>
+
       {/* Expanded content */}
       {expanded && (
-        <div className="space-y-5 px-4 pt-4 pb-4">
+        <div className="space-y-5 border-t border-border px-4 pt-4 pb-4">
           {loading ? (
             <p className="py-4 text-center text-sm text-muted">Loading…</p>
           ) : details ? (

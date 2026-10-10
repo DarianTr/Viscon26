@@ -71,6 +71,27 @@
       "when": 1791578327000,
       "tag": "0009_calendar_order",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791578328000,
+      "tag": "0007_user_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791578329000,
+      "tag": "0010_exam_scores",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791578330000,
+      "tag": "0011_user_plan_config",
+      "breakpoints": true
     }
   ]
 }

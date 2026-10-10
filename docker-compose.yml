@@ -1,8 +1,11 @@
 # The whole app: `docker compose up --build` → http://localhost:3000
 #
-#   db       Postgres, data kept in the `pgdata` volume
-#   migrate  one-off: applies migrations, seeds demo data into an empty DB
-#   app      the Next.js server, started once `migrate` has succeeded
+#   db         Postgres, data kept in the `pgdata` volume
+#   migrate    one-off: applies migrations, seeds demo data into an empty DB
+#   app        the Next.js server, started once `migrate` has succeeded
+#   knowledge  per-topic knowledge state (Python, services/knowledge); keeps its
+#              tables in its own `knowledge` schema and is reachable from `app`
+#              at http://knowledge:8000
 #
 # For local development run only the database (`npm run db:up`) and use
 # `npm run dev` — see README.
@@ -49,6 +52,7 @@ services:
     environment:
       DATABASE_URL: *database-url
       OPENAI_API_KEY: ${OPENAI_API_KEY}
+      KNOWLEDGE_URL: http://knowledge:8000
     ports:
       - "${APP_PORT:-3000}:3000"
     depends_on:
@@ -56,6 +60,18 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+
+  knowledge:
+    build: services/knowledge
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: *database-url
+    # Internal API: localhost only, for development and debugging.
+    ports:
+      - "127.0.0.1:${KNOWLEDGE_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:

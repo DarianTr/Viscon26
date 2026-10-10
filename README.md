@@ -23,8 +23,9 @@ Other scripts: `npm run build`, `npm start`, `npm run lint`.
 
 ## Run everything in Docker
 
-One command builds the app and starts it with its database. Docker is the
-only requirement:
+One command builds the app and starts it with its database and the
+knowledge service (grade forecasts; see [below](#knowledge-service)). Docker
+is the only requirement:
 
 ```bash
 docker compose up --build
@@ -45,6 +46,7 @@ the data.
 | `SEED_DEMO_DATA`    | `true`    | `false` to start with an empty database     |
 | `DEMO_USER_HANDLE`  | `tprazak` | Seeded admin user                           |
 | `DEMO_PASSWORD`     | `stride`  | Password of every seeded user               |
+| `KNOWLEDGE_PORT`    | `8000`    | Port the knowledge service is published on (localhost) |
 
 Set them inline (`APP_PORT=8080 docker compose up --build`) or in a `.env`
 file next to `docker-compose.yml`.
@@ -247,6 +249,50 @@ missing resource, 409 on a duplicate (e.g. a taken `handle`), 500 otherwise.
 curl -b $S localhost:3000/api/items
 curl -b $S -X POST localhost:3000/api/items -H 'content-type: application/json' -d '{"title":"ship it"}'
 ```
+
+## Knowledge service
+
+`services/knowledge/` is a separate Python service (FastAPI + NumPy/SciPy)
+that estimates each learner's level on every topic from logged scores, with
+uncertainty. It uses a multivariate Kalman filter with a decaying learning
+trend, and MAP fits the noise of each assessment type. It shares the
+Postgres database but keeps its tables in its own `knowledge` schema, so
+Drizzle never sees them. `docker compose up` starts it. The app reaches it at
+`KNOWLEDGE_URL`.
+
+```bash
+npm run db:up
+cd services/knowledge
+uv sync
+DATABASE_URL=postgres://stride:stride@localhost:5432/stride uv run uvicorn knowledge.api:app --reload
+# http://localhost:8000/docs for the interactive API
+```
+
+In the app, each custom plan has three knowledge pages, linked from the plan card:
+
+| Page | What it shows |
+| ---- | ------------- |
+| `/plans/:id/forecast` | Predicted grade per subject (or the plan average) as a band: the estimated level so far, the projection to the exam date, the chance of reaching the target grade |
+| `/plans/:id/topics` | Spider chart with one axis per topic, plus a progress list grouped by subject (compared with a week ago or the exam-day forecast) |
+| `/plans/:id/log` | Log a practice sheet, quiz, mock or exam (points or a grade), tick which of the subject's topics it covered, and delete data points |
+
+For now, every subject gets three hardcoded topics: a fixed list for common
+subjects (Analysis, Linear Algebra, Physics, …), otherwise "Concepts /
+Methods / Applications". Each subject's exam covers its three topics equally,
+and the plan average weights subjects equally. Grades map linearly:
+grade = 1 + 5 × score. These choices live in `src/lib/knowledge-topics.ts`.
+The app talks to the service only from the server (`src/lib/knowledge.ts`),
+after checking that the plan belongs to the user.
+
+**Demo data:** with the database and the knowledge service running,
+`npm run db:seed-knowledge` creates the plan "Basisprüfung (demo)" for the
+demo user. It logs six weeks of practice sheets, quizzes and mocks across
+four subjects. Each topic has its own hidden learning curve: a weak one, a
+fast learner, a strong one, and a barely logged subject the model stays
+unsure about. Re-running it replaces the demo data points.
+
+The model, API and tests are described in
+[`services/knowledge/README.md`](services/knowledge/README.md).
 
 ## Adding to it
 
