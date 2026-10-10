@@ -28,6 +28,7 @@ export default async function TodayPage({ searchParams }: PageProps<"/">) {
         greeting={greeting}
         date={date}
         firstName={user.name.split(" ")[0]}
+        defaultShared={user.shareSessionsByDefault}
       />
       <LogDataSection userId={user.id} open={typeof log === "string" ? log : undefined} />
     </>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { CalendarFeedSettings } from "@/components/calendar-feed-settings";
 import { ChevronLeftIcon } from "@/components/icons";
 import { NotificationSettings } from "@/components/notification-settings";
+import { PrivacySettings } from "@/components/privacy-settings";
 import { SettingsForms } from "@/components/settings-forms";
 import { PageHeader } from "@/components/ui/primitives";
 import { feedOrigin } from "@/lib/calendar-feed";
@@ -31,6 +32,7 @@ export default async function SettingsPage() {
         }}
         notifications={
           <>
+            <PrivacySettings shareSessionsByDefault={user.shareSessionsByDefault} />
             <NotificationSettings vapidPublicKey={vapidPublicKey} nudgeStyle={user.nudgeStyle} />
             <CalendarFeedSettings origin={origin} token={user.calendarToken} />
           </>

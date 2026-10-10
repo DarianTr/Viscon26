@@ -106,6 +106,14 @@ export async function updateTask(
           skippedAt: null,
           completedAt: sql`coalesce(${s.sessions.completedAt}, now())`,
           actualMinutes: patch.actualMinutes ?? sql`coalesce(${s.sessions.actualMinutes}, ${s.sessions.plannedMinutes})`,
+          // Becoming a post for the first time: fall back to the owner's default privacy, unless told otherwise.
+          ...(patch.shared === undefined
+            ? {
+                shared: sql`case when ${s.sessions.completedAt} is null
+                  then (select ${s.users.shareSessionsByDefault} from ${s.users} where ${s.users.id} = ${s.sessions.userId})
+                  else ${s.sessions.shared} end`,
+              }
+            : {}),
         }
       : done === false
         ? { completedAt: null, actualMinutes: null, focus: null, trace: null }
