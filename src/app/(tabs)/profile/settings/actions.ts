@@ -7,6 +7,7 @@ import { z } from "zod";
 import { db, schema as s } from "@/db";
 import { userFields } from "@/app/api/users/schemas";
 import { requireUser } from "@/lib/auth";
+import { newCalendarToken } from "@/lib/calendar-feed";
 
 /*
  * Settings for the signed-in user. Each action acts on the session's user
@@ -67,4 +68,21 @@ export async function setNudgeStyle(style: string): Promise<void> {
     .update(s.users)
     .set({ nudgeStyle: nudgeStyleSchema.parse(style) })
     .where(eq(s.users.id, user.id));
+}
+
+/**
+ * Creates the user's calendar feed, or replaces its secret so every existing
+ * subscription stops updating. Returns the new token.
+ */
+export async function resetCalendarFeed(): Promise<string> {
+  const user = await requireUser();
+  const token = newCalendarToken();
+  await db.update(s.users).set({ calendarToken: token }).where(eq(s.users.id, user.id));
+  return token;
+}
+
+/** Turns the feed off; subscribed clients get a 404 from then on. */
+export async function disableCalendarFeed(): Promise<void> {
+  const user = await requireUser();
+  await db.update(s.users).set({ calendarToken: null }).where(eq(s.users.id, user.id));
 }

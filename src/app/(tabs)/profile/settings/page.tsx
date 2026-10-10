@@ -1,9 +1,12 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Link from "next/link";
+import { CalendarFeedSettings } from "@/components/calendar-feed-settings";
 import { ChevronLeftIcon } from "@/components/icons";
 import { NotificationSettings } from "@/components/notification-settings";
 import { SettingsForms } from "@/components/settings-forms";
 import { PageHeader } from "@/components/ui/primitives";
+import { publicOrigin } from "@/lib/calendar-feed";
 import { vapidPublicKey } from "@/lib/push";
 import { getCurrentUser } from "@/lib/queries";
 
@@ -11,6 +14,7 @@ export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
   const user = await getCurrentUser();
+  const origin = publicOrigin(await headers());
 
   return (
     <>
@@ -25,7 +29,12 @@ export default async function SettingsPage() {
           program: user.program,
           hue: user.hue,
         }}
-        notifications={<NotificationSettings vapidPublicKey={vapidPublicKey} nudgeStyle={user.nudgeStyle} />}
+        notifications={
+          <>
+            <NotificationSettings vapidPublicKey={vapidPublicKey} nudgeStyle={user.nudgeStyle} />
+            <CalendarFeedSettings origin={origin} token={user.calendarToken} />
+          </>
+        }
       />
     </>
   );

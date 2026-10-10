@@ -80,7 +80,7 @@ export async function getFriendStatus(userId: string, otherId: string): Promise<
 }
 
 /**
- * The signed-in user; redirects to /login if there is none. Also marks the
+ * The signed-in user; redirects to /signup if there is none. Also marks the
  * calling page as per-request, since it reads live data.
  */
 export const getCurrentUser = cache(async () => {
