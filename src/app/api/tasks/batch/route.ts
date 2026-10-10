@@ -5,11 +5,29 @@ import { createTasksBulk } from "@/lib/tasks";
 import { createTaskSchema } from "../schemas";
 import { db, schema as s } from "@/db";
 
+const storedSubjectSchema = z.object({
+  name: z.string(),
+  examDate: z.string(),
+  examDuration: z.string(),
+  targetGrade: z.string(),
+  currentGrade: z.string(),
+  confidence: z.string(),
+  approach: z.string(),
+  customPhases: z.array(z.string()),
+  mockCount: z.string(),
+  allocation: z.number(),
+  materials: z.array(z.string()),
+  cheatsheet: z.string(),
+  comments: z.string(),
+});
+
 const planConfigSchema = z.object({
   weeklyHours: z.number().positive(),
   studyDays: z.array(z.string()),
   sessionLength: z.number().positive(),
   vacationRanges: z.array(z.object({ start: z.string(), end: z.string() })),
+  subjects: z.array(storedSubjectSchema).optional(),
+  preferredStartHour: z.number().optional(),
 }).optional();
 
 const batchSchema = z.object({

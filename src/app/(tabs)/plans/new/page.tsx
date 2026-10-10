@@ -345,7 +345,16 @@ function NewPlanForm() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     planTitle: planName,
-                    planConfig: { weeklyHours, studyDays, sessionLength, vacationRanges },
+                    planConfig: {
+                        weeklyHours,
+                        studyDays,
+                        sessionLength,
+                        vacationRanges,
+                        subjects: subjects.map(({ completed: _, ...subject }, index) => ({
+                            ...subject,
+                            allocation: distribution[index] ?? 0,
+                        })),
+                    },
                     tasks: result.sessions.map((s) => ({
                         type: s.type,
                         subject: s.subject,

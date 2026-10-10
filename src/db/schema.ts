@@ -90,11 +90,31 @@ export const friendships = pgTable(
 
 export type PlanPhase = { name: string; weeks: number };
 
+export type StoredSubjectConfig = {
+  name: string;
+  examDate: string;
+  examDuration: string;
+  targetGrade: string;
+  currentGrade: string;
+  confidence: string;
+  approach: string;
+  customPhases: string[];
+  mockCount: string;
+  allocation: number;
+  materials: string[];
+  cheatsheet: string;
+  comments: string;
+};
+
 export type StoredPlanConfig = {
   weeklyHours: number;
   studyDays: string[];
   sessionLength: number;
   vacationRanges: { start: string; end: string }[];
+  /** Per-subject configs persisted at creation time and updated by the strategy agent. */
+  subjects?: StoredSubjectConfig[];
+  /** Preferred session start hour (e.g. 9 = 09:00), set by the strategy agent from behavioral data. */
+  preferredStartHour?: number;
 };
 
 /** A custom study plan created by the user via the plan wizard. */

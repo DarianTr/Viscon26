@@ -533,6 +533,49 @@ export async function getProfile(user: SessionUser): Promise<Profile> {
   };
 }
 
+export interface HourlyBucket {
+  hour: number;
+  sessions: number;
+  avgFocus: number | null;
+}
+
+export interface StudyBehavior {
+  hourly: HourlyBucket[];
+  peakHour: number | null;
+  totalSessions: number;
+}
+
+/** Returns per-hour session counts and average focus scores across all plans. */
+export async function getStudyBehavior(userId: string): Promise<StudyBehavior> {
+  const rows = await db
+    .select({
+      hour: sql<number>`extract(hour from ${s.sessions.completedAt} at time zone ${tz})::int`,
+      sessions: count(),
+      avgFocus: sql<number | null>`round(avg(${s.sessions.focus}))::int`,
+    })
+    .from(s.sessions)
+    .where(and(eq(s.sessions.userId, userId), isNotNull(s.sessions.completedAt)))
+    .groupBy(sql`1`)
+    .orderBy(sql`1`);
+
+  const hourly: HourlyBucket[] = Array.from({ length: 24 }, (_, i) => ({
+    hour: i,
+    sessions: 0,
+    avgFocus: null,
+  }));
+  for (const row of rows) {
+    hourly[row.hour] = { hour: row.hour, sessions: row.sessions, avgFocus: row.avgFocus };
+  }
+
+  const totalSessions = rows.reduce((sum, r) => sum + r.sessions, 0);
+  const peakRow = rows.reduce<(typeof rows)[0] | null>((best, cur) => {
+    if (!best || cur.sessions > best.sessions) return cur;
+    return best;
+  }, null);
+
+  return { hourly, peakHour: peakRow?.hour ?? null, totalSessions };
+}
+
 /**
  * Friend search: other users whose name or handle matches `q`. Without a
  * query, everyone the user is connected to — incoming requests, friends, and

@@ -59,13 +59,18 @@ export async function POST(request: Request, ctx: Ctx) {
       );
     }
 
-    // Save the schedule config if it wasn't stored yet
-    if (!plan.config && scheduleConfig) {
-      await db
-        .update(s.userPlans)
-        .set({ config: scheduleConfig })
-        .where(eq(s.userPlans.id, id));
-    }
+    // Persist config and append new subject to the stored subjects list
+    const updatedConfig = {
+      ...cfg,
+      subjects: [
+        ...(plan.config?.subjects ?? []),
+        { ...subject, allocation: 100 },
+      ],
+    };
+    await db
+      .update(s.userPlans)
+      .set({ config: updatedConfig })
+      .where(eq(s.userPlans.id, id));
 
     const result = generateStudyPlan({
       planName: plan.title,

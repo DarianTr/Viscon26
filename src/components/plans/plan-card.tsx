@@ -40,6 +40,7 @@ type SubjectRecommendation = {
 type StrategyResult = {
   recommendations: SubjectRecommendation[];
   overallInsight: string | null;
+  preferredStartHour: number | null;
 };
 
 type PlanDetails = {
@@ -327,6 +328,55 @@ function LogScoreForm({
   );
 }
 
+// ─── Changes summary ─────────────────────────────────────────────────────────
+
+function ChangesSummary({
+  recommendations,
+  preferredStartHour,
+}: {
+  recommendations: SubjectRecommendation[];
+  preferredStartHour: number | null;
+}) {
+  const changes: { label: string; detail: string }[] = [];
+
+  for (const rec of recommendations) {
+    if (rec.confidenceDelta <= -0.15) {
+      changes.push({ label: rec.subject, detail: "more sessions scheduled — scores indicate knowledge gaps" });
+    } else if (rec.confidenceDelta >= 0.15) {
+      changes.push({ label: rec.subject, detail: "fewer sessions scheduled — performing above expectation" });
+    }
+    if (rec.suggestedApproach) {
+      changes.push({ label: rec.subject, detail: `approach → ${rec.suggestedApproach}` });
+    }
+  }
+
+  if (preferredStartHour !== null) {
+    changes.push({
+      label: "Session timing",
+      detail: `start time → ${String(preferredStartHour).padStart(2, "0")}:00 (your most productive hour)`,
+    });
+  }
+
+  if (changes.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5 rounded-2xl bg-surface-2 p-3">
+      <p className="text-xs font-semibold text-muted">What will change</p>
+      <ul className="space-y-1">
+        {changes.map((c, i) => (
+          <li key={i} className="flex gap-2 text-xs">
+            <span className="shrink-0 text-accent">→</span>
+            <span>
+              <span className="font-medium text-foreground">{c.label}:</span>
+              {" "}{c.detail}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // ─── Strategy section ────────────────────────────────────────────────────────
 
 const URGENCY_STYLE: Record<
@@ -339,12 +389,14 @@ const URGENCY_STYLE: Record<
 };
 
 function StrategySection({
+  planId,
   subjectNames,
   hasScores,
   strategy,
   loading,
   error,
   onAnalyse,
+  onReschedule,
 }: {
   planId: string;
   subjectNames: string[];
@@ -353,7 +405,45 @@ function StrategySection({
   loading: boolean;
   error: string | null;
   onAnalyse: () => void;
+  onReschedule: () => void;
 }) {
+  const [applying, setApplying] = useState(false);
+  const [applyResult, setApplyResult] = useState<{ count: number; breakdown: Record<string, number> } | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
+
+  async function applyToSchedule() {
+    if (!strategy?.recommendations.length) return;
+    setApplying(true);
+    setApplyError(null);
+    setApplyResult(null);
+    try {
+      const res = await fetch(`/api/plans/${planId}/reschedule`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recommendations: strategy.recommendations.map((r) => ({
+            subject: r.subject,
+            suggestedApproach: r.suggestedApproach,
+            confidenceDelta: r.confidenceDelta,
+            priorityTopics: r.priorityTopics,
+          })),
+          ...(strategy.preferredStartHour !== null ? { preferredStartHour: strategy.preferredStartHour } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setApplyError(data.error ?? "Failed to apply changes.");
+        return;
+      }
+      setApplyResult(await res.json());
+      onReschedule();
+    } catch {
+      setApplyError("Network error — please try again.");
+    } finally {
+      setApplying(false);
+    }
+  }
+
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
@@ -382,6 +472,7 @@ function StrategySection({
           {strategy.overallInsight && (
             <p className="text-sm italic text-muted">{strategy.overallInsight}</p>
           )}
+
           {strategy.recommendations.map((rec) => {
             const style = URGENCY_STYLE[rec.urgency];
             return (
@@ -428,6 +519,39 @@ function StrategySection({
               </div>
             );
           })}
+
+          {/* What will change */}
+          <ChangesSummary recommendations={strategy.recommendations} preferredStartHour={strategy.preferredStartHour} />
+
+          {/* Apply to schedule */}
+          {applyResult ? (
+            <div className="space-y-1.5 rounded-2xl p-3" style={{ background: "color-mix(in srgb, var(--recovery) 12%, transparent)" }}>
+              <p className="text-xs font-semibold" style={{ color: "var(--recovery)" }}>
+                Schedule updated — {applyResult.count} new sessions generated
+              </p>
+              {Object.entries(applyResult.breakdown)
+                .filter(([subj]) => subj !== "exam")
+                .map(([subj, count]) => (
+                  <p key={subj} className="flex justify-between text-xs text-muted">
+                    <span className="flex items-center gap-1.5">
+                      <span className="size-1.5 rounded-full" style={{ background: subjectColor(subjectNames, subj) }} />
+                      {subj}
+                    </span>
+                    <span>{count} sessions</span>
+                  </p>
+                ))}
+            </div>
+          ) : (
+            <button
+              onClick={applyToSchedule}
+              disabled={applying}
+              className="mt-1 w-full rounded-full bg-accent py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {applying ? "Applying…" : "Apply to schedule"}
+            </button>
+          )}
+
+          {applyError && <p className="text-xs text-red-500">{applyError}</p>}
         </div>
       )}
     </div>
@@ -442,7 +566,13 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
-  const [strategy, setStrategy] = useState<StrategyResult | null>(null);
+  const [strategy, setStrategy] = useState<StrategyResult | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const cached = localStorage.getItem(`strategy-${plan.id}`);
+      return cached ? (JSON.parse(cached) as StrategyResult) : null;
+    } catch { return null; }
+  });
   const [strategyLoading, setStrategyLoading] = useState(false);
   const [strategyError, setStrategyError] = useState<string | null>(null);
 
@@ -472,6 +602,7 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
     setShowForm(false);
     // Invalidate cached strategy so the user is prompted to refresh
     setStrategy(null);
+    localStorage.removeItem(`strategy-${plan.id}`);
   }
 
   async function fetchStrategy() {
@@ -484,7 +615,9 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
         setStrategyError(data.error ?? "Analysis failed — please try again.");
         return;
       }
-      setStrategy(await res.json());
+      const data: StrategyResult = await res.json();
+      setStrategy(data);
+      localStorage.setItem(`strategy-${plan.id}`, JSON.stringify(data));
     } catch {
       setStrategyError("Network error — please try again.");
     } finally {
@@ -647,6 +780,10 @@ export function CustomPlanCard({ plan }: { plan: CustomPlan }) {
                 loading={strategyLoading}
                 error={strategyError}
                 onAnalyse={fetchStrategy}
+                onReschedule={async () => {
+                  setDetails(null);
+                  await fetchDetails();
+                }}
               />
             </>
           ) : (

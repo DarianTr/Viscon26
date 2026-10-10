@@ -18,39 +18,39 @@ export default async function PlansPage() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="Training plans"
-        title="Plans"
-        action={
-          <Link
-            href="/plans/new"
-            className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background"
-          >
-            <PlusIcon className="size-4" />
-            Custom
-          </Link>
-        }
-      />
+      <PageHeader eyebrow="Training plans" title="Plans" />
 
-      {activePlan ? (
-        <ActivePlanOverview activePlan={activePlan} />
-      ) : (
-        <Card className="py-10 text-center text-sm text-muted">
-          You&apos;re not following a plan yet — create a custom one.
-        </Card>
-      )}
+      {activePlan && <ActivePlanOverview activePlan={activePlan} />}
 
       <SectionTitle>My plans</SectionTitle>
       {customPlans.length === 0 ? (
-        <Card className="py-10 text-center text-sm text-muted">
-          No plans yet — create one with the Custom button above.
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {customPlans.map((plan) => (
-            <CustomPlanCard key={plan.id} plan={plan} />
-          ))}
+        <div className="flex flex-col items-center justify-center py-16 gap-5">
+          <p className="text-sm text-muted">No plans yet.</p>
+          <Link
+            href="/plans/new"
+            className="inline-flex items-center gap-2 rounded-full bg-foreground px-8 py-4 text-base font-semibold text-background shadow-lg"
+          >
+            <PlusIcon className="size-5" />
+            Create new plan
+          </Link>
         </div>
+      ) : (
+        <>
+          <div className="space-y-3">
+            {customPlans.map((plan) => (
+              <CustomPlanCard key={plan.id} plan={plan} />
+            ))}
+          </div>
+          <div className="mt-4 flex justify-center">
+            <Link
+              href="/plans/new"
+              className="inline-flex items-center gap-2 rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background"
+            >
+              <PlusIcon className="size-4" />
+              Create new plan
+            </Link>
+          </div>
+        </>
       )}
     </>
   );

@@ -62,13 +62,15 @@ export interface PlanConfig {
   sessionLength: number;
   vacationRanges: { start: string; end: string }[];
   subjects: SubjectConfig[];
+  /** First session start hour, 0–23. Defaults to 9 (09:00). Set by the strategy agent. */
+  preferredStartHour?: number;
 }
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-const CONFIDENCE_SCORE: Record<string, number> = {
+export const CONFIDENCE_SCORE: Record<string, number> = {
   very: 1.0,
   mostly: 0.67,
   some: 0.33,
@@ -181,14 +183,14 @@ function buildVacationSet(ranges: { start: string; end: string }[]): Set<string>
 
 /**
  * Returns up to `count` start-time Date objects on `day`, spaced so that
- * sessions + breaks fit within 09:00–19:00.
+ * sessions + breaks fit within startHour–19:00.
  */
-function computeSlotTimes(day: Date, count: number, sessionLengthMin: number): Date[] {
+function computeSlotTimes(day: Date, count: number, sessionLengthMin: number, startHour = 9): Date[] {
   const breakMin = sessionLengthMin >= 90 ? 30 : 20;
   const stride = sessionLengthMin + breakMin;
   const times: Date[] = [];
   for (let i = 0; i < count; i++) {
-    const minutes = 9 * 60 + i * stride;
+    const minutes = startHour * 60 + i * stride;
     if (minutes > LATEST_START_MIN) break;
     const d = new Date(day);
     d.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
@@ -349,7 +351,7 @@ export function generateStudyPlan(config: PlanConfig): ScheduleResult {
 
     if (isBuffer || (activeIdx.length === 0 && todayMocks.length === 0)) {
       if (todayMocks.length > 0) {
-        const times = computeSlotTimes(day, todayMocks.length, config.sessionLength);
+        const times = computeSlotTimes(day, todayMocks.length, config.sessionLength, config.preferredStartHour);
         todayMocks.forEach((m, i) => {
           m.scheduledAt = times[i] ?? times[times.length - 1];
           result.push(m);
@@ -360,7 +362,7 @@ export function generateStudyPlan(config: PlanConfig): ScheduleResult {
 
     const regularSlots = Math.max(0, sessionsPerDay - todayMocks.length);
     const totalSlots = regularSlots + todayMocks.length;
-    const slotTimes = computeSlotTimes(day, totalSlots, config.sessionLength);
+    const slotTimes = computeSlotTimes(day, totalSlots, config.sessionLength, config.preferredStartHour);
 
     let prevIdx = -1;
 
@@ -409,7 +411,7 @@ export function generateStudyPlan(config: PlanConfig): ScheduleResult {
     const fallback = allStudyDays.filter((d) => d < s.examDate).slice(-5).reverse();
     for (const day of fallback) {
       if (s.mockQueue.length === 0) break;
-      const [time] = computeSlotTimes(day, 1, config.sessionLength);
+      const [time] = computeSlotTimes(day, 1, config.sessionLength, config.preferredStartHour);
       if (time) result.push({ ...s.mockQueue.shift()!, scheduledAt: time });
     }
   }
