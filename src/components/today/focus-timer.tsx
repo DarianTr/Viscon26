@@ -46,7 +46,7 @@ export function FocusTimer({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col overflow-hidden px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]"
+      className="fixed inset-0 z-[60] flex flex-col overflow-hidden px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]"
       style={{
         background:
           "radial-gradient(ellipse 85% 55% at 50% 100%, var(--focus-bg-2) 0%, transparent 60%)," +
