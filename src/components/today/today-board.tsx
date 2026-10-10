@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { CheckIcon, ChevronDownIcon, ClockIcon, FlameIcon, PlayIcon } from "@/components/icons";
 import { ExpressionMascot, type RealExpression } from "@/components/mascot/expression-mascot";
@@ -14,18 +14,40 @@ import { FocusTimer } from "./focus-timer";
 
 const PROGRESS_KEY = "focus-timer-progress";
 
-function loadProgress(): Map<string, number> {
+function parseProgress(raw: string | null): Map<string, number> {
+  if (!raw) return new Map();
   try {
-    const raw = localStorage.getItem(PROGRESS_KEY);
-    if (raw) return new Map(JSON.parse(raw) as [string, number][]);
-  } catch {}
-  return new Map();
+    return new Map(JSON.parse(raw) as [string, number][]);
+  } catch {
+    return new Map();
+  }
+}
+
+/** Same-tab listeners; other tabs are covered by the native `storage` event. */
+const progressListeners = new Set<() => void>();
+
+function subscribeProgress(listener: () => void) {
+  progressListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    progressListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+function readProgressSnapshot() {
+  try {
+    return localStorage.getItem(PROGRESS_KEY);
+  } catch {
+    return null;
+  }
 }
 
 function persistProgress(map: Map<string, number>) {
   try {
     localStorage.setItem(PROGRESS_KEY, JSON.stringify([...map.entries()]));
   } catch {}
+  progressListeners.forEach((listener) => listener());
 }
 
 export function TodayBoard({
@@ -47,13 +69,12 @@ export function TodayBoard({
   const [running, setRunning] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // Seconds accumulated per task ID from earlier, paused runs.
-  const [inProgress, setInProgress] = useState<Map<string, number>>(new Map());
-
-  // Load saved progress after hydration (localStorage is client-only).
-  useEffect(() => {
-    setInProgress(loadProgress());
-  }, []);
+  // Seconds accumulated per task ID from earlier, paused runs. Synced from
+  // localStorage: null on the server and on the very first client render
+  // (matching the SSR markup), then the real value once hydration settles —
+  // including same-tab writes made via `persistProgress` below.
+  const savedProgress = useSyncExternalStore(subscribeProgress, readProgressSnapshot, () => null);
+  const inProgress = parseProgress(savedProgress);
 
   const total = tasks.reduce((sum, t) => sum + t.minutes, 0);
   // Actual minutes studied: use actualMinutes when available, fall back to plannedMinutes.
@@ -101,9 +122,7 @@ export function TodayBoard({
   function handleTimerClose(elapsed: number) {
     if (!running) return;
     if (elapsed > 0) {
-      const updated = new Map(inProgress).set(running.id, elapsed);
-      setInProgress(updated);
-      persistProgress(updated);
+      persistProgress(new Map(inProgress).set(running.id, elapsed));
     }
     setRunning(null);
   }
@@ -113,7 +132,6 @@ export function TodayBoard({
     if (!running) return;
     const updated = new Map(inProgress);
     updated.delete(running.id);
-    setInProgress(updated);
     persistProgress(updated);
     setDone(running.id, true, minutes);
     setRunning(null);
@@ -243,7 +261,8 @@ export function TodayBoard({
                         onClick={() =>
                           setExpanded((prev) => {
                             const next = new Set(prev);
-                            next.has(task.id) ? next.delete(task.id) : next.add(task.id);
+                            if (next.has(task.id)) next.delete(task.id);
+                            else next.add(task.id);
                             return next;
                           })
                         }
