@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/queries";
 import { createTasksBulk } from "@/lib/tasks";
 import { generateStudyPlan } from "@/lib/scheduler";
 import { db, schema as s } from "@/db";
+import { ensureCourseProfile } from "@/lib/course-profiles";
 
 type Ctx = RouteContext<"/api/plans/[id]/subjects">;
 
@@ -93,7 +94,12 @@ export async function POST(request: Request, ctx: Ctx) {
       shared: false as const,
     }));
 
-    const count = await createTasksBulk(tasks);
+    // Run session creation and VVZ profile fetch in parallel — the profile
+    // fetch must not block or break the response if VVZ is unreachable.
+    const [count] = await Promise.all([
+      createTasksBulk(tasks),
+      ensureCourseProfile(subject.name).catch(() => {}),
+    ]);
 
     return Response.json({ count, breakdown: result.breakdown }, { status: 201 });
   });

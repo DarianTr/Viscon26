@@ -3,6 +3,7 @@ import { cache } from "react";
 import { and, eq, ne } from "drizzle-orm";
 import { db, schema as s } from "@/db";
 import {
+  type CourseProfile,
   type KnowledgeSubject,
   parseGrade,
   type Subject,
@@ -127,7 +128,17 @@ export const getOwnedPlan = cache(async (userId: string, planId: string): Promis
     subjects = rows.map((r) => ({ name: r.subject, examDate: null, targetGrade: null, currentGrade: null }));
   }
 
-  return { id: plan.id, title: plan.title, subjects: toKnowledgeSubjects(subjects) };
+  const profileRows = await db
+    .select({ slug: s.courseProfiles.slug, aliases: s.courseProfiles.aliases, topics: s.courseProfiles.topics })
+    .from(s.courseProfiles);
+
+  const profileMap = new Map<string, CourseProfile>();
+  for (const row of profileRows) {
+    profileMap.set(row.slug, { topics: row.topics });
+    for (const alias of row.aliases) profileMap.set(alias, { topics: row.topics });
+  }
+
+  return { id: plan.id, title: plan.title, subjects: toKnowledgeSubjects(subjects, profileMap) };
 });
 
 /** Make the service's topics match the plan's subjects (an idempotent upsert). */
