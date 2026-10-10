@@ -37,6 +37,7 @@ the data.
 | `POSTGRES_PASSWORD` | `stride`  | Database password: change it on a server    |
 | `SEED_DEMO_DATA`    | `true`    | `false` to start with an empty database     |
 | `DEMO_USER_HANDLE`  | `tprazak` | Which user every request acts as (no auth)  |
+| `KNOWLEDGE_PORT`    | `8000`    | Port the knowledge service is published on (localhost) |
 
 Set them inline (`APP_PORT=8080 docker compose up --build`) or in a `.env`
 file next to `docker-compose.yml`.
@@ -178,6 +179,27 @@ missing resource, 409 on a duplicate (e.g. a taken `handle`), 500 otherwise.
 curl localhost:3000/api/items
 curl -X POST localhost:3000/api/items -H 'content-type: application/json' -d '{"title":"ship it"}'
 ```
+
+## Knowledge service
+
+`services/knowledge/` is a separate Python service (FastAPI + NumPy/SciPy)
+that estimates each learner's level on every topic from logged scores, with
+uncertainty. It uses a multivariate Kalman filter with a decaying learning
+trend, and MAP fits the noise of each assessment type. It shares the
+Postgres database but keeps its tables in its own `knowledge` schema, so
+Drizzle never sees them. `docker compose up` starts it. The app reaches it at
+`KNOWLEDGE_URL`.
+
+```bash
+npm run db:up
+cd services/knowledge
+uv sync
+DATABASE_URL=postgres://stride:stride@localhost:5432/stride uv run uvicorn knowledge.api:app --reload
+# http://localhost:8000/docs for the interactive API
+```
+
+The model, API and tests are described in
+[`services/knowledge/README.md`](services/knowledge/README.md).
 
 ## Adding to it
 
