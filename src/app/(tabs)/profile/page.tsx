@@ -187,17 +187,21 @@ export default async function ProfilePage() {
         ))}
       </Card>
 
-      <SectionTitle>Achievements</SectionTitle>
-      <ul className="grid grid-cols-3 gap-3 sm:grid-cols-6">
-        {profile.badges.map((b) => (
-          <li key={b.label}>
-            <Card className={`flex flex-col items-center gap-2 p-3 text-center ${b.earned ? "" : "opacity-40 grayscale"}`}>
-              <span className="text-3xl">{b.emoji}</span>
-              <span className="text-[11px] leading-tight font-bold">{b.label}</span>
-            </Card>
-          </li>
-        ))}
-      </ul>
+      {profile.badges.length > 0 && (
+        <>
+          <SectionTitle>Achievements</SectionTitle>
+          <ul className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+            {profile.badges.map((b) => (
+              <li key={b.label}>
+                <Card className={`flex flex-col items-center gap-2 p-3 text-center ${b.earned ? "" : "opacity-40 grayscale"}`}>
+                  <span className="text-3xl">{b.emoji}</span>
+                  <span className="text-[11px] leading-tight font-bold">{b.label}</span>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
 
     </>
   );

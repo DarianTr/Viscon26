@@ -15,13 +15,13 @@ FROM deps AS builder
 COPY . .
 RUN npm run build
 
-# --- One-off job: apply migrations, then load demo data if the DB is empty ----
+# --- One-off job: apply migrations, then create the admin if missing ---------
 FROM deps AS migrate
 COPY drizzle.config.ts tsconfig.json ./
 COPY drizzle ./drizzle
 COPY src/db ./src/db
 COPY src/lib ./src/lib
-CMD ["sh", "-c", "npx drizzle-kit migrate && npx tsx src/db/seed-courses.ts && if [ \"$SEED_DEMO_DATA\" = true ]; then npx tsx src/db/seed.ts --if-empty; fi"]
+CMD ["sh", "-c", "npx drizzle-kit migrate && npx tsx src/db/seed-courses.ts && npx tsx src/db/seed.ts"]
 
 # --- Runtime: only the standalone server and static assets -------------------
 FROM base AS runner
