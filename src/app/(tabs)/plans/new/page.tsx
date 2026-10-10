@@ -15,6 +15,9 @@ import {
 import type { LernphaseStart, PlanConfig, PlanFeasibility, ScheduleResult, StudyRhythm } from "@/lib/scheduler";
 import type { StoredPlanConfig } from "@/db/schema";
 import { ConfirmDialog } from "@/components/plans/confirm-dialog";
+import { SmartAdjustment, type SmartAdjustmentState } from "@/components/plans/smart-adjustment";
+import type { Interval } from "@/lib/intervals";
+import { recommendAdjustments, type Recommendation } from "@/lib/plan-adjustments";
 import type { EditableConfig } from "@/lib/plans";
 
 /** What step 7 shows, for a new plan or a managed (regenerated) one. */
@@ -214,20 +217,19 @@ function MockPlanList({ subjects }: { subjects: PlanFeasibility["subjects"] }) {
     return (
         <div className="space-y-2 rounded-xl bg-surface-2 p-4">
             <p className="text-sm font-semibold">Mock exams</p>
-            {withMocks.map((s) => (
-                <div key={s.name} className="text-sm">
-                    <div className="flex items-center justify-between gap-3">
-                        <span>{s.name}</span>
-                        <span className="tabular-nums text-muted">
+            <ul className="space-y-1.5">
+                {withMocks.map((s) => (
+                    <li key={s.name} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 text-sm">
+                        <span className="min-w-0 break-words">{s.name}</span>
+                        <span className="whitespace-nowrap text-right tabular-nums text-muted">
                             {s.mocks.planned} of {s.mocks.available} planned
                             {s.mocks.reserve > 0 && ` · ${s.mocks.reserve} in reserve`}
                         </span>
-                    </div>
-                    <p className="text-xs text-muted">{s.mocks.reason}</p>
-                </div>
-            ))}
+                    </li>
+                ))}
+            </ul>
             <p className="text-xs text-muted">
-                Reserve mocks are added if your results show you need more practice.
+                Reserve mocks may be scheduled later if your results show that you need additional practice.
             </p>
         </div>
     );
@@ -382,7 +384,15 @@ function NewPlanForm() {
     const [uploading, setUploading] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
     const [recalibration, setRecalibration] = useState<
-        null | { phase: "loading" | "preview" | "applying"; summary?: Summary; error?: string }
+        // draft: recalibrate with the unsaved settings, saving them in the same step.
+        null | { phase: "loading" | "preview" | "applying"; summary?: Summary; error?: string; draft?: boolean }
+    >(null);
+
+    // Smart plan adjustment (step 8) and the recommendation applied to the draft, with what it replaced.
+    const [smart, setSmart] = useState<SmartAdjustmentState | null>(null);
+    const [lastBusy, setLastBusy] = useState<Interval[]>([]);
+    const [applied, setApplied] = useState<
+        null | { recommendation: Recommendation; previous: { weeklyHours: number; studyDays: string[]; targets: string[] } }
     >(null);
     const [deletion, setDeletion] = useState<
         null | { phase: "loading" | "confirm" | "deleting"; impact?: DeletionImpact; dataPoints?: number | null; error?: string }
@@ -607,6 +617,7 @@ function NewPlanForm() {
 
     function discardChanges() {
         if (!window.confirm("Discard your unsaved changes?")) return;
+        setApplied(null);
         setNotice(null);
         setSaveError(null);
         setLoadingPlan(true);
@@ -621,21 +632,37 @@ function NewPlanForm() {
     // ── Recalibrate: preview, confirm, apply ─────────────────────────────────
     async function startRecalibration() {
         setNotice(null);
-        if (unsaved && !(await saveSettings("Your changes are saved."))) return;
-        setRecalibration({ phase: "loading" });
+        // Unsaved edits are recalibrated as a draft and only saved together with the
+        // new schedule — unless a subject was renamed, which is saved first (it relabels history).
+        const renamed = subjects.some((s, i) => i < savedSubjectNames.length && s.name.trim() !== savedSubjectNames[i]);
+        let draft = unsaved && !renamed;
+        if (draft && !subjects.every(subjectIsValid)) {
+            setSaveError("Finish setting up every subject before recalibrating.");
+            return;
+        }
+        if (unsaved && renamed && !(await saveSettings("Your changes are saved."))) return;
+        if (!unsaved) draft = false;
+        setRecalibration({ phase: "loading", draft });
         try {
-            setRecalibration({ phase: "preview", summary: await regenerate(false) });
+            setRecalibration({ phase: "preview", summary: await regenerate(false, draft), draft });
         } catch (err) {
-            setRecalibration({ phase: "preview", error: err instanceof Error ? err.message : "Unknown error" });
+            setRecalibration({ phase: "preview", error: err instanceof Error ? err.message : "Unknown error", draft });
         }
     }
 
     async function confirmRecalibration() {
+        const draft = recalibration?.draft ?? false;
         setRecalibration((r) => r && { ...r, phase: "applying", error: undefined });
         try {
-            const result = await regenerate(true);
+            const result = await regenerate(true, draft);
             setRecalibration(null);
             setPendingChanges([]);
+            if (draft) {
+                // The draft is the plan now: settings and schedule were saved together.
+                setSavedSnapshot(snapshotOf(planName, values));
+                setSavedSubjectNames(subjects.map((sub) => sub.name.trim()));
+            }
+            setApplied(null);
             setSummary(result);
             setPlanSaved(true);
             setStep(7);
@@ -644,7 +671,7 @@ function NewPlanForm() {
             setRecalibration((r) => r && {
                 ...r,
                 phase: "preview",
-                error: `Recalibration failed: ${err instanceof Error ? err.message : "unknown error"}. Your schedule hasn't changed.`,
+                error: `Recalibration failed: ${err instanceof Error ? err.message : "unknown error"}. Your saved plan and schedule haven't changed.`,
             });
         }
     }
@@ -905,6 +932,7 @@ function NewPlanForm() {
             const response = await fetch(`/api/tasks/busy?${params}`);
             if (!response.ok) throw new Error(`Couldn't load your calendar (HTTP ${response.status})`);
             const { busy } = await response.json();
+            setLastBusy(busy);
             const result = generateStudyPlan(config, new Date(), { busy });
 
             setWorkloadBasis(result.workloadBasisWeeklyMinutes);
@@ -926,12 +954,15 @@ function NewPlanForm() {
         }
     }
 
-    /** Recalibrates the managed plan on the server from its saved settings: a preview, or for real. */
-    async function regenerate(apply: boolean): Promise<Summary> {
+    /**
+     * Recalibrates the managed plan on the server: a preview, or for real. With
+     * `draft`, from the unsaved settings, which are saved in the same transaction.
+     */
+    async function regenerate(apply: boolean, draft = false): Promise<Summary> {
         const response = await fetch(`/api/plans/${editId}/regenerate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ apply }),
+            body: JSON.stringify(draft ? { apply, title: planName, config: editableConfig(values) } : { apply }),
         });
         if (!response.ok) {
             const data = await response.json().catch(() => ({}));
@@ -956,6 +987,77 @@ function NewPlanForm() {
     function continueAnyway() {
         setAcceptedShortfall(true);
         if (!editId && scheduleResult) void savePlan(scheduleResult);
+    }
+
+    // ── Smart plan adjustment ────────────────────────────────────────────────
+    /** "Adjust my plan": concrete, scheduler-checked ways to make the plan fit (lib/plan-adjustments.ts). */
+    async function openSmartAdjustment() {
+        setRecalibration(null);
+        setSmart({ status: "loading" });
+        setStep(8);
+        window.scrollTo({ top: 0 });
+        try {
+            if (editId) {
+                // Existing plans: the server checks options with completed work and the calendar.
+                const response = await fetch(`/api/plans/${editId}/adjustments`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ title: planName, config: editableConfig(values) }),
+                });
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
+                setSmart({ status: "ready", data, model: data.model });
+            } else {
+                // A new plan: the same inputs it was just generated with, in the browser.
+                await new Promise((resolve) => setTimeout(resolve, 0));
+                const config: PlanConfig = { planName, ...storedConfig(workloadBasis), subjects: storedConfig(workloadBasis).subjects! };
+                setSmart({ status: "ready", data: recommendAdjustments({ config, now: new Date(), options: { busy: lastBusy } }) });
+            }
+        } catch (err) {
+            setSmart({ status: "error", message: `Couldn't work out options: ${err instanceof Error ? err.message : "unknown error"}` });
+        }
+    }
+
+    /** Puts a recommendation into the editable draft — nothing is saved yet. */
+    function applyRecommendation(recommendation: Recommendation) {
+        setApplied({
+            recommendation,
+            previous: { weeklyHours, studyDays, targets: subjects.map((s) => s.targetGrade) },
+        });
+        setWeeklyHours(recommendation.weeklyHours.to);
+        setStudyDays(recommendation.studyDays.to);
+        setSubjects((previous) =>
+            previous.map((s) => {
+                const change = recommendation.targets.find((t) => t.subject === s.name);
+                return change ? { ...s, targetGrade: String(change.to) } : s;
+            }),
+        );
+        setSmart(null);
+        setScheduleResult(null);
+        setSummary(null);
+        setGenerationError(null);
+        setStep(editId ? 0 : 2);
+        window.scrollTo({ top: 0 });
+    }
+
+    function revertRecommendation() {
+        if (!applied) return;
+        const { previous } = applied;
+        setWeeklyHours(previous.weeklyHours);
+        setStudyDays(previous.studyDays);
+        setSubjects((list) => list.map((s, i) => (previous.targets[i] !== undefined ? { ...s, targetGrade: previous.targets[i] } : s)));
+        setApplied(null);
+    }
+
+    /** Leaves the adjustment screen for the manual editor: availability, or the plan overview. */
+    function adjustManually() {
+        setSmart(null);
+        if (editId) {
+            setStep(0);
+            window.scrollTo({ top: 0 });
+        } else {
+            adjustPlan();
+        }
     }
 
     // Back to the availability step with every answer kept.
@@ -1015,6 +1117,7 @@ function NewPlanForm() {
             }
 
             setPlanSaved(true);
+            setApplied(null);
         } catch (err) {
             setGenerationError(err instanceof Error ? err.message : "Unknown error");
         } finally {
@@ -1069,6 +1172,51 @@ function NewPlanForm() {
                 </div>
             )}
 
+
+            {/* A recommendation in the draft: what it changed, revert, check or save */}
+            {applied && step !== 7 && step !== 8 && (
+                <div role="status" className="space-y-3 rounded-2xl border-2 border-accent/40 bg-accent-soft px-4 py-3" data-applied>
+                    <p className="text-sm font-semibold">Recommendation applied — not saved yet. Fine-tune anything you like.</p>
+                    <ul className="list-disc space-y-0.5 pl-5 text-sm text-muted tabular-nums">
+                        {applied.recommendation.weeklyHours.to !== applied.previous.weeklyHours && (
+                            <li>Weekly study hours: {applied.previous.weeklyHours} h → {weeklyHours} h</li>
+                        )}
+                        {applied.recommendation.studyDays.to.join() !== applied.previous.studyDays.join() && (
+                            <li>Study days: {applied.previous.studyDays.join(", ")} → {studyDays.join(", ")}</li>
+                        )}
+                        {applied.recommendation.targets.map((t) => (
+                            <li key={t.subject}>{t.subject} target: {t.from} → {subjects.find((s) => s.name === t.subject)?.targetGrade ?? t.to}</li>
+                        ))}
+                    </ul>
+                    <div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={revertRecommendation} className="rounded-full px-4 py-2 text-sm font-semibold text-muted hover:text-foreground">
+                            Revert recommendation
+                        </button>
+                        <button
+                            type="button"
+                            disabled={saving || isGenerating}
+                            onClick={() => void (editId ? startRecalibration() : generatePlan())}
+                            className="rounded-full bg-foreground px-4 py-2 text-sm font-semibold text-background disabled:opacity-50"
+                        >
+                            {editId ? "Save & recalibrate" : "Check my plan again"}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* STEP 8 — SMART PLAN ADJUSTMENT */}
+            {step === 8 && smart && (
+                <SmartAdjustment
+                    state={smart}
+                    onApply={applyRecommendation}
+                    onManual={adjustManually}
+                    onBack={() => {
+                        setSmart(null);
+                        setStep(editId ? 0 : 7);
+                    }}
+                    backLabel={editId ? "← Back to plan settings" : "← Back"}
+                />
+            )}
 
             {/* MANAGE PLAN — OVERVIEW */}
             {editId && step === 0 && !subject && (
@@ -1325,8 +1473,16 @@ function NewPlanForm() {
                             <p>
                                 About {formatHours(recalibration.summary.feasibility.requiredMinutes)} needed,{" "}
                                 {formatHours(recalibration.summary.feasibility.availableMinutes)} available. Recalibrating
-                                keeps a best-effort schedule; you can also cancel and adjust your availability first.
+                                keeps a best-effort schedule that may not be enough for your targets; or adjust the plan first.
                             </p>
+                            <button
+                                type="button"
+                                disabled={recalibration.phase !== "preview"}
+                                onClick={() => void openSmartAdjustment()}
+                                className="mt-1 rounded-full bg-foreground px-4 py-2 text-xs font-semibold text-background disabled:opacity-50"
+                            >
+                                Adjust plan
+                            </button>
                             {recalibration.summary.feasibility.suggestions.length > 0 && (
                                 <ul className="list-disc pl-5">
                                     {recalibration.summary.feasibility.suggestions.map((line) => <li key={line}>{line}</li>)}
@@ -2644,7 +2800,7 @@ function NewPlanForm() {
                             <div className="space-y-3">
                                 <button
                                     type="button"
-                                    onClick={adjustPlan}
+                                    onClick={() => void openSmartAdjustment()}
                                     className={`${primaryButton} w-full`}
                                 >
                                     Adjust my plan
@@ -2658,10 +2814,10 @@ function NewPlanForm() {
                                     Continue anyway
                                 </button>
                                 <p className="text-center text-xs text-muted">
-                                    Your answers are kept — adjusting takes you back to your
-                                    availability, then through your subjects. Continuing keeps a
-                                    best-effort schedule within your study days and hours, and
-                                    lists what it couldn&apos;t fit.
+                                    Adjusting shows concrete ways to make the plan fit, checked
+                                    against your schedule. Continuing keeps a best-effort schedule
+                                    within your study days and hours — it may not be enough for your
+                                    target grades — and lists what it couldn&apos;t fit.
                                 </p>
                             </div>
                         </div>
@@ -2687,104 +2843,28 @@ function NewPlanForm() {
                                 </p>
                             </div>
 
+                            {/* Kept the plan despite a shortfall ("Continue anyway"): say so, briefly. */}
                             {summary.feasibility.needsMoreTime && (
-                                <div className="space-y-2 rounded-xl bg-surface-2 p-4 text-sm text-muted">
-                                    <p>
-                                        Your targets are ambitious: about{" "}
-                                        {formatHours(summary.feasibility.shortfallMinutes)} of the
-                                        study they need didn&apos;t fit into your available time.
-                                        Not scheduled:
-                                    </p>
-                                    <ul className="list-disc space-y-1 pl-5 text-xs">
-                                        {summary.warnings.map((warning) => <li key={warning}>{warning}</li>)}
-                                    </ul>
-                                </div>
-                            )}
-
-                            {summary.feasibility.adjustments.length > 0 && (
-                                <ul className="list-disc space-y-1 rounded-xl bg-surface-2 p-4 pl-8 text-xs text-muted">
-                                    {summary.feasibility.adjustments.map((note) => <li key={note}>{note}</li>)}
-                                </ul>
+                                <p className="rounded-xl bg-surface-2 p-4 text-sm text-muted">
+                                    About {formatHours(summary.feasibility.shortfallMinutes)} of the study your
+                                    targets need didn&apos;t fit, so this schedule may not be enough to reach them.
+                                </p>
                             )}
 
                             {summary.feasibility.unusedMinutes >= 60 && (
-                                <p className="rounded-xl bg-surface-2 p-4 text-sm text-muted">
-                                    About {formatHours(summary.feasibility.unusedMinutes)} of
-                                    your available study time is left free: your goals don&apos;t need
-                                    it, so we didn&apos;t pad it with extra tasks. Those days simply
-                                    end earlier.
-                                </p>
-                            )}
-
-                            {!summary.feasibility.needsMoreTime && summary.warnings.length > 0 && (
-                                <ul className="list-disc space-y-1 rounded-xl bg-surface-2 p-4 pl-8 text-xs text-muted">
-                                    {summary.warnings.map((warning) => (
-                                        <li key={warning}>{warning}</li>
-                                    ))}
-                                </ul>
+                                <div className="rounded-xl bg-surface-2 p-4">
+                                    <p className="text-sm font-semibold">
+                                        {Math.round(summary.feasibility.unusedMinutes / 60)} hours of flexibility
+                                    </p>
+                                    <p className="mt-1 text-sm text-muted">
+                                        Your plan doesn&apos;t need all your available study time. We&apos;ve left{" "}
+                                        {Math.round(summary.feasibility.unusedMinutes / 60)} hours free rather than adding
+                                        unnecessary tasks.
+                                    </p>
+                                </div>
                             )}
 
                             <MockPlanList subjects={summary.feasibility.subjects} />
-
-                            {/* Per-subject breakdown */}
-                            <div className="space-y-2">
-                                <p className="text-sm font-semibold">Sessions per subject</p>
-                                {Object.entries(summary.breakdown).map(([name, count], i) => (
-                                    <div key={name} className="flex items-center gap-3">
-                                        <span
-                                            className="size-3 shrink-0 rounded-full"
-                                            style={{ backgroundColor: subjectColors[i % subjectColors.length] }}
-                                        />
-                                        <span className="flex-1 text-sm">{name}</span>
-                                        <span className="text-sm font-semibold tabular-nums">{count}</span>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* How the scheduler works */}
-                            <div className="rounded-xl bg-surface-2 p-4 space-y-2">
-                                <p className="text-xs font-semibold uppercase tracking-wider text-muted">
-                                    How this schedule was built
-                                </p>
-                                <ul className="space-y-1.5 text-xs text-muted">
-                                    <li>
-                                        <span className="font-medium text-foreground">Retrieval practice</span>
-                                        {" "}— every session opens with a recall warm-up and closes with an exit quiz.
-                                    </li>
-                                    <li>
-                                        <span className="font-medium text-foreground">Spacing</span>
-                                        {" "}— recovery sessions implement a 1 → 3 → 7 → 14 day recall cycle for each topic.
-                                    </li>
-                                    <li>
-                                        <span className="font-medium text-foreground">Interleaving</span>
-                                        {" "}— subjects rotate across days, at most two a day and each grouped together; your Lernphase can open with focus days on one subject.
-                                    </li>
-                                    <li>
-                                        <span className="font-medium text-foreground">Exam practice</span>
-                                        {" "}— mock exams match the real exam&apos;s length, are spread over the final stretch before it, and each one is followed by a review that gets shorter as the exam approaches (minimum 1 h).
-                                    </li>
-                                    <li>
-                                        <span className="font-medium text-foreground">Your availability</span>
-                                        {" "}— sessions only fall on your selected days, never during vacations, and never exceed your daily hours; each study day ends with buffer / catch-up time.
-                                    </li>
-                                    <li>
-                                        <span className="font-medium text-foreground">Exam Eve</span>
-                                        {" "}— the day before each exam is a short final review of that subject only: weak topics, past mistakes, key formulas — no new material, no mocks.
-                                    </li>
-                                    <li>
-                                        <span className="font-medium text-foreground">Phases</span>
-                                        {" "}— each subject moves through Foundation (immersion), Build, Peak (exam practice) and Taper on its own timeline.
-                                    </li>
-                                    <li>
-                                        <span className="font-medium text-foreground">Cheatsheet</span>
-                                        {" "}— time for it comes out of each subject&apos;s study as you chose: inside theory sessions with milestones, in dedicated sessions near the exam, or a short re-read.
-                                    </li>
-                                    <li>
-                                        <span className="font-medium text-foreground">Hours formula</span>
-                                        {" "}— required_hours = est_hours × (1.25 − 0.5 × confidence), scaling between 0.75× (very confident) and 1.25× (not comfortable).
-                                    </li>
-                                </ul>
-                            </div>
 
                             <button
                                 type="button"
