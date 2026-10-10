@@ -9,6 +9,7 @@ import { Segmented } from "./forecast-chart";
 type Compare = "week" | "exam";
 const ALL = "all";
 const BANDS = [2.2, 1.645, 1.15, 0.67, 0.3];
+const BAND_OPACITY = [0.06, 0.1, 0.15, 0.22, 0.32];
 
 /** One axis of the spider chart: a topic, with its values pulled out of the timeline. */
 type Axis = {
@@ -90,16 +91,16 @@ export function TopicProfile({ timeline, subjects }: { timeline: Timeline; subje
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted">
         <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-5 rounded-sm bg-foreground/25" />
+          <span className="inline-block h-3 w-5 rounded-sm bg-slate/25" />
           Level now: shading is the distribution
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <svg width="22" height="8" aria-hidden><line x1="0" x2="22" y1="4" y2="4" className="stroke-muted" strokeWidth="1.5" strokeDasharray={compare === "exam" ? "2 3" : "6 4"} /></svg>
+            <svg width="22" height="8" aria-hidden><line x1="0" x2="22" y1="4" y2="4" stroke="var(--foreground)" strokeWidth="1.5" strokeDasharray={compare === "exam" ? "2 3" : "6 4"} /></svg>
           {cmpLabel}
         </span>
         {axes.some((a) => a.target !== null) && (
           <span className="inline-flex items-center gap-1.5">
-            <svg width="22" height="8" aria-hidden><line x1="0" x2="22" y1="4" y2="4" stroke="var(--accent)" strokeWidth="1.5" strokeDasharray="5 4" /></svg>
+            <svg width="22" height="8" aria-hidden><line x1="0" x2="22" y1="4" y2="4" stroke="var(--foreground)" strokeWidth="1.5" strokeDasharray="5 4" /></svg>
             Target grade
           </span>
         )}
@@ -166,20 +167,24 @@ function Radar({ axes, compareAhead, grouped }: { axes: Axis[]; compareAhead: bo
             return <line key={i} x1={c} y1={c} x2={x2} y2={y2} className="stroke-border" />;
           })}
           {/* Nested rings between m − zσ and m + zσ overlap into a fading band. */}
-          {BANDS.map((z) => (
+          {BANDS.map((z, i) => (
             <path
               key={z}
               d={path(axes.map((a) => a.now.mean + z * a.now.sd)) + path(axes.map((a) => Math.max(0, a.now.mean - z * a.now.sd)))}
               fillRule="evenodd"
-              className="fill-foreground"
-              fillOpacity={0.09}
+              fill="var(--slate)"
+              fillOpacity={BAND_OPACITY[i]}
+              stroke="var(--slate)"
+              strokeOpacity={BAND_OPACITY[i]}
+              strokeWidth={0.8}
             />
           ))}
-          <polygon points={poly(axes.map((a) => a.compare.mean))} className="fill-none stroke-muted" strokeWidth={1.5} strokeDasharray={compareAhead ? "2 3" : "6 4"} />
+          <polygon points={poly(axes.map((a) => a.compare.mean))} fill="none" stroke="var(--foreground)" strokeWidth={1.5} strokeDasharray={compareAhead ? "2 3" : "6 4"} />
           {axes.every((a) => a.target !== null) && (
-            <polygon points={poly(axes.map((a) => a.target!))} fill="none" stroke="var(--accent)" strokeWidth={1.5} strokeDasharray="5 4" />
+            <polygon points={poly(axes.map((a) => a.target!))} fill="none" stroke="var(--foreground)" strokeWidth={1.5} strokeDasharray="5 4" />
           )}
-          <polygon points={poly(axes.map((a) => a.now.mean))} className="fill-none stroke-foreground" strokeWidth={2} strokeLinejoin="round" />
+          <polygon points={poly(axes.map((a) => a.now.mean))} fill="none" stroke="var(--foreground)" strokeWidth={3.5} strokeLinejoin="round" />
+          <polygon points={poly(axes.map((a) => a.now.mean))} fill="none" stroke="#5B21B6" strokeWidth={2} strokeLinejoin="round" />
           {axes.map((a, i) => {
             const ang = angle(i);
             const lx = c + Math.cos(ang) * (R + 14);
@@ -245,7 +250,7 @@ function ProgressList({ axes, timeline, compareAhead }: { axes: Axis[]; timeline
               const stops = Array.from({ length: 41 }, (_, k) => {
                 const v = k / 40;
                 const alpha = 0.8 * Math.exp(-0.5 * ((v - m) / s) ** 2);
-                return `color-mix(in srgb, var(--foreground) ${(100 * alpha).toFixed(1)}%, transparent) ${(100 * v).toFixed(1)}%`;
+                return `color-mix(in srgb, var(--slate) ${(100 * alpha).toFixed(1)}%, transparent) ${(100 * v).toFixed(1)}%`;
               });
               const d = change(a);
               return (
@@ -265,9 +270,12 @@ function ProgressList({ axes, timeline, compareAhead }: { axes: Axis[]; timeline
                   >
                     <span className="absolute inset-y-1 w-0 border-l-[1.5px] border-dashed border-muted" style={{ left: `${100 * a.compare.mean}%` }} />
                     {a.target !== null && (
-                      <span className="absolute inset-y-0 w-0 border-l-[1.5px] border-dashed" style={{ left: `${100 * a.target}%`, borderColor: "var(--accent)" }} />
+                    <span className="absolute inset-y-0 w-0 border-l-[1.5px] border-dashed" style={{ left: `${100 * a.target}%`, borderColor: "var(--foreground)" }} />
                     )}
-                    <span className="absolute inset-y-1 -ml-px w-0.5 rounded bg-foreground" style={{ left: `${100 * m}%` }} />
+                    <span
+                      className="absolute inset-y-1 rounded"
+                      style={{ left: `${100 * m}%`, width: 3, backgroundColor: "#5B21B6", transform: "translateX(-50%)" }}
+                    />
                   </div>
                   <div className="text-right font-mono text-[13px] tabular-nums">
                     {formatGrade(m)}

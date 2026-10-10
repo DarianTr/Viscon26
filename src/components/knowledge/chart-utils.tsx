@@ -9,7 +9,7 @@ export const TYPE_COLOR: Record<string, string> = {
   practice: "var(--deep)",
   quiz: "var(--intervals)",
   mock: "var(--recovery)",
-  exam: "var(--tempo)",
+  exam: "var(--foreground)",
 };
 export const TYPE_LABEL: Record<string, string> = {
   practice: "Practice sheet",
@@ -76,7 +76,7 @@ export function paintDensity(
   lookup: (t: number) => Density,
   lo = 0,
   hi = 1,
-  colorVar = "--foreground",
+  colorVar = "--slate",
 ) {
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const W = Math.max(1, Math.round(width * dpr));
