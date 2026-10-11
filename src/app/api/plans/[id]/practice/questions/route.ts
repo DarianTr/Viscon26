@@ -93,7 +93,7 @@ export async function POST(request: Request, ctx: Ctx) {
     const courseSlug = topicId.split(".")[0];
 
     // Fetch course profile
-    const [profile] = await db
+    let [profile] = await db
       .select({
         slug: s.courseProfiles.slug,
         name: s.courseProfiles.name,
@@ -104,7 +104,19 @@ export async function POST(request: Request, ctx: Ctx) {
       .from(s.courseProfiles)
       .where(eq(s.courseProfiles.slug, courseSlug));
 
-    if (!profile) return jsonError(404, "Course profile not found for this topic");
+    if (!profile) {
+      // Auto-create a minimal profile stub so the FK constraint on questions is satisfied
+      // and we can still generate questions using the topic name as context.
+      const courseName = courseSlug
+        .split("-")
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
+      await db
+        .insert(s.courseProfiles)
+        .values({ slug: courseSlug, name: courseName })
+        .onConflictDoNothing();
+      profile = { slug: courseSlug, name: courseName, description: null, learningObjectives: null, topics: [] };
+    }
 
     // Find topic name from profile
     const topicEntry = profile.topics.find((t) => t.id === topicId);

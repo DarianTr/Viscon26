@@ -34,6 +34,7 @@ export function PracticeSection({
   const [flagging, setFlagging] = useState(false);
   const [flagged, setFlagged] = useState(false);
   const [loadingTopicId, setLoadingTopicId] = useState<string | null>(null);
+  const [genFailed, setGenFailed] = useState(false);
 
   const maxAlloc = Math.max(...focus.topics.map((t) => t.allocation), 1);
 
@@ -68,12 +69,16 @@ export function PracticeSection({
   }
 
   async function startQuiz(topic: TopicRecommendation) {
+    setGenFailed(false);
     let qs = await fetchQuestions(topic);
     if (qs.length === 0) {
       // No existing questions — generate some
       qs = await generateQuestions(topic);
     }
-    if (qs.length === 0) return;
+    if (qs.length === 0) {
+      setGenFailed(true);
+      return;
+    }
     setSelectedTopic(topic);
     setQuestions(qs);
     setQIndex(0);
@@ -139,6 +144,7 @@ export function PracticeSection({
     setResult(null);
     setFlagged(false);
     setScore({ correct: 0, total: 0 });
+    setGenFailed(false);
   }
 
   // ---- Pick phase ----
@@ -151,6 +157,13 @@ export function PracticeSection({
         {focus.topics.length === 0 && (
           <Card>
             <p className="text-sm text-muted">No topics available yet. Add subjects to your plan first.</p>
+          </Card>
+        )}
+        {genFailed && (
+          <Card>
+            <p className="text-sm text-destructive">
+              Could not generate questions. Check that your OpenAI API key is configured, then try again.
+            </p>
           </Card>
         )}
         <div className="grid gap-3 sm:grid-cols-2">
