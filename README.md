@@ -1,5 +1,7 @@
 # Viscon26
 
+👉 [Read the full, illustrated introdcution of this post](https://claude.ai/artifact/ExHNL8u1auEETgo8epHxVR)
+
 Next.js 16 app (App Router, TypeScript, Tailwind v4) holding both the frontend
 and the backend.
 
