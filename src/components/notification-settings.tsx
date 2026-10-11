@@ -11,7 +11,7 @@ type PushState = "loading" | "unsupported" | "ios-install" | "denied" | "off" | 
 const styles: { value: NudgeStyle; label: string; example: string }[] = [
   { value: "savage", label: "Savage", example: "“Lena did 3 sessions today. Where are you at? 👀”" },
   { value: "gentle", label: "Gentle", example: "“Lena studied 2 h today. Fancy a quick session?”" },
-  { value: "off", label: "Off", example: "No daily nudges. Challenges, friend requests, kudos and comments still come through." },
+  { value: "off", label: "Off", example: "No daily nudges. Challenges, friend requests, braincells and comments still come through." },
 ];
 
 /** `applicationServerKey` wants the VAPID key as bytes, not base64url. */

@@ -47,7 +47,7 @@ export async function setKudos(
   after(async () =>
     notify(activity.ownerId, {
       kind: "kudos",
-      title: `${user.name} gave you kudos 👏`,
+      title: `${user.name} gave you a braincell 🧠`,
       body: `For "${await sessionTitle(activity.id)}". Keep it up!`,
       url: OWN_POSTS,
       // Unliking and liking again shouldn't ping twice.
