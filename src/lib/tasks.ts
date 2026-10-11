@@ -4,7 +4,7 @@ import { db, schema as s, TIME_ZONE } from "@/db";
 import { ConflictError } from "./http";
 import { findOverlaps, overlaps, type Interval } from "./intervals";
 import { dayRule, mealRule, mockOrderRule, mockPartnerTitle, type DayBlock } from "./move-rules";
-import type { EventType, TaskRecord } from "./types";
+import type { EventType, SessionType, TaskRecord } from "./types";
 
 /** Data layer for /api/tasks, backed by the sessions table. */
 
@@ -106,6 +106,14 @@ export async function updateTask(
           skippedAt: null,
           completedAt: sql`coalesce(${s.sessions.completedAt}, now())`,
           actualMinutes: patch.actualMinutes ?? sql`coalesce(${s.sessions.actualMinutes}, ${s.sessions.plannedMinutes})`,
+          // Becoming a post for the first time: fall back to the owner's default privacy, unless told otherwise.
+          ...(patch.shared === undefined
+            ? {
+                shared: sql`case when ${s.sessions.completedAt} is null
+                  then (select ${s.users.shareSessionsByDefault} from ${s.users} where ${s.users.id} = ${s.sessions.userId})
+                  else ${s.sessions.shared} end`,
+              }
+            : {}),
         }
       : done === false
         ? { completedAt: null, actualMinutes: null, focus: null, trace: null }
@@ -373,10 +381,10 @@ export async function listBusyIntervals(
 
 /**
  * Logs study done during a buffer block: the used part becomes a completed
- * study block for `subject`, and the buffer shrinks by the same amount (or
+ * study block of `type` for `subject`, and the buffer shrinks by the same amount (or
  * disappears) — so the time counts once, for the subject, never as buffer.
  */
-export async function logBufferStudy(userId: string, bufferId: string, subject: string, minutes: number) {
+export async function logBufferStudy(userId: string, bufferId: string, subject: string, minutes: number, type: SessionType) {
   return db.transaction(async (tx) => {
     const [buffer] = await tx
       .select()
@@ -390,7 +398,7 @@ export async function logBufferStudy(userId: string, bufferId: string, subject: 
       .values({
         userId,
         userPlanId: buffer.userPlanId,
-        type: "deep",
+        type,
         activity: "study",
         subject,
         title: `${subject} — Catch-up study`,

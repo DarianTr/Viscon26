@@ -204,6 +204,20 @@
       "when": 1791720001014,
       "tag": "0024_session_skips",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791720001015,
+      "tag": "0025_semantic_session_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791720001016,
+      "tag": "0026_default_post_privacy",
+      "breakpoints": true
     }
   ]
 }

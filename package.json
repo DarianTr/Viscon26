@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "tsx --test src/lib/scheduler.test.ts src/lib/intervals.test.ts src/lib/plan-progress.test.ts src/lib/move-rules.test.ts src/lib/weekly-goal.test.ts src/lib/ical.test.ts src/lib/plan-status.test.ts src/lib/mascot.test.ts src/lib/plan-changes.test.ts src/lib/predictions.test.ts src/lib/strategy-prompt.test.ts",
+    "test": "tsx --test src/lib/scheduler.test.ts src/lib/intervals.test.ts src/lib/plan-progress.test.ts src/lib/move-rules.test.ts src/lib/weekly-goal.test.ts src/lib/ical.test.ts src/lib/plan-status.test.ts src/lib/mascot.test.ts src/lib/plan-changes.test.ts src/lib/predictions.test.ts src/lib/strategy-prompt.test.ts src/lib/plan-adjustments.test.ts",
     "db:up": "docker compose up -d --wait db",
     "db:down": "docker compose down",
     "db:generate": "drizzle-kit generate",

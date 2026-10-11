@@ -18,14 +18,14 @@ import {
 } from "drizzle-orm/pg-core";
 
 /**
- * Study sessions use running vocabulary (deep = long run, etc.); lectures and
- * exams live in the same table so the calendar reads from one place.
+ * Study sessions are theory recaps, exercise sheets, mock exams or quizzes;
+ * lectures and exams live in the same table so the calendar reads from one place.
  */
 export const sessionType = pgEnum("session_type", [
-  "deep",
-  "intervals",
-  "tempo",
-  "recovery",
+  "theory",
+  "exercises",
+  "mock_exam",
+  "quiz",
   "lecture",
   "exam",
   "buffer",
@@ -73,6 +73,8 @@ export const users = pgTable("users", {
   isAdmin: boolean("is_admin").notNull().default(false),
   /** Tone of the daily "go study" push: savage, gentle, or off. */
   nudgeStyle: text("nudge_style").$type<NudgeStyle>().notNull().default("savage"),
+  /** Default visibility for new session posts; each post can override it. */
+  shareSessionsByDefault: boolean("share_sessions_by_default").notNull().default(true),
   /**
    * Secret in the read-only calendar feed URL (`/api/calendar/<token>.ics`).
    * Stored as-is so settings can show the link again; null means no feed.

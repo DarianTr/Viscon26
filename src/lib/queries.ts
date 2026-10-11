@@ -52,7 +52,7 @@ const weekStart = sql`(date_trunc('week', now() at time zone ${tz}) at time zone
  */
 export const academic = and(isNotNull(s.sessions.subject), notInArray(s.sessions.type, ["buffer", "break"]));
 
-const studyTypes: SessionType[] = ["deep", "intervals", "tempo", "recovery"];
+const studyTypes: SessionType[] = ["theory", "exercises", "mock_exam", "quiz"];
 
 const f = s.friendships;
 

@@ -45,6 +45,7 @@ export function AddSessionDialog({
   subjects,
   initialMode,
   day,
+  defaultShared = true,
   onClose,
   onCreated,
 }: {
@@ -52,6 +53,8 @@ export function AddSessionDialog({
   initialMode: AddSessionMode;
   /** Day to start on, e.g. the one selected in the calendar; today by default. */
   day?: Date;
+  /** The user's preferred privacy for new posts, from their profile settings. */
+  defaultShared?: boolean;
   onClose: () => void;
   onCreated: (task: TaskRecord) => void;
 }) {
@@ -118,6 +121,7 @@ export function AddSessionDialog({
           mode={mode}
           subjects={subjects}
           day={day}
+          defaultShared={defaultShared}
           onCreated={(task) => {
             onCreated(task);
             ref.current?.close();
@@ -132,23 +136,25 @@ function SessionForm({
   mode,
   subjects,
   day,
+  defaultShared,
   onCreated,
 }: {
   mode: AddSessionMode;
   subjects: SubjectChoice[];
   day?: Date;
+  defaultShared: boolean;
   onCreated: (task: TaskRecord) => void;
 }) {
   const [start] = useState(() => defaultStart(mode, day));
   const [subject, setSubject] = useState(subjects[0]?.name ?? OTHER);
   const [otherSubject, setOtherSubject] = useState("");
-  const [type, setType] = useState<SessionType>("deep");
+  const [type, setType] = useState<SessionType>("theory");
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(dateValue(start));
   const [time, setTime] = useState(timeValue(start));
   const [minutes, setMinutes] = useState(60);
   const [note, setNote] = useState("");
-  const [shared, setShared] = useState(true);
+  const [shared, setShared] = useState(defaultShared);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 

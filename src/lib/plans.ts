@@ -43,12 +43,18 @@ const replaceable = (planId: string, keep: string[], now: Date) =>
     keep.length ? notInArray(s.sessions.id, keep) : undefined,
   );
 
-export async function regeneratePlan(
+/**
+ * What a regeneration schedules around: the plan's settings merged with
+ * `changes`, the work already done (completed blocks, logged results, blocks
+ * moved by hand that stay) and everything else on the calendar. Shared by
+ * regeneratePlan and the plan-adjustment recommendations, so both see the same plan.
+ */
+export async function regenerationContext(
   userId: string,
   planId: string,
   changes: Partial<StoredPlanConfig> & { title?: string },
-  { apply, now = new Date(), quizGaps }: { apply: boolean; now?: Date; quizGaps?: Record<string, number> },
-): Promise<RegenerateOutcome | null> {
+  now: Date,
+) {
   const [plan] = await db
     .select({ title: s.userPlans.title, config: s.userPlans.config, createdAt: s.userPlans.createdAt })
     .from(s.userPlans)
@@ -150,6 +156,19 @@ export async function regeneratePlan(
     replacingPlan: planId,
     keep: keepIds,
   });
+
+  return { plan, title, config, subjects, rows, progress, moved, keepIds, busy };
+}
+
+export async function regeneratePlan(
+  userId: string,
+  planId: string,
+  changes: Partial<StoredPlanConfig> & { title?: string },
+  { apply, now = new Date(), quizGaps }: { apply: boolean; now?: Date; quizGaps?: Record<string, number> },
+): Promise<RegenerateOutcome | null> {
+  const ctx = await regenerationContext(userId, planId, changes, now);
+  if (!ctx) return null;
+  const { plan, title, config, subjects, rows, moved, keepIds, busy, progress } = ctx;
 
   const result = generateStudyPlan(
     {

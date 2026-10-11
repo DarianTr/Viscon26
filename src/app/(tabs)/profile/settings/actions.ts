@@ -70,6 +70,12 @@ export async function setNudgeStyle(style: string): Promise<void> {
     .where(eq(s.users.id, user.id));
 }
 
+/** Default visibility for new session posts; each post can still override it. */
+export async function setDefaultSessionPrivacy(shared: boolean): Promise<void> {
+  const user = await requireUser();
+  await db.update(s.users).set({ shareSessionsByDefault: shared }).where(eq(s.users.id, user.id));
+}
+
 /**
  * Creates the user's calendar feed, or replaces its secret so every existing
  * subscription stops updating. Returns the new token.

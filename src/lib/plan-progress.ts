@@ -12,7 +12,7 @@ export type ProgressRow = {
   done: boolean;
 };
 
-const STUDY_TYPES: EventType[] = ["deep", "intervals", "tempo", "recovery"];
+const STUDY_TYPES: EventType[] = ["theory", "exercises", "mock_exam", "quiz"];
 
 /** What a block is for; blocks saved before activities existed are recognised by type and title. */
 export function activityOf(row: Pick<ProgressRow, "type" | "activity" | "title">): BlockActivity | null {

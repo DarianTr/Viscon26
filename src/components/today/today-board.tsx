@@ -76,6 +76,7 @@ export function TodayBoard({
   greeting,
   date,
   firstName,
+  defaultShared,
 }: {
   initialTasks: Task[];
   /** Subjects to pick from when adding a session by hand. */
@@ -85,6 +86,8 @@ export function TodayBoard({
   greeting: string;
   date: string;
   firstName: string;
+  /** The user's preferred privacy for new posts, from their profile settings. */
+  defaultShared: boolean;
 }) {
   const router = useRouter();
   const [tasks, setTasks] = useState(initialTasks);
@@ -179,7 +182,7 @@ export function TodayBoard({
   return (
     <>
       <div
-        className="relative mt-[max(1.25rem,env(safe-area-inset-top))] overflow-hidden rounded-tl-3xl rounded-tr-[2.5rem] rounded-br-3xl rounded-bl-[2.5rem] border-[2.5px] border-foreground p-5 shadow-[0_5px_0_0_var(--foreground)] md:mt-10"
+        className="relative mt-[max(1.25rem,env(safe-area-inset-top))] overflow-hidden rounded-[1.75rem] border-[2.5px] border-foreground p-5 shadow-[0_5px_0_0_var(--foreground)] md:mt-10"
         style={{ background: "linear-gradient(165deg, var(--surface) 0%, var(--beige) 135%)" }}
       >
         <Sparkle size={15} className="mascot-sparkle absolute top-5 right-7" />
@@ -220,7 +223,7 @@ export function TodayBoard({
       </div>
 
       {next && (
-        <div className="relative mt-5 overflow-hidden rounded-tl-[2.5rem] rounded-tr-xl rounded-br-[2.5rem] rounded-bl-xl border-[2.5px] border-foreground bg-accent p-5 pr-28 text-surface shadow-[0_5px_0_0_var(--foreground)] sm:pr-36">
+        <div className="relative mt-5 overflow-hidden rounded-[1.75rem] border-[2.5px] border-foreground bg-accent p-5 pr-28 text-surface shadow-[0_5px_0_0_var(--foreground)] sm:pr-36">
           <div className="pointer-events-none absolute -top-10 -right-6 size-36 rounded-full bg-white/10" />
           <div className="pointer-events-none absolute right-10 -bottom-16 size-28 rounded-full bg-white/10" />
           <Sparkle size={16} className="mascot-sparkle absolute top-6 right-24 sm:right-32" color="#fff" />
@@ -280,16 +283,15 @@ export function TodayBoard({
         </Card>
       )}
       <ul className="flex flex-col gap-3">
-        {tasks.map((task, index) => {
+        {tasks.map((task) => {
           const type = sessionTypes[task.type];
           const savedSecs = inProgress.get(task.id) ?? 0;
           const isPaused = !task.done && !task.skipped && savedSecs > 0;
           const isExpanded = expanded.has(task.id);
           const settled = task.done || task.skipped;
-          const tilt = settled ? "" : index % 2 === 0 ? "sm:-rotate-[0.4deg]" : "sm:rotate-[0.4deg]";
           return (
             <li key={task.id}>
-              <Card className={`flex gap-4 p-4 transition-opacity ${tilt} ${task.done ? "opacity-60" : task.skipped ? "border-dashed bg-surface-2/50 shadow-none" : ""}`}>
+              <Card className={`flex gap-4 p-4 transition-opacity ${task.done ? "opacity-60" : task.skipped ? "border-dashed bg-surface-2/50 shadow-none" : ""}`}>
                 <div className={`w-1.5 shrink-0 rounded-full ${isPaused ? "bg-gold" : type.color}`} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 text-xs">
@@ -350,7 +352,18 @@ export function TodayBoard({
                 <div className="relative flex flex-col items-center justify-between gap-2">
                   {task.done && <Sparkle size={11} className="mascot-pop absolute -top-1 -right-1" />}
                   <button
-                    onClick={() => setDone(task.id, !task.done)}
+                    onClick={() => {
+                      // Completing from a paused session: credit the time actually
+                      // studied so far, not the full planned duration.
+                      if (!task.done && savedSecs > 0) {
+                        const updated = new Map(inProgress);
+                        updated.delete(task.id);
+                        persistProgress(updated);
+                        setDone(task.id, true, Math.max(1, Math.round(savedSecs / 60)));
+                        return;
+                      }
+                      setDone(task.id, !task.done);
+                    }}
                     aria-label={task.done ? "Mark as not done" : "Mark as done"}
                     className={`grid size-8 place-items-center rounded-full border-2 transition-colors ${
                       task.done
@@ -384,6 +397,7 @@ export function TodayBoard({
         <AddSessionDialog
           subjects={subjects}
           initialMode="plan"
+          defaultShared={defaultShared}
           onClose={() => setAdding(false)}
           onCreated={handleCreated}
         />
