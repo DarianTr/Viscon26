@@ -1,8 +1,10 @@
 import "server-only";
+import { after } from "next/server";
 import { and, count, eq, isNull, or } from "drizzle-orm";
 import { db, schema as s } from "@/db";
 import type { SessionUser } from "./auth";
 import { MAX_PHOTOS } from "./photos";
+import { notify } from "./push";
 import { filterFriends, getFriendStatus, toComment } from "./queries";
 import type { Comment, FriendStatus } from "./types";
 
@@ -10,18 +12,48 @@ import type { Comment, FriendStatus } from "./types";
  * Social actions (kudos, friends, comments, post photos and tags), called from the route handlers in `src/app/api`.
  * Plain CRUD lives in `./users.ts` and `./tasks.ts`.
  * Each function returns false when the target doesn't exist, which the
- * handlers turn into a 404.
+ * handlers turn into a 404. Whoever is on the receiving end of an action gets
+ * a push notification (see `./push.ts`).
  */
 
+const FEED = "/community";
+const OWN_POSTS = "/community?tab=you";
+const FRIENDS = "/community?tab=friends";
+
+async function sessionTitle(sessionId: string) {
+  const row = await db.query.sessions.findFirst({ where: eq(s.sessions.id, sessionId), columns: { title: true } });
+  return row?.title ?? "your session";
+}
+
 /** Callers check first that the user can see the activity (`getVisibleActivity`). */
-export async function setKudos(userId: string, sessionId: string, on: boolean): Promise<void> {
-  if (on) {
-    await db.insert(s.kudos).values({ sessionId, userId }).onConflictDoNothing();
-  } else {
+export async function setKudos(
+  user: SessionUser,
+  activity: { id: string; ownerId: string },
+  on: boolean,
+): Promise<void> {
+  if (!on) {
     await db
       .delete(s.kudos)
-      .where(and(eq(s.kudos.sessionId, sessionId), eq(s.kudos.userId, userId)));
+      .where(and(eq(s.kudos.sessionId, activity.id), eq(s.kudos.userId, user.id)));
+    return;
   }
+  const added = await db
+    .insert(s.kudos)
+    .values({ sessionId: activity.id, userId: user.id })
+    .onConflictDoNothing()
+    .returning({ userId: s.kudos.userId });
+  if (added.length === 0 || activity.ownerId === user.id) return;
+
+  after(async () =>
+    notify(activity.ownerId, {
+      kind: "kudos",
+      title: `${user.name} gave you kudos 👏`,
+      body: `For "${await sessionTitle(activity.id)}". Keep it up!`,
+      url: OWN_POSTS,
+      // Unliking and liking again shouldn't ping twice.
+      dedupeKey: `kudos:${activity.id}:${user.id}`,
+    }),
+  );
 }
 
 /**
@@ -29,7 +61,8 @@ export async function setKudos(userId: string, sessionId: string, on: boolean): 
  * or unfriend — whatever row there is between the two goes. Returns the new
  * status, or null if there's no such user.
  */
-export async function setFriend(userId: string, otherId: string, on: boolean): Promise<FriendStatus | null> {
+export async function setFriend(user: SessionUser, otherId: string, on: boolean): Promise<FriendStatus | null> {
+  const userId = user.id;
   const other = await db.query.users.findFirst({
     where: eq(s.users.id, otherId),
     columns: { id: true },
@@ -43,9 +76,32 @@ export async function setFriend(userId: string, otherId: string, on: boolean): P
       .set({ acceptedAt: new Date() })
       .where(and(eq(f.requesterId, otherId), eq(f.addresseeId, userId), isNull(f.acceptedAt)))
       .returning({ id: f.requesterId });
-    if (accepted.length === 0) {
+    if (accepted.length > 0) {
+      after(() =>
+        notify(otherId, {
+          kind: "friend_accept",
+          title: `${user.name} accepted your friend request 🤝`,
+          body: "You can now see each other's sessions and send challenges.",
+          url: FRIENDS,
+        }),
+      );
+    } else {
       // Conflicts if there's already a row for the pair; then it stays as is.
-      await db.insert(f).values({ requesterId: userId, addresseeId: otherId }).onConflictDoNothing();
+      const requested = await db
+        .insert(f)
+        .values({ requesterId: userId, addresseeId: otherId })
+        .onConflictDoNothing()
+        .returning({ id: f.addresseeId });
+      if (requested.length > 0) {
+        after(() =>
+          notify(otherId, {
+            kind: "friend_request",
+            title: `${user.name} wants to be friends 👋`,
+            body: "Accept to study together and challenge each other.",
+            url: FRIENDS,
+          }),
+        );
+      }
     }
   } else {
     await db
@@ -70,6 +126,16 @@ export async function addComment(
     .insert(s.comments)
     .values({ sessionId: activity.id, userId: user.id, body })
     .returning();
+  if (activity.ownerId !== user.id) {
+    after(async () =>
+      notify(activity.ownerId, {
+        kind: "comment",
+        title: `${user.name} commented on "${await sessionTitle(activity.id)}" 💬`,
+        body,
+        url: OWN_POSTS,
+      }),
+    );
+  }
   return toComment({ ...row, user }, user.id, activity.ownerId);
 }
 
@@ -124,9 +190,9 @@ export async function deletePhoto(sessionId: string, photoId: string): Promise<b
  * Replaces who's tagged on the user's own activity. Only friends can be
  * tagged; returns false (and changes nothing) if any of `userIds` isn't one.
  */
-export async function setTags(ownerId: string, sessionId: string, userIds: string[]): Promise<boolean> {
+export async function setTags(owner: SessionUser, sessionId: string, userIds: string[]): Promise<boolean> {
   const ids = [...new Set(userIds)];
-  if ((await filterFriends(ownerId, ids)).length !== ids.length) return false;
+  if ((await filterFriends(owner.id, ids)).length !== ids.length) return false;
 
   await db.transaction(async (tx) => {
     await tx.delete(s.sessionTags).where(eq(s.sessionTags.sessionId, sessionId));
@@ -134,5 +200,23 @@ export async function setTags(ownerId: string, sessionId: string, userIds: strin
       await tx.insert(s.sessionTags).values(ids.map((userId) => ({ sessionId, userId })));
     }
   });
+
+  if (ids.length > 0) {
+    after(async () => {
+      const title = await sessionTitle(sessionId);
+      await Promise.all(
+        ids.map((userId) =>
+          notify(userId, {
+            kind: "tag",
+            title: `${owner.name} tagged you 🏷️`,
+            body: `In "${title}".`,
+            url: FEED,
+            // Editing the tags again only pings the newly tagged.
+            dedupeKey: `tag:${sessionId}:${userId}`,
+          }),
+        ),
+      );
+    });
+  }
   return true;
 }

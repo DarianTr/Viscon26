@@ -17,7 +17,7 @@ export async function PUT(request: Request, ctx: Ctx) {
     const activity = isId(id) && (await getOwnActivity(user.id, id));
     if (!activity) return notFound("Activity");
     const { userIds } = tagsSchema.parse(await request.json());
-    const ok = await setTags(user.id, activity.id, userIds);
+    const ok = await setTags(user, activity.id, userIds);
     return ok ? new Response(null, { status: 204 }) : jsonError(400, "You can only tag your friends");
   });
 }

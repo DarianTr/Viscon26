@@ -20,7 +20,16 @@ if (vapidPublicKey) {
 }
 
 export type NotificationInput = {
-  kind: "challenge" | "challenge_reply" | "nudge" | "test";
+  kind:
+    | "challenge"
+    | "challenge_reply"
+    | "friend_request"
+    | "friend_accept"
+    | "kudos"
+    | "comment"
+    | "tag"
+    | "nudge"
+    | "test";
   title: string;
   body: string;
   /** Opened when the notification is tapped. */

@@ -11,7 +11,7 @@ function toggle(on: boolean) {
       if (!isId(id)) return notFound("User");
       const user = await getCurrentUser();
       if (id === user.id) return jsonError(400, "You can't befriend yourself");
-      const status = await setFriend(user.id, id, on);
+      const status = await setFriend(user, id, on);
       return status ? Response.json({ status }) : notFound("User");
     });
 }

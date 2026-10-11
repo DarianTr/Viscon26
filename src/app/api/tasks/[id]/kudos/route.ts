@@ -11,7 +11,7 @@ function toggle(on: boolean) {
       const user = await getCurrentUser();
       const activity = isId(id) && (await getVisibleActivity(user.id, id));
       if (!activity) return notFound("Activity");
-      await setKudos(user.id, activity.id, on);
+      await setKudos(user, activity, on);
       return new Response(null, { status: 204 });
     });
 }
