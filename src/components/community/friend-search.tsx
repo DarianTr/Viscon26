@@ -166,16 +166,18 @@ function PersonList({
 const button = "shrink-0 rounded-full border-2 px-4 py-1.5 text-sm font-bold transition-colors";
 const primary = `${button} border-accent/30 bg-accent-soft text-accent`;
 const secondary = `${button} border-border bg-surface-2 text-muted`;
+const acceptBtn = `${button} border-green-500/30 bg-green-500/10 text-green-600`;
+const declineBtn = `${button} border-red-500/30 bg-red-500/10 text-red-600`;
 
 function FriendButtons({ person, onSet }: { person: Person; onSet: (person: Person, on: boolean) => void }) {
   switch (person.status) {
     case "received":
       return (
         <div className="flex shrink-0 gap-2">
-          <button onClick={() => onSet(person, false)} className={secondary}>
+          <button onClick={() => onSet(person, false)} className={declineBtn}>
             Decline
           </button>
-          <button onClick={() => onSet(person, true)} className={primary}>
+          <button onClick={() => onSet(person, true)} className={acceptBtn}>
             Accept
           </button>
         </div>
