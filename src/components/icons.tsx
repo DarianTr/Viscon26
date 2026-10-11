@@ -106,19 +106,72 @@ export const HeartIcon = (p: P) => (
   </Icon>
 );
 
-export const BrainIcon = (p: P) => (
-  <Icon {...p}>
-    <path d="M7 10.6 5.6 6.4M5.6 6.4 4.2 4M5.6 6.4 7.2 4.6" />
-    <path d="M9.4 10.2 9.9 5.6M9.9 5.6 8.6 3.2M9.9 5.6 11.4 3.8" />
-    <path d="M6.3 12.2 2.6 10.8M2.6 10.8 1.2 9.4" />
-    <ellipse cx="8.6" cy="13.4" rx="3.3" ry="3" />
-    <path d="M11.6 14 18.6 15.4" />
-    <path d="M18.6 15.4 21.2 13.6M18.6 15.4 21.6 15.8M18.6 15.4 20.8 18.2" />
-    <circle cx="21.2" cy="13.6" r="0.55" fill="currentColor" stroke="none" />
-    <circle cx="21.6" cy="15.8" r="0.55" fill="currentColor" stroke="none" />
-    <circle cx="20.8" cy="18.2" r="0.55" fill="currentColor" stroke="none" />
-  </Icon>
-);
+/**
+ * Braincells (kudos): one cute cartoon neuron — a soft, slightly irregular
+ * cell body with a happy face, four short dendrites that fork into little
+ * prongs, and one clearly longer axon curving away to the lower right with a
+ * forked tip. Branches are tubes that merge into the body, so it reads as one
+ * cell. Outlined in the text colour like the other icons; `active` (given)
+ * fills it with gold and adds a soft glow and a tiny spark.
+ */
+const SOMA = "M9.4 3.9c3-.2 5.6 2 5.7 5 .1 2.7-1.4 5.1-3.9 5.8-2.8.9-6.1-.2-6.9-3.1-.8-3 .8-7.5 5.1-7.7Z";
+const DENDRITES: { tube: string; tips: string }[] = [
+  { tube: "M7.4 6.9C6.5 5.7 5.6 4.8 4.6 4", tips: "M4.6 4 2.9 4M4.6 4l-1-1.5M4.6 4l.3-1.8" },
+  { tube: "M11.4 6.5c.8-1.2 1.6-2.1 2.6-2.7", tips: "M14 3.8l1.8.1M14 3.8l1.4-1.3M14 3.8l-.1-1.8" },
+  { tube: "M6 10.4c-1.1.2-2.2.8-3 1.6", tips: "M3 12l-1.7-.4M3 12l-1.5 1.1M3 12l-.2 1.8" },
+  { tube: "M13.3 8.7c1.1-.5 2.1-.6 3.1-.4", tips: "M16.4 8.3l1.6-.8M16.4 8.3l1.8.6M16.4 8.3l1.1 1.5" },
+];
+const AXON = {
+  tube: "M11.4 12.6c1.4 1.9 3.4 2.1 4.6 3.6 1.1 1.4 1.8 2.7 3.4 3.7",
+  tips: "M19.4 19.9l1.9-.1M19.4 19.9l1.5 1.4M19.4 19.9l.1 2",
+};
+
+export function BraincellIcon({ active = false, ...p }: P & { active?: boolean }) {
+  // Ink brown in light mode, light in dark mode, so the outline never disappears.
+  const line = active ? "var(--foreground)" : "currentColor";
+  // The face sits on the gold body: always dark ink there.
+  const face = active ? "#250A04" : "currentColor";
+  // Not given: hollow, filled with the card's colour so tubes still merge into the body.
+  const fill = active ? "var(--gold)" : "var(--surface)";
+  const branches = [...DENDRITES.map((d) => ({ ...d, outer: 2.6, inner: 1.15 })), { ...AXON, outer: 2.9, inner: 1.45 }];
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={active ? { filter: "drop-shadow(0 0 1.5px color-mix(in srgb, var(--gold) 65%, transparent))" } : undefined}
+      {...p}
+    >
+      {/* forked tips, then each branch's outline */}
+      {branches.map((b) => (
+        <path key={`tips-${b.tube}`} d={b.tips} stroke={line} strokeWidth={1.2} />
+      ))}
+      {branches.map((b) => (
+        <path key={`edge-${b.tube}`} d={b.tube} stroke={line} strokeWidth={b.outer} />
+      ))}
+      {/* the cell body */}
+      <path d={SOMA} fill={fill} stroke={line} strokeWidth={1.5} />
+      {/* branch insides, over the body's edge so they grow out of it */}
+      {branches.map((b) => (
+        <path key={`core-${b.tube}`} d={b.tube} stroke={fill} strokeWidth={b.inner} />
+      ))}
+      {/* face */}
+      <circle cx={7.9} cy={8.8} r={0.85} fill={face} />
+      <circle cx={11.3} cy={8.8} r={0.85} fill={face} />
+      <path d="M8.2 10.9q1.4 1.3 2.8 0" stroke={face} strokeWidth={1.2} />
+      {active && (
+        <>
+          <ellipse cx={6.6} cy={10.6} rx={0.85} ry={0.5} fill="var(--accent)" fillOpacity={0.45} />
+          <ellipse cx={12.6} cy={10.6} rx={0.85} ry={0.5} fill="var(--accent)" fillOpacity={0.45} />
+          {/* a tiny spark */}
+          <path d="M20.3 11.9q.25 1.1 1.3 1.35-1.05.25-1.3 1.35-.25-1.1-1.3-1.35 1.05-.25 1.3-1.35Z" fill="var(--gold)" />
+        </>
+      )}
+    </svg>
+  );
+}
 
 export const CommentIcon = (p: P) => (
   <Icon {...p}>
