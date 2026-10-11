@@ -160,6 +160,7 @@ export async function getTodaysTasks(userId: string): Promise<Task[]> {
     time: zurichTime.format(r.scheduledAt),
     done: r.completedAt !== null,
     skipped: r.skippedAt !== null,
+    manual: r.addedManually,
   }));
 }
 
@@ -478,6 +479,7 @@ export async function getCalendarEvents(userId: string): Promise<CalendarEvent[]
       calendarOrder: s.sessions.calendarOrder,
       completedAt: s.sessions.completedAt,
       skippedAt: s.sessions.skippedAt,
+      manual: s.sessions.addedManually,
     })
     .from(s.sessions)
     .where(

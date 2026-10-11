@@ -58,12 +58,33 @@ export const updateTaskSchema = createTaskSchema
   .omit({ userId: true })
   .partial()
   .extend({
+    /** Only on sessions added by hand: the plan it counts toward. */
+    userPlanId: z.uuid().nullable().optional(),
     done: z.boolean().optional(),
     skipped: z.boolean().optional(),
     actualMinutes: z.number().int().min(1).max(24 * 60).optional(),
     focus: z.number().int().min(0).max(100).nullable().optional(),
   })
   .refine((patch) => Object.keys(patch).length > 0, { message: "Provide at least one field" });
+
+/**
+ * What a session is, rather than when it happens or how it went: only sessions
+ * added by hand may change these. Plan-generated ones can still be moved,
+ * skipped, finished, renamed and captioned.
+ */
+export const manualOnlyFields = [
+  "type",
+  "subject",
+  "activity",
+  "plannedMinutes",
+  "userPlanId",
+  "planId",
+  "cheatsheetTarget",
+  "cheatsheetMinutes",
+  "prepPhase",
+  "detail",
+  "location",
+] as const;
 
 export const listTasksQuery = z.object({
   userId: z.uuid().optional(),

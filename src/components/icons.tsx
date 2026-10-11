@@ -257,6 +257,13 @@ export const EditIcon = (p: P) => (
   </Icon>
 );
 
+export const TrashIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M4 7h16M10 11v6M14 11v6M9 7V4h6v3" />
+    <path d="M6 7l1 13h10l1-13" />
+  </Icon>
+);
+
 export const UsersIcon = (p: P) => (
   <Icon {...p}>
     <circle cx="9" cy="8" r="3.5" />

@@ -11,9 +11,9 @@ import type { EventType, SessionType, TaskRecord } from "./types";
 type Row = typeof s.sessions.$inferSelect;
 
 export type NewTask = Pick<Row, "userId" | "type" | "subject" | "title" | "scheduledAt" | "plannedMinutes"> &
-  Partial<Pick<Row, "planId" | "userPlanId" | "activity" | "cheatsheetTarget" | "cheatsheetMinutes" | "prepPhase" | "detail" | "location" | "note" | "shared" | "movedManually" | "completedAt" | "actualMinutes" | "focus">>;
+  Partial<Pick<Row, "planId" | "userPlanId" | "activity" | "cheatsheetTarget" | "cheatsheetMinutes" | "prepPhase" | "detail" | "location" | "note" | "shared" | "movedManually" | "addedManually" | "completedAt" | "actualMinutes" | "focus">>;
 
-export type TaskPatch = Partial<Omit<NewTask, "userId" | "completedAt">> & {
+export type TaskPatch = Partial<Omit<NewTask, "userId">> & {
     /** true stamps completion (actual minutes default to planned); false clears it. */
     done?: boolean;
     /** true marks a planned session skipped; false un-skips it. */
