@@ -217,8 +217,12 @@ def list_observations(
     return conn.execute(query, args).fetchall()
 
 
-def delete_observation(conn: Connection, obs_id: UUID) -> bool:
-    return conn.execute("delete from observations where id = %s", [obs_id]).rowcount > 0
+def delete_observation(conn: Connection, obs_id: UUID) -> str | None:
+    """Delete an observation; returns its plan's id, or None if it didn't exist."""
+    row = conn.execute(
+        "delete from observations where id = %s returning plan_id", [obs_id]
+    ).fetchone()
+    return row["plan_id"] if row else None
 
 
 def to_observation(row: dict[str, Any]) -> Observation:
