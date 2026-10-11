@@ -39,13 +39,15 @@ function defaultStart(mode: AddSessionMode, day: Date | undefined) {
 
 /**
  * Modal for adding a study session by hand — planned ahead (then started with
- * the focus timer on its day) or logged after the fact (posted to the feed).
+ * the focus timer on its day) or logged after the fact (posted to the feed) —
+ * or, given `editing`, for changing one added earlier.
  */
 export function AddSessionDialog({
   subjects,
   initialMode,
   day,
   defaultShared = true,
+  editing,
   onClose,
   onCreated,
 }: {
@@ -55,12 +57,15 @@ export function AddSessionDialog({
   day?: Date;
   /** The user's preferred privacy for new posts, from their profile settings. */
   defaultShared?: boolean;
+  /** A session added by hand to edit instead; it stays planned or logged. */
+  editing?: TaskRecord;
   onClose: () => void;
+  /** Called with the new session, or the edited one. */
   onCreated: (task: TaskRecord) => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  const [mode, setMode] = useState(initialMode);
+  const [mode, setMode] = useState(editing ? (editing.done ? "log" : "plan") : initialMode);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -79,7 +84,7 @@ export function AddSessionDialog({
       <div className="p-5">
         <div className="flex items-center justify-between gap-3">
           <h2 id={titleId} className="font-display text-lg font-bold">
-            Add session
+            {editing ? "Edit session" : "Add session"}
           </h2>
           <button
             type="button"
@@ -91,7 +96,7 @@ export function AddSessionDialog({
           </button>
         </div>
 
-        <div className="mt-3 inline-flex rounded-full border-2 border-border bg-surface-2 p-1" role="group" aria-label="When">
+        {!editing && <div className="mt-3 inline-flex rounded-full border-2 border-border bg-surface-2 p-1" role="group" aria-label="When">
           {(
             [
               ["plan", "Plan ahead"],
@@ -108,7 +113,7 @@ export function AddSessionDialog({
               {label}
             </button>
           ))}
-        </div>
+        </div>}
         <p className="mt-2 text-xs text-muted">
           {mode === "plan"
             ? "It shows up on Today on its day, ready for the focus timer."
@@ -122,6 +127,7 @@ export function AddSessionDialog({
           subjects={subjects}
           day={day}
           defaultShared={defaultShared}
+          editing={editing}
           onCreated={(task) => {
             onCreated(task);
             ref.current?.close();
@@ -137,24 +143,32 @@ function SessionForm({
   subjects,
   day,
   defaultShared,
+  editing,
   onCreated,
 }: {
   mode: AddSessionMode;
   subjects: SubjectChoice[];
   day?: Date;
   defaultShared: boolean;
+  editing?: TaskRecord;
   onCreated: (task: TaskRecord) => void;
 }) {
-  const [start] = useState(() => defaultStart(mode, day));
-  const [subject, setSubject] = useState(subjects[0]?.name ?? OTHER);
-  const [otherSubject, setOtherSubject] = useState("");
-  const [type, setType] = useState<SessionType>("theory");
-  const [title, setTitle] = useState("");
+  const [start] = useState(() => (editing ? new Date(editing.scheduledAt) : defaultStart(mode, day)));
+  // A subject no longer in any plan is kept as typed-in text.
+  const editedSubject = editing?.subject ?? "";
+  const [subject, setSubject] = useState(() =>
+    editing ? (subjects.some((s) => s.name === editedSubject) ? editedSubject : OTHER) : (subjects[0]?.name ?? OTHER),
+  );
+  const [otherSubject, setOtherSubject] = useState(subjects.some((s) => s.name === editedSubject) ? "" : editedSubject);
+  const [type, setType] = useState<SessionType>(
+    editing && editing.type in sessionTypes ? (editing.type as SessionType) : "theory",
+  );
+  const [title, setTitle] = useState(editing?.title ?? "");
   const [date, setDate] = useState(dateValue(start));
   const [time, setTime] = useState(timeValue(start));
-  const [minutes, setMinutes] = useState(60);
-  const [note, setNote] = useState("");
-  const [shared, setShared] = useState(defaultShared);
+  const [minutes, setMinutes] = useState(editing?.plannedMinutes ?? 60);
+  const [note, setNote] = useState(editing?.note ?? "");
+  const [shared, setShared] = useState(editing?.shared ?? defaultShared);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -168,7 +182,9 @@ function SessionForm({
     if (!subjectName) return setError("Pick or enter a subject.");
     if (Number.isNaN(scheduledAt.getTime())) return setError("Enter a valid date and time.");
     const end = scheduledAt.getTime() + minutes * 60_000;
-    if (mode === "plan" && end <= Date.now()) {
+    // Editing a session that has run out without being done shouldn't force a new time.
+    const retimed = !editing || scheduledAt.getTime() !== start.getTime() || minutes !== editing.plannedMinutes;
+    if (mode === "plan" && retimed && end <= Date.now()) {
       return setError("That time is already over. Switch to “Already done” to log it.");
     }
     if (mode === "log" && scheduledAt.getTime() > Date.now()) {
@@ -177,15 +193,18 @@ function SessionForm({
     setSaving(true);
     setError(null);
     try {
-      const task = await api.createTask({
+      const session = {
         type,
         subject: subjectName,
         title: title.trim() || fallbackTitle,
         scheduledAt: scheduledAt.toISOString(),
         plannedMinutes: minutes,
         userPlanId: choice?.planId ?? null,
-        ...(mode === "log" ? { done: true, note: note.trim() || null, shared } : {}),
-      });
+        ...(mode === "log" ? { note: note.trim() || null, shared } : {}),
+      };
+      const task = editing
+        ? await api.updateTask(editing.id, session)
+        : await api.createTask({ ...session, ...(mode === "log" ? { done: true } : {}) });
       onCreated(task);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't save the session.");
@@ -273,7 +292,7 @@ function SessionForm({
         </p>
       )}
       <Button type="submit" disabled={saving} className="w-full">
-        {saving ? "Saving…" : mode === "plan" ? "Add to my schedule" : "Log session"}
+        {saving ? "Saving…" : editing ? "Save changes" : mode === "plan" ? "Add to my schedule" : "Log session"}
       </Button>
     </form>
   );

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import {
-  BrainIcon,
+  BraincellIcon,
   CameraIcon,
   CommentIcon,
   EditIcon,
@@ -292,7 +292,7 @@ export function ActivityCard({ activity }: { activity: Activity }) {
             liked ? "text-accent" : "text-muted hover:text-foreground"
           }`}
         >
-          <BrainIcon className={`size-5 transition-transform ${liked ? "mascot-pop scale-110 fill-current" : ""}`} />
+          <BraincellIcon active={liked} className={`size-6 transition-transform ${liked ? "mascot-pop scale-110" : ""}`} />
           {others + (liked ? 1 : 0)} braincells
         </button>
         <button
