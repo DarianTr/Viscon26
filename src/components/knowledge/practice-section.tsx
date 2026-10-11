@@ -34,7 +34,7 @@ export function PracticeSection({
   const [flagging, setFlagging] = useState(false);
   const [flagged, setFlagged] = useState(false);
   const [loadingTopicId, setLoadingTopicId] = useState<string | null>(null);
-  const [genFailed, setGenFailed] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
   const maxAlloc = Math.max(...focus.topics.map((t) => t.allocation), 1);
 
@@ -60,7 +60,11 @@ export function PracticeSection({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ topicId: topic.topicId, count: 5 }),
       });
-      if (!res.ok) return [];
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        setGenError(body.error ?? `Server error ${res.status}`);
+        return [];
+      }
       const data = (await res.json()) as { questions: QuestionForUser[] };
       return data.questions;
     } finally {
@@ -69,14 +73,14 @@ export function PracticeSection({
   }
 
   async function startQuiz(topic: TopicRecommendation) {
-    setGenFailed(false);
+    setGenError(null);
     let qs = await fetchQuestions(topic);
     if (qs.length === 0) {
       // No existing questions — generate some
       qs = await generateQuestions(topic);
     }
     if (qs.length === 0) {
-      setGenFailed(true);
+      if (!genError) setGenError("No questions could be generated.");
       return;
     }
     setSelectedTopic(topic);
@@ -144,7 +148,7 @@ export function PracticeSection({
     setResult(null);
     setFlagged(false);
     setScore({ correct: 0, total: 0 });
-    setGenFailed(false);
+    setGenError(null);
   }
 
   // ---- Pick phase ----
@@ -159,11 +163,9 @@ export function PracticeSection({
             <p className="text-sm text-muted">No topics available yet. Add subjects to your plan first.</p>
           </Card>
         )}
-        {genFailed && (
+        {genError && (
           <Card>
-            <p className="text-sm text-destructive">
-              Could not generate questions. Check that your OpenAI API key is configured, then try again.
-            </p>
+            <p className="text-sm text-destructive">{genError}</p>
           </Card>
         )}
         <div className="grid gap-3 sm:grid-cols-2">
