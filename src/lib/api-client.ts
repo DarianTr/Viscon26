@@ -72,6 +72,18 @@ export const api = {
       body: JSON.stringify(task),
     }).then((r) => r.task),
 
+  getTask: (id: string) => request<{ task: TaskRecord }>(`/tasks/${id}`).then((r) => r.task),
+
+  /** Change a session you added by hand. */
+  updateTask: (id: string, patch: Partial<Omit<NewSession, "done">>) =>
+    request<{ task: TaskRecord }>(`/tasks/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }).then((r) => r.task),
+
+  /** Remove a session you added by hand. */
+  deleteTask: (id: string) => request<void>(`/tasks/${id}`, { method: "DELETE" }),
+
   /** Rename your own activity's title and/or caption. */
   updateActivity: (id: string, patch: { title?: string; note?: string | null }) =>
     request<{ task: TaskRecord }>(`/tasks/${id}`, {

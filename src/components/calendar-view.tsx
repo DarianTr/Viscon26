@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { AddSessionDialog, type AddSessionMode } from "@/components/add-session-dialog";
-import { ChevronLeftIcon, ChevronRightIcon, ClockIcon, PlusIcon, SkipIcon, UndoIcon } from "@/components/icons";
+import { EventPopover } from "@/components/event-popover";
+import { ChevronLeftIcon, ChevronRightIcon, ClockIcon, EditIcon, PlusIcon, SkipIcon, TrashIcon, UndoIcon } from "@/components/icons";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Card } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import { eventLabel, formatMinutes, phaseLabels, sessionTypes, subjectColor } from "@/lib/session-types";
@@ -59,7 +61,12 @@ const toEvent = (t: TaskRecord): CalendarEvent => ({
   calendarOrder: t.calendarOrder,
   done: t.done,
   skipped: t.skipped,
+  manual: t.addedManually,
 });
+
+/** The small pill buttons on a block's card and in its details bubble. */
+const pill = "inline-flex items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-bold transition-colors";
+const quietPill = `${pill} border-border bg-surface-2 text-muted hover:border-muted hover:text-foreground`;
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -125,6 +132,11 @@ function Calendar({
   const [selected, setSelected] = useState(initial);
   const [catchUp, setCatchUp] = useState<{ id: string; subject: string; type: SessionType; minutes: number } | null>(null);
   const [adding, setAdding] = useState<AddSessionMode | null>(null);
+  const [editing, setEditing] = useState<TaskRecord | null>(null);
+  // The week-view block whose details bubble is open, and where it is on screen.
+  const [details, setDetails] = useState<{ id: string; anchor: DOMRect } | null>(null);
+  const closeDetails = useCallback(() => setDetails(null), []);
+  const [confirm, confirmDialog] = useConfirm();
   const subjects = useMemo(
     () => [...new Set(calendarEvents.filter((e) => e.subject && isStudy(e)).map((e) => e.subject!))].sort(),
     [calendarEvents],
@@ -237,6 +249,74 @@ function Calendar({
       setOrderMessage(error instanceof Error ? error.message : "Could not save.");
     }
   }
+
+  /** Open a session added by hand in the session dialog, with everything it has. */
+  async function editEvent(id: string) {
+    setDetails(null);
+    setOrderMessage("");
+    try {
+      setEditing(await api.getTask(id));
+    } catch (error) {
+      setOrderMessage(error instanceof Error ? error.message : "Could not open the session.");
+    }
+  }
+
+  async function deleteEvent(event: CalendarEvent) {
+    setDetails(null);
+    const ok = await confirm({
+      title: "Delete this session?",
+      message: event.done
+        ? `“${event.title}” and its post, kudos and comments will be gone for good.`
+        : `“${event.title}” will be removed from your calendar.`,
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
+    setOrderMessage("");
+    try {
+      await api.deleteTask(event.id);
+      setCalendarEvents((events) => events.filter((e) => e.id !== event.id));
+    } catch (error) {
+      setOrderMessage(error instanceof Error ? error.message : "Could not delete the session.");
+    }
+  }
+
+  /** Skip and, for sessions added by hand, edit and delete: on a block's card and in its bubble. */
+  function eventActions(e: CalendarEvent) {
+    return (
+      <>
+        {isStudy(e) && !e.done && (
+          <button
+            type="button"
+            onClick={() => void setSkipped(e.id, !e.skipped)}
+            aria-label={e.skipped ? `Undo skipping ${e.title}` : `Skip ${e.title}`}
+            className={e.skipped ? `${pill} border-foreground/70 bg-surface text-foreground hover:bg-surface-2` : quietPill}
+          >
+            {e.skipped ? <UndoIcon className="size-3.5" /> : <SkipIcon className="size-3.5" />}
+            {e.skipped ? "Undo skip" : "Skip session"}
+          </button>
+        )}
+        {e.manual && (
+          <>
+            <button type="button" onClick={() => void editEvent(e.id)} aria-label={`Edit ${e.title}`} className={quietPill}>
+              <EditIcon className="size-3.5" />
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => void deleteEvent(e)}
+              aria-label={`Delete ${e.title}`}
+              className={`${pill} border-border bg-surface-2 text-muted hover:border-tempo hover:text-tempo`}
+            >
+              <TrashIcon className="size-3.5" />
+              Delete
+            </button>
+          </>
+        )}
+      </>
+    );
+  }
+
+  const detailsEvent = details && calendarEvents.find((e) => e.id === details.id);
 
   async function moveEvent(dragId: string, targetId: string, afterTarget = false) {
     if (dragId === targetId || savingOrder) return;
@@ -360,9 +440,16 @@ function Calendar({
                       e.dataTransfer.effectAllowed = "move";
                       e.dataTransfer.setData("text/plain", event.id);
                     }} onDragEnd={() => setDraggedId(null)}
-                      title={`${range} · ${eventLabel(event)} · ${event.title} · drag to move`}
+                      role="button" tabIndex={0} aria-haspopup="dialog" aria-expanded={details?.id === event.id}
+                      onClick={(e) => setDetails({ id: event.id, anchor: e.currentTarget.getBoundingClientRect() })}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter" && e.key !== " ") return;
+                        e.preventDefault();
+                        setDetails({ id: event.id, anchor: e.currentTarget.getBoundingClientRect() });
+                      }}
+                      title={`${range} · ${eventLabel(event)} · ${event.title} · click for details, drag to move`}
                       style={{ top: `${(top / 60) * 4}rem`, height: `${(height / 60) * 4}rem`, ...subjectEdge(event) }}
-                      className={`absolute inset-x-0.5 overflow-hidden rounded-md border border-background px-1.5 py-1 text-[10px] leading-tight ${eventStyles[event.type].soft} ${draggedId === event.id ? "opacity-40" : "cursor-grab active:cursor-grabbing"} ${event.skipped ? "opacity-45" : ""}`}>
+                      className={`absolute inset-x-0.5 overflow-hidden rounded-md border border-background px-1.5 py-1 text-[10px] leading-tight ${eventStyles[event.type].soft} ${draggedId === event.id ? "opacity-40" : "cursor-grab active:cursor-grabbing"} ${event.skipped ? "opacity-45" : ""} ${details?.id === event.id ? "ring-2 ring-foreground" : ""}`}>
                       <span className="block font-semibold">{range}</span><span className={`line-clamp-2 ${event.skipped ? "line-through" : ""}`}>{event.title}</span>
                     </div>;
                   })}
@@ -483,20 +570,8 @@ function Calendar({
                       <ClockIcon className="size-3.5" />
                       {formatMinutes(e.minutes)} · until {timeFormat.format(new Date(e.end))}
                     </p>
-                    {isStudy(e) && !e.done && (
-                      <button
-                        type="button"
-                        onClick={() => void setSkipped(e.id, !e.skipped)}
-                        aria-label={e.skipped ? `Undo skipping ${e.title}` : `Skip ${e.title}`}
-                        className={`mt-3 inline-flex items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-bold transition-colors ${
-                          e.skipped
-                            ? "border-foreground/70 bg-surface text-foreground hover:bg-surface-2"
-                            : "border-border bg-surface-2 text-muted hover:border-muted hover:text-foreground"
-                        }`}
-                      >
-                        {e.skipped ? <UndoIcon className="size-3.5" /> : <SkipIcon className="size-3.5" />}
-                        {e.skipped ? "Undo skip" : "Skip session"}
-                      </button>
+                    {((isStudy(e) && !e.done) || e.manual) && (
+                      <div className="mt-3 flex flex-wrap gap-2">{eventActions(e)}</div>
                     )}
                     {e.cheatsheetMinutes !== null && e.cheatsheetMinutes > 0 && (
                       <p className="mt-1 text-xs text-muted">
@@ -567,6 +642,32 @@ function Calendar({
         )}
       </div>
       </div>}
+      {detailsEvent && details && (
+        <EventPopover event={detailsEvent} anchor={details.anchor} onClose={closeDetails}>
+          {eventActions(detailsEvent)}
+          {detailsEvent.activity === "quiz" && detailsEvent.planId && (
+            <button type="button" onClick={() => router.push(`/plans/${detailsEvent.planId}/practice`)} className={quietPill}>
+              Start quiz →
+            </button>
+          )}
+        </EventPopover>
+      )}
+      {editing && (
+        <AddSessionDialog
+          subjects={subjectChoices}
+          initialMode={editing.done ? "log" : "plan"}
+          editing={editing}
+          defaultShared={defaultShared}
+          onClose={() => setEditing(null)}
+          onCreated={(task) => {
+            const start = new Date(task.scheduledAt);
+            setCalendarEvents((events) => events.map((e) => (e.id === task.id ? toEvent(task) : e)));
+            setSelected(startOfDay(start));
+            setMonth(new Date(start.getFullYear(), start.getMonth(), 1));
+          }}
+        />
+      )}
+      {confirmDialog}
       {adding && (
         <AddSessionDialog
           subjects={subjectChoices}

@@ -33,11 +33,12 @@ export async function POST(request: Request) {
           ...data,
           userId: owner,
           userPlanId,
+          addedManually: true,
           completedAt: end.getTime() < Date.now() ? end : new Date(),
           actualMinutes: data.plannedMinutes,
         })
       : // Placed by hand: regenerating the plan keeps it where feasible.
-        await createTask({ ...data, userId: owner, userPlanId, movedManually: true }, { check: true });
+        await createTask({ ...data, userId: owner, userPlanId, movedManually: true, addedManually: true }, { check: true });
     return Response.json({ task }, { status: 201 });
   });
 }
