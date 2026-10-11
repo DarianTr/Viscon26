@@ -11,7 +11,7 @@ from typing import Annotated
 from uuid import UUID
 
 import numpy as np
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -19,8 +19,9 @@ from psycopg import Connection, errors
 from pydantic.alias_generators import to_camel
 
 from . import db, repo
-from .fit import Estimate, fit_map
+from .fit import Estimate
 from .model import PlanParams
+from .refit import Refitter, auto_fit_enabled, fit_plan
 from .schemas import (
     AssessmentTypeIn,
     AssessmentTypeOut,
@@ -63,6 +64,7 @@ def create_app() -> FastAPI:
         with pool.connection() as conn:
             db.migrate(conn)
         app.state.pool = pool
+        app.state.refitter = Refitter(pool) if auto_fit_enabled() else None
         try:
             yield
         finally:
@@ -113,6 +115,13 @@ def get_conn(request: Request) -> Iterator[Connection]:
 
 
 Conn = Annotated[Connection, Depends(get_conn)]
+
+
+def schedule_refit(request: Request, tasks: BackgroundTasks, plan_id: str) -> None:
+    """Refit the plan once this request's transaction has committed, if auto-fit is on."""
+    refitter = request.app.state.refitter
+    if refitter is not None:
+        tasks.add_task(refitter.request, plan_id)
 
 
 def _routes(app: FastAPI) -> None:
@@ -194,7 +203,9 @@ def _routes(app: FastAPI) -> None:
     # --- Observations --------------------------------------------------------
 
     @app.post("/observations", response_model=ObservationOut, status_code=201)
-    def create_observation(body: ObservationIn, conn: Conn):
+    def create_observation(
+        body: ObservationIn, conn: Conn, request: Request, tasks: BackgroundTasks
+    ):
         atype = repo.get_type(conn, body.type)
         if atype is None:
             raise bad_request("Unknown assessment type", body.type)
@@ -212,6 +223,7 @@ def _routes(app: FastAPI) -> None:
                 "n_points": body.n_points or atype["n_default"],
             },
         )
+        schedule_refit(request, tasks, body.plan_id)
         return _observation_out(row)
 
     @app.get("/observations", response_model=ObservationsOut)
@@ -230,9 +242,11 @@ def _routes(app: FastAPI) -> None:
         return {"observations": [_observation_out(r) for r in rows]}
 
     @app.delete("/observations/{obs_id}", status_code=204)
-    def delete_observation(obs_id: UUID, conn: Conn):
-        if not repo.delete_observation(conn, obs_id):
+    def delete_observation(obs_id: UUID, conn: Conn, request: Request, tasks: BackgroundTasks):
+        plan_id = repo.delete_observation(conn, obs_id)
+        if plan_id is None:
             raise HTTPException(404, "Observation not found")
+        schedule_refit(request, tasks, plan_id)
 
     # --- State ---------------------------------------------------------------
 
@@ -501,16 +515,9 @@ def _routes(app: FastAPI) -> None:
     @app.post("/plans/{plan_id}/fit", response_model=FitOut)
     def run_fit(plan_id: str, conn: Conn):
         """MAP-fit noise, biases and the learning trend from all of the plan's observations."""
-        topic_rows = repo.list_topics(conn, plan_id)
-        if not topic_rows:
+        result = fit_plan(conn, plan_id)
+        if result is None:
             raise HTTPException(404, "Plan has no topics")
-        model = repo.load_model(conn, plan_id)
-        result = fit_map(
-            model.topics,
-            repo.type_priors(conn),
-            repo.get_plan_params(conn, plan_id),
-            repo.observations_by_learner(conn, plan_id),
-        )
         repo.save_fit(conn, plan_id, result)
 
         def est(e: Estimate) -> EstimateOut:

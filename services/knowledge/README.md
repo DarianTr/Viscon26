@@ -102,6 +102,14 @@ and 90% series is `{"limits": 10, "series": 90}`. It measures
 
 ## Fitting (`POST /plans/:planId/fit`)
 
+**When it runs.** Automatically, in a background thread, whenever a score of
+the plan is added or deleted (`knowledge/refit.py`). In Braina every plan
+belongs to one student, so this personalises the parameters once enough of
+their scores exist. Scores logged during a fit cause one more fit afterwards,
+not one each. A fit that didn't converge isn't stored, so the previous fit (or
+the priors) stay in use. Set `KNOWLEDGE_AUTO_FIT=0` to turn it off; the
+endpoint still fits on demand.
+
 **What it optimises.** MAP over the shared parameters, pooling every learner
 in the plan. The filter replays each learner's scores in order. Before each
 score yₜ, it predicts a mean ŷₜ and a variance Sₜ (state uncertainty plus

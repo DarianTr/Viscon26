@@ -29,10 +29,13 @@ DAY0 = datetime(2026, 9, 1, tzinfo=UTC)
 @pytest.fixture(scope="module")
 def client():
     os.environ["KNOWLEDGE_SCHEMA"] = SCHEMA
+    # Off here so states don't depend on background fits; test_auto_fit turns it on.
+    os.environ["KNOWLEDGE_AUTO_FIT"] = "0"
     try:
         with TestClient(create_app()) as c:
             yield c
     finally:
+        del os.environ["KNOWLEDGE_AUTO_FIT"]
         del os.environ["KNOWLEDGE_SCHEMA"]
         with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
             conn.execute(f"drop schema if exists {SCHEMA} cascade")
@@ -324,3 +327,39 @@ def observe_in(client, plan, user, day, weights):
             "weights": weights,
         },
     )
+
+
+def test_auto_fit_after_scores_change(client):
+    """A single learner's plan refits by itself once a type has enough scores."""
+    plan = "auto-fit-plan"
+    assert client.put(f"/plans/{plan}/topics", json={"topics": [
+        {"id": "analysis", "name": "Analysis"}, {"id": "linalg", "name": "Linear algebra"},
+    ]}).is_success  # fmt: skip
+    os.environ["KNOWLEDGE_AUTO_FIT"] = "1"
+    try:
+        with TestClient(create_app()) as auto:
+            refitter = auto.app.state.refitter
+            user = uuid.uuid4()
+            ids = []
+            for day in range(12):
+                res = auto.post("/observations", json={
+                    "userId": str(user), "planId": plan, "type": "practice",
+                    "observedAt": (DAY0 + timedelta(days=day)).isoformat(),
+                    "score": 0.55 + 0.02 * day, "weights": {"analysis": 1, "linalg": day % 3},
+                })  # fmt: skip
+                assert res.status_code == 201, res.text
+                ids.append(res.json()["id"])
+            assert refitter.wait(timeout=60)
+            fit = auto.get(f"/plans/{plan}/fit").json()
+            assert fit["nLearners"] == 1 and fit["nObservations"] == 12
+            assert "practice" in {t["typeId"] for t in fit["types"]}
+
+            # Deleting scores refits too: below the threshold the type keeps its prior.
+            for obs_id in ids[4:]:
+                assert auto.delete(f"/observations/{obs_id}").status_code == 204
+            assert refitter.wait(timeout=60)
+            fit = auto.get(f"/plans/{plan}/fit").json()
+            assert fit["nObservations"] == 4
+            assert fit["types"] == []
+    finally:
+        os.environ["KNOWLEDGE_AUTO_FIT"] = "0"
