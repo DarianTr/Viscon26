@@ -3,9 +3,10 @@
 import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { AddSessionDialog } from "@/components/add-session-dialog";
-import { CheckIcon, ChevronDownIcon, ClockIcon, FlameIcon, PlayIcon, PlusIcon, SkipIcon, UndoIcon } from "@/components/icons";
+import { CheckIcon, ChevronDownIcon, ClockIcon, EditIcon, FlameIcon, PlayIcon, PlusIcon, SkipIcon, TrashIcon, UndoIcon } from "@/components/icons";
 import { ExpressionMascot } from "@/components/mascot/expression-mascot";
 import { LightningBolt, Sparkle, SpeechBubble, StickerLabel } from "@/components/mascot/doodles";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Button, Card, Ring, SectionTitle } from "@/components/ui/primitives";
 import { api } from "@/lib/api-client";
 import { emptyStateLines } from "@/lib/mascot";
@@ -67,7 +68,14 @@ const toBoardTask = (t: TaskRecord): Task => ({
   time: timeFormat.format(new Date(t.scheduledAt)),
   done: t.done,
   skipped: t.skipped,
+  manual: t.addedManually,
 });
+
+/** Whether a session belongs on today's board: a study session, scheduled today. */
+const isToday = (t: TaskRecord) =>
+  t.type in sessionTypes && new Date(t.scheduledAt).toDateString() === new Date().toDateString();
+
+const byTime = (a: Task, b: Task) => a.time.localeCompare(b.time);
 
 export function TodayBoard({
   initialTasks,
@@ -95,6 +103,8 @@ export function TodayBoard({
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<TaskRecord | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
   // Seconds accumulated per task ID from earlier, paused runs. Synced from
   // localStorage: null on the server and on the very first client render
   // (matching the SSR markup), then the real value once hydration settles —
@@ -149,10 +159,51 @@ export function TodayBoard({
 
   /** A session added by hand: list it if it's today's, and refresh stats either way. */
   function handleCreated(task: TaskRecord) {
-    if (task.type in sessionTypes && new Date(task.scheduledAt).toDateString() === new Date().toDateString()) {
-      setTasks((ts) => [...ts, toBoardTask(task)].sort((a, b) => a.time.localeCompare(b.time)));
-    }
+    if (isToday(task)) setTasks((ts) => [...ts, toBoardTask(task)].sort(byTime));
     router.refresh();
+  }
+
+  /** Open a session added by hand in the session dialog, with everything it has. */
+  async function editTask(id: string) {
+    setError(null);
+    try {
+      setEditing(await api.getTask(id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't open the session.");
+    }
+  }
+
+  /** An edited session stays on the board while it's still today's; moved to another day, it leaves. */
+  function handleEdited(task: TaskRecord) {
+    setTasks((ts) => {
+      const rest = ts.filter((t) => t.id !== task.id);
+      return isToday(task) ? [...rest, toBoardTask(task)].sort(byTime) : rest;
+    });
+    router.refresh();
+  }
+
+  async function deleteTask(task: Task) {
+    const ok = await confirm({
+      title: "Delete this session?",
+      message: task.done
+        ? `“${task.title}” and its post, kudos and comments will be gone for good.`
+        : `“${task.title}” will be removed from your schedule.`,
+      confirmLabel: "Delete",
+    });
+    if (!ok) return;
+    setError(null);
+    try {
+      await api.deleteTask(task.id);
+      setTasks((ts) => ts.filter((t) => t.id !== task.id));
+      if (inProgress.has(task.id)) {
+        const updated = new Map(inProgress);
+        updated.delete(task.id);
+        persistProgress(updated);
+      }
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't delete the session.");
+    }
   }
 
   /** X pressed inside the timer — save progress and return to the board. */
@@ -341,12 +392,33 @@ export function TodayBoard({
                     <ClockIcon className="size-3.5" />
                     {task.time} · {formatMinutes(task.minutes)}
                   </p>
-                  {!task.done && (
-                    <SkipButton
-                      skipped={task.skipped}
-                      title={task.title}
-                      onClick={() => setSkipped(task.id, !task.skipped)}
-                    />
+                  {(!task.done || task.manual) && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {!task.done && (
+                        <SkipButton
+                          skipped={task.skipped}
+                          title={task.title}
+                          onClick={() => setSkipped(task.id, !task.skipped)}
+                        />
+                      )}
+                      {task.manual && (
+                        <>
+                          <button type="button" onClick={() => void editTask(task.id)} aria-label={`Edit ${task.title}`} className={quietPill}>
+                            <EditIcon className="size-3.5" />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteTask(task)}
+                            aria-label={`Delete ${task.title}`}
+                            className={`${pill} border-border bg-surface-2 text-muted hover:border-tempo hover:text-tempo`}
+                          >
+                            <TrashIcon className="size-3.5" />
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="relative flex flex-col items-center justify-between gap-2">
@@ -403,6 +475,18 @@ export function TodayBoard({
         />
       )}
 
+      {editing && (
+        <AddSessionDialog
+          subjects={subjects}
+          initialMode={editing.done ? "log" : "plan"}
+          editing={editing}
+          defaultShared={defaultShared}
+          onClose={() => setEditing(null)}
+          onCreated={handleEdited}
+        />
+      )}
+      {confirmDialog}
+
       {running && (
         <FocusTimer
           task={running}
@@ -415,17 +499,17 @@ export function TodayBoard({
   );
 }
 
+/** The small pill buttons under a session: skip, edit, delete. */
+const pill = "inline-flex items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-bold transition-colors";
+const quietPill = `${pill} border-border bg-surface-2 text-muted hover:border-muted hover:text-foreground`;
+
 /** Skip a planned session, or take the skip back. */
 function SkipButton({ skipped, title, onClick }: { skipped: boolean; title: string; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       aria-label={skipped ? `Undo skipping ${title}` : `Skip ${title}`}
-      className={`mt-3 inline-flex items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-bold transition-colors ${
-        skipped
-          ? "border-foreground/70 bg-surface text-foreground hover:bg-surface-2"
-          : "border-border bg-surface-2 text-muted hover:border-muted hover:text-foreground"
-      }`}
+      className={skipped ? `${pill} border-foreground/70 bg-surface text-foreground hover:bg-surface-2` : quietPill}
     >
       {skipped ? <UndoIcon className="size-3.5" /> : <SkipIcon className="size-3.5" />}
       {skipped ? "Undo skip" : "Skip session"}

@@ -19,6 +19,7 @@ const event = (over: Partial<CalendarEvent> = {}): CalendarEvent => ({
   calendarOrder: null,
   done: false,
   skipped: false,
+  manual: false,
   ...over,
 });
 
